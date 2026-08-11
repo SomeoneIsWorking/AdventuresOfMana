@@ -36,6 +36,8 @@ python3 tools/asset/extract_cmd_api.py >/dev/null || fail=1
 if [ -f scratch/raw/libmcfandroid.so ]; then
   echo "=== map-object table ==="
   python3 tools/asset/object_table.py || fail=1
+  echo "=== weapon table ==="
+  python3 tools/asset/weapon_table.py || fail=1
 else
   echo "=== map-object table SKIPPED (scratch/raw/libmcfandroid.so missing) ==="
 fi

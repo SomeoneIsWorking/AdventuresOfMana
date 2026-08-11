@@ -554,4 +554,15 @@ std::vector<EnemyStats> ParseEnemyDat(const std::vector<uint8_t>& file) {
     return out;
 }
 
+const WeaponStats* FindWeapon(int32_t id) {
+    static const WeaponStats kTable[] = {
+#define WEAPON(i, lo, hi) {i, lo, hi},
+#include "engine/weapon_table.inc"
+#undef WEAPON
+    };
+    for (const auto& w : kTable)
+        if (w.id == id) return &w;
+    return nullptr;
+}
+
 }  // namespace mcf

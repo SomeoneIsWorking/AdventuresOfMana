@@ -909,12 +909,20 @@ int main(int argc, char** argv) {
             constexpr int kMotionWait = 0, kMotionWalk = 1, kMotionAttack = 23;
             constexpr float kAttackFrames = 24.f;   // ~0.8 s at 30 fps
             float attack_left = 0.f;
-            // STOPGAP: the player's attack power comes from the weapon and
-            // level-up tables (DataTableGetWeapon / DataTableGetLevelUp), which
-            // are NOT reversed. The damage FORMULA below is the engine's
-            // (attack - defence, floored at 1); only this input is invented, and
-            // it is a single named constant so it cannot be mistaken for data.
-            constexpr int kPlayerAttackStopgap = 12;
+            // The player's attack comes from the game's own weapon table.
+            // What is NOT modelled: which weapon is equipped (no inventory or
+            // save system, so this is the id a new game starts with) and any
+            // level-up bonus (tblLevelup is a 4-entry growth cycle, not
+            // decoded). So the NUMBER is real; the SELECTION is an assumption.
+            int player_attack = 0;
+            if (const auto* w = mcf::FindWeapon(mcf::kStartingWeaponId)) {
+                player_attack = w->atk_hi;
+                lucent::info("combat", "player weapon {}: attack {}-{}, using {}",
+                             mcf::kStartingWeaponId, w->atk_lo, w->atk_hi, player_attack);
+            } else {
+                lucent::warn("combat", "weapon {} not in tblWeapon; no damage "
+                             "will be applied", mcf::kStartingWeaponId);
+            }
             seedCombat = [&] {
                 if (auto* pl = world.Find("MainPlayer")) {
                     auto& av = pl->attack[0];
@@ -1179,13 +1187,13 @@ int main(int argc, char** argv) {
                                     // `sub w22, w28, w27` with w27 read from the
                                     // record's +0x0C. Floored at 1 so a tough
                                     // enemy is slow, not immortal.
-                                    int dmg = std::max(1, kPlayerAttackStopgap - d.defence);
+                                    int dmg = std::max(1, player_attack - d.defence);
                                     d.hp -= dmg;
                                     if (d.hp > 0) {
                                         lucent::info("combat",
                                             "{} hits {} for {} ({} - {} def) -> {}/{} HP",
                                             atkA.handle, d.handle, dmg,
-                                            kPlayerAttackStopgap, d.defence, d.hp, d.max_hp);
+                                            player_attack, d.defence, d.hp, d.max_hp);
                                     } else {
                                         d.hp = 0;
                                         d.alive = false;

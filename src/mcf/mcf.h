@@ -278,4 +278,12 @@ struct EnemyStats {
 // which is the same size check the engine's own division implies.
 std::vector<EnemyStats> ParseEnemyDat(const std::vector<uint8_t>& file);
 
+// tblWeapon, lifted from the binary's .data -- see docs/weapon-table.md.
+// The attack RANGE is the game's; which weapon is equipped is not, because
+// there is no inventory or save system yet.
+struct WeaponStats { int32_t id, atk_lo, atk_hi; };
+const WeaponStats* FindWeapon(int32_t id);
+// The first weapon (id 101), i.e. what a new game starts with.
+constexpr int32_t kStartingWeaponId = 101;
+
 }  // namespace mcf

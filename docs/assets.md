@@ -791,15 +791,28 @@ produce.
 a branch that first quarters the defence, and a later scale by a rate parameter
 at `[x21, #0x2c]`).
 
-The port applies that formula with the real defence, but **the player's attack
-power is NOT reversed** -- it is set through
-`AppCharacterPlayer::SetCollisionAttackParam`, which is dispatched virtually and
-whose caller derives the value from the weapon and level-up tables
-(`DataTableGetWeapon`, `DataTableGetLevelUp`, both unfollowed). The port uses a
-single named constant `kPlayerAttackStopgap` so the invented input cannot be
-mistaken for data. It is deliberately visible: at 12 against a median defence of
-15, most enemies take the floor of 1 damage per hit, which is wrong and looks
-wrong. Combat balance is not faithful until that table is reversed.
+The quartering branch is a SPECIAL CASE, not the normal path: it is guarded by
+an element/attribute value of 9 or 10 plus a flag at `[x25, #0xa5f]`. The normal
+path subtracts the full defence.
+
+The port applies that formula with the real defence and a real weapon attack
+(see `docs/weapon-table.md`). What is still **not** modelled:
+
+- **Which weapon is equipped.** There is no inventory or save system, so the
+  port uses `kStartingWeaponId` = 101, what a new game begins with. The NUMBER
+  is the game's; the SELECTION is an assumption.
+- **Any level-up bonus.** `tblLevelup` is only 4 records of 16 bytes -- a stat
+  growth CYCLE, not a per-level table -- and how it feeds attack is unfollowed.
+  `AppCharacterPlayer::SetCollisionAttackParam` is dispatched virtually, so its
+  caller was not located.
+- **The floor at 1 damage** is a port choice, so a tough enemy is slow rather
+  than immortal. Whether the engine clamps is not established.
+
+The consequence is visible and left visible: the starting weapon (attack 4-8)
+against the werewolf's defence of 15 deals the floor of 1, so a 60 HP enemy
+takes 60 hits. That is what the reversed data actually says; the missing piece
+is the level bonus, not the defence reading, which is pinned to an engine read.
+Combat balance is not faithful until the attack chain is finished.
 
 `DataTableGetName` and `DataTableGetHelpString` are a live lead on the missing
 text problem recorded above and have not been followed yet.
