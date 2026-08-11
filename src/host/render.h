@@ -30,6 +30,12 @@ struct Renderable {
 bool LoadRenderable(const Archive& ar, const std::string& name, GLuint white,
                     Renderable* out);
 
+// Fills `out` (80*3*4 floats) with the vJoint palette: three vec4 rows per bone
+// of `world_animated * inv_world_bind`. With `motion == nullptr` this collapses
+// to identity, i.e. the bind pose.
+void BuildJointPalette(const Model& m, const Motion* motion, float time,
+                       std::vector<float>* out);
+
 // Resolves a script-level actor type id to a model name. Verified against the
 // enums in sk1.lua: all 74 eENEMY ids have E<id>_00, all 24 eBOSS ids have
 // B<id>_00, and 34 of 53 eNPC ids have N<id>_00.

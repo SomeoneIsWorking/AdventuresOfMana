@@ -1,11 +1,72 @@
 #include "host/render.h"
 
+#include <array>
 #include <cstring>
 #include <format>
 
 #include <lucent/log.h>
 
 namespace mcf {
+
+static void MatMul4(const float* a, const float* b, float* o) {
+    for (int c = 0; c < 4; ++c)
+        for (int r = 0; r < 4; ++r) {
+            float s = 0;
+            for (int k = 0; k < 4; ++k) s += a[k * 4 + r] * b[c * 4 + k];
+            o[c * 4 + r] = s;
+        }
+}
+
+static void QuatTrans(const float q[4], const float t[3], float* o) {
+    float x = q[0], y = q[1], z = q[2], w = q[3];
+    o[0]  = 1 - 2 * (y*y + z*z); o[1]  = 2 * (x*y + z*w);     o[2]  = 2 * (x*z - y*w);     o[3]  = 0;
+    o[4]  = 2 * (x*y - z*w);     o[5]  = 1 - 2 * (x*x + z*z); o[6]  = 2 * (y*z + x*w);     o[7]  = 0;
+    o[8]  = 2 * (x*z + y*w);     o[9]  = 2 * (y*z - x*w);     o[10] = 1 - 2 * (x*x + y*y); o[11] = 0;
+    o[12] = t[0]; o[13] = t[1]; o[14] = t[2]; o[15] = 1;
+}
+
+void BuildJointPalette(const Model& m, const Motion* motion, float time,
+                       std::vector<float>* out) {
+    out->assign(80 * 3 * 4, 0.f);
+    const size_t nb = m.bones.size();
+    std::vector<std::array<float, 16>> world(nb);
+    for (size_t i = 0; i < nb; ++i) {
+        const auto& bn = m.bones[i];
+        std::array<float, 16> local{};
+        std::memcpy(local.data(), bn.local, 64);
+        if (motion) {
+            for (const auto& tr : motion->tracks) {
+                if (tr.name != bn.name || tr.times.empty()) continue;
+                size_t k = 0;
+                while (k + 1 < tr.times.size() && tr.times[k + 1] <= time) ++k;
+                float t[3]{bn.local[12], bn.local[13], bn.local[14]};
+                if (!tr.trans.empty()) for (int j = 0; j < 3; ++j) t[j] = tr.trans[k][j];
+                if (!tr.rot.empty()) QuatTrans(tr.rot[k].data(), t, local.data());
+                else { local[12] = t[0]; local[13] = t[1]; local[14] = t[2]; }
+                break;
+            }
+        }
+        // Bones are topologically sorted in every shipped model, so one forward
+        // pass suffices.
+        if (bn.parent < 0) world[i] = local;
+        else MatMul4(world[size_t(bn.parent)].data(), local.data(), world[i].data());
+
+        if (i >= 80) continue;
+        float skin[16];
+        // A zero-scale bone's inverse bind is inf/nan in the shipped files;
+        // feeding that in turns every vertex weighted to it into NaN, which
+        // renders as scattered garbage rather than an obvious fault.
+        if (bn.degenerate) {
+            std::memset(skin, 0, sizeof skin);
+            skin[0] = skin[5] = skin[10] = skin[15] = 1.f;
+        } else {
+            MatMul4(world[i].data(), bn.inv_world, skin);
+        }
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 4; ++c)
+                (*out)[(i * 3 + size_t(r)) * 4 + size_t(c)] = skin[c * 4 + r];
+    }
+}
 
 std::string ActorModelName(char kind, int type_id) {
     return std::format("{}{:04d}_00", kind, type_id);

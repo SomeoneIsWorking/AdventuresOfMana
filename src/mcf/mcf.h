@@ -56,6 +56,11 @@ public:
     std::vector<uint8_t> Read(std::string_view name) const;
 
     bool Has(std::string_view name) const { return index_.count(std::string(name)) != 0; }
+
+    // First entry whose name starts with `prefix`, or "" if none. Motion files
+    // are `<model>_<NNN>_<LABEL>.smot` and the LABEL is not canonical, so
+    // lookup is by the numeric prefix only. See docs/script-data-model.md.
+    std::string FindByPrefix(std::string_view prefix) const;
     const std::vector<Entry>& entries() const { return entries_; }
 
 private:

@@ -34,7 +34,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | C++ asset layer | **DONE for MPK/.stex/.smdl** — port of the verified Python | `src/mcf/` |
 | Desktop host (window + GLES2) | **Textured characters + rooms; GPU skinning + .smot playback** | `src/host/main.cpp` |
 | Lua bridge | **Lua 5.3 + all 200 `cmd` bindings; 714/715 scripts run** (stubs record calls) | `src/engine/script.cpp` |
-| Actor system | **Live actors driven by scripts**, rendered in their rooms | `src/engine/world.{h,cpp}`, `src/host/render.cpp` |
+| Actor system | **Live actors driven by scripts**, rendered and animated in their rooms | `src/engine/world.{h,cpp}`, `src/host/render.cpp` |
 | Audio / input / game loop | NOT STARTED | — |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 
@@ -80,6 +80,17 @@ so the renderer is verifiable headlessly.
 
 `docs/lua-census.md` measures which of the 200 `cmd` functions the shipping
 scripts actually call. Implement in that order.
+
+## Verified end to end
+
+    ./build/mana --render-room M0000_03_06 --time 8 --screenshot out.png
+
+Loads the room mesh and its shared textures, runs the room's Lua script against
+a live actor system, resolves each spawned actor's model from its type id, places
+it on the floor via a collision query, resolves its motion by numeric prefix, and
+draws it GPU-skinned. Frames at t=0 and t=20 differ by 22,416 bytes, which is how
+the animation is confirmed to be applied rather than silently falling back to
+bind pose.
 
 ## Where the port stands
 

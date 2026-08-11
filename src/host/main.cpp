@@ -469,7 +469,8 @@ int main(int argc, char** argv) {
 
             // One renderable per distinct model, instanced per actor.
             std::map<std::string, mcf::Renderable> cache;
-            struct Placed { const mcf::Renderable* r; float pos[3]; };
+            std::map<std::string, mcf::Motion> motions;
+            struct Placed { const mcf::Renderable* r; float pos[3]; const mcf::Motion* mo; };
             std::vector<Placed> placed;
             for (const auto& a : world.actors()) {
                 if (!a.alive) continue;
@@ -496,7 +497,23 @@ int main(int argc, char** argv) {
                                      "keeping script Y {:.1f}", a.handle, wx, wz, a.pos[1]);
                     }
                 }
-                placed.push_back({&cache[nm], {wx, wy, wz}});
+                // Resolve this actor's motion by NUMBER. The label in the
+                // filename is per-model and not canonical (137 files disagree
+                // with eMOTION), so only the numeric prefix is matched.
+                const mcf::Motion* mo = nullptr;
+                if (!cache[nm].model.bones.empty()) {
+                    auto pre = mcf::World::MotionPrefix(nm, a.motion);
+                    auto file = ar.FindByPrefix(pre);
+                    if (file.empty()) {
+                        lucent::warn("world", "{}: no motion {} for {} (prefix {})",
+                                     a.handle, a.motion, nm, pre);
+                    } else {
+                        if (!motions.count(file))
+                            motions[file] = mcf::ParseSmot(ar.Read(file));
+                        mo = &motions[file];
+                    }
+                }
+                placed.push_back({&cache[nm], {wx, wy, wz}, mo});
             }
             lucent::info("world", "{} actors, {} placed, {} distinct models",
                          world.actors().size(), placed.size(), cache.size());
@@ -518,7 +535,8 @@ int main(int argc, char** argv) {
             glViewport(0, 0, W, H);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            auto drawOne = [&](const mcf::Renderable& r, const float t[3]) {
+            auto drawOne = [&](const mcf::Renderable& r, const float t[3],
+                               const mcf::Motion* mo) {
                 GLuint pr = r.skinned() ? progSkin : progFlat;
                 glUseProgram(pr);
                 Mat4 m = Mat4::Identity();
@@ -527,10 +545,8 @@ int main(int argc, char** argv) {
                 glUniformMatrix4fv(glGetUniformLocation(pr, "mVP"), 1, GL_FALSE, mvp.m);
                 glUniform1i(glGetUniformLocation(pr, "texture0"), 0);
                 if (r.skinned()) {
-                    // Bind pose: skin = world_bind * inv_world_bind = identity.
-                    std::vector<float> j(80 * 3 * 4, 0.f);
-                    for (int bi = 0; bi < 80; ++bi)
-                        for (int rr = 0; rr < 3; ++rr) j[(bi * 3 + rr) * 4 + rr] = 1.f;
+                    std::vector<float> j;
+                    mcf::BuildJointPalette(r.model, mo, anim_t, &j);
                     glUniform4fv(glGetUniformLocation(pr, "vJoint"), 80 * 3, j.data());
                 }
                 glActiveTexture(GL_TEXTURE0);
@@ -566,8 +582,8 @@ int main(int argc, char** argv) {
             };
 
             float origin[3]{0, 0, 0};
-            drawOne(stage, origin);
-            for (const auto& p : placed) drawOne(*p.r, p.pos);
+            drawOne(stage, origin, nullptr);
+            for (const auto& p : placed) drawOne(*p.r, p.pos, p.mo);
 
             if (!shot.empty()) {
                 std::vector<uint8_t> px(size_t(W) * H * 4);

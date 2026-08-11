@@ -107,6 +107,14 @@ std::vector<uint8_t> Archive::Read(const Entry& e) const {
     return out;
 }
 
+std::string Archive::FindByPrefix(std::string_view prefix) const {
+    for (const auto& e : entries_)
+        if (e.name.size() >= prefix.size() &&
+            e.name.compare(0, prefix.size(), prefix) == 0)
+            return e.name;
+    return {};
+}
+
 std::vector<uint8_t> Archive::Read(std::string_view name) const {
     auto it = index_.find(std::string(name));
     if (it == index_.end())
