@@ -798,9 +798,11 @@ path subtracts the full defence.
 The port applies that formula with the real defence and a real weapon attack
 (see `docs/weapon-table.md`). What is still **not** modelled:
 
-- **Which weapon is equipped.** There is no inventory or save system, so the
-  port uses `kStartingWeaponId` = 101, what a new game begins with. The NUMBER
-  is the game's; the SELECTION is an assumption.
+- **Which weapon is equipped.** No inventory or save system, so the port always
+  uses weapon 101. That id is **verified, not assumed**: `GameParameter::Init`
+  @ `0x2c6d14` grants it via `AddItem(0x65, 1)` on a new game, along with 201,
+  301 and 401 (the other starting equipment slots). What is unmodelled is the
+  player ever changing weapons, not which one they start with.
 - **The charge meter, which is the bigger of the two gaps.** The caller HAS now
   been located -- `AppCharacterPlayer::Update` and `ModeGame::UseInventory` both
   reach it through vtable slot `+0x4b8` -- and the float it passes as the attack

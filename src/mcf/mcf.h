@@ -279,11 +279,10 @@ struct EnemyStats {
 std::vector<EnemyStats> ParseEnemyDat(const std::vector<uint8_t>& file);
 
 // tblWeapon, lifted from the binary's .data -- see docs/weapon-table.md.
-// The attack RANGE is the game's; which weapon is equipped is not, because
-// there is no inventory or save system yet.
 struct WeaponStats { int32_t id, atk_lo, atk_hi; };
 const WeaponStats* FindWeapon(int32_t id);
-// The first weapon (id 101), i.e. what a new game starts with.
+// VERIFIED, not assumed: GameParameter::Init @ 0x2c6d14 grants weapon 101
+// (`mov w1, #0x65` into AddItem with count 1), alongside 201, 301 and 401.
 constexpr int32_t kStartingWeaponId = 101;
 
 }  // namespace mcf

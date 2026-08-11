@@ -36,7 +36,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Desktop host (window + GLES2) | **Textured characters + rooms; GPU skinning + .smot playback** | `src/host/main.cpp` |
 | Lua bridge | **Lua 5.3 + all 200 `cmd` bindings; 714/715 scripts run** (stubs record calls) | `src/engine/script.cpp` |
 | Actor system | **Live actors driven by scripts**, rendered and animated in their rooms | `src/engine/world.{h,cpp}`, `src/host/render.cpp` |
-| Game loop + player | **Real-time loop, WASD/arrow movement, floor + wall collision, WAIT/WALK** | `src/host/main.cpp` |
+| Game loop + player | **Boots into the game with no arguments**; real-time loop, WASD/arrow movement, floor + wall collision, WAIT/WALK, attack on Space/Z. Start room is a PORT CHOICE (`M0000_00_00`) — the save/new-game path is not reversed | `src/host/main.cpp` |
 | Camera | **Script-driven follow camera** (`eCamGetData` slots) | `src/engine/world.h` |
 | Fade | **Timed fades with the game's own shader**, verified to darken the frame | `src/host/main.cpp` |
 | Combat volumes | **Attack arcs + damage spheres on bones; overlap predicate self-tested; fires in-game** (481 hits / 744 pairs on a real room; 0 hits at range, explained) | `src/engine/world.cpp`, `src/host/main.cpp` |

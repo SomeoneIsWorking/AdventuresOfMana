@@ -183,6 +183,11 @@ GLuint LinkProgram(const char* vs, const char* fs) {
 int main(int argc, char** argv) {
     lucent::config::set_prefix("MANA_");
 
+    // PORT CHOICE, not a reversed value. A new game's starting room is set by
+    // the save/new-game path, which is not reversed: GameParameter::Init grants
+    // the starting equipment but no map, and MapJump is only ever called from
+    // Lua. Rooms connect by walking, so any real room is a usable entry point.
+    static constexpr const char* kDefaultRoom = "M0000_00_00";
     std::string archive = "scratch/raw/assets/sk1/sk1.mpk";
     std::string model = "B0000_00";
     std::string shot, anim;
@@ -200,10 +205,11 @@ int main(int argc, char** argv) {
     int warmup = 0;
     bool fixed_step = false;
     bool combat_demo = false;
+    bool explicit_model = false;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
-        else if (a == "--model" && i + 1 < argc) model = argv[++i];
+        else if (a == "--model" && i + 1 < argc) { model = argv[++i]; explicit_model = true; }
         else if (a == "--screenshot" && i + 1 < argc) shot = argv[++i];
         else if (a == "--anim" && i + 1 < argc) anim = argv[++i];
         else if (a == "--time" && i + 1 < argc) anim_t = std::stof(argv[++i]);
@@ -225,12 +231,41 @@ int main(int argc, char** argv) {
             spawn_x = std::stof(argv[++i]); spawn_z = std::stof(argv[++i]);
             has_spawn = true;
         }
-        else if (a == "--help") {
-            std::printf("usage: %s [--archive sk1.mpk] [--model NAME] "
-                        "[--screenshot out.png]\n", argv[0]);
+        else if (a == "--room" && i + 1 < argc) render_room = argv[++i];
+        else if (a == "--help" || a == "-h") {
+            std::printf(
+                "usage: %s [options]\n"
+                "\nWith no options, plays from the default start room.\n"
+                "\nPlaying:\n"
+                "  --room NAME         start in this room (default %s)\n"
+                "  --archive PATH      sk1.mpk (default %s)\n"
+                "  --bgm-dir PATH      directory holding bgmNNN*.ogg\n"
+                "  --spawn X Z         start at these room-local coordinates\n"
+                "\nControls: WASD / arrows to move, Space or Z to attack, Esc to quit.\n"
+                "\nTools:\n"
+                "  --model NAME [--anim FILE] [--time T]   view one model\n"
+                "  --screenshot OUT.png [--warmup N]       render N frames, save, exit\n"
+                "  --fixed-step        step at a fixed 30 Hz (implied by --warmup)\n"
+                "  --collision-probe ROOM                  walk outward, report walls\n"
+                "  --script-census     run every shipping script and tally cmd calls\n"
+                "  --combat-selftest / --audio-selftest    self-tests, non-zero on failure\n"
+                "  --auto-attack       swing continuously (headless combat driver)\n",
+                argv[0], kDefaultRoom, archive.c_str());
             return 0;
         }
+        else if (!a.empty() && a[0] == '-') {
+            std::fprintf(stderr, "unknown option '%s' (try --help)\n", a.c_str());
+            return 2;
+        }
     }
+
+    // Playing the game is the default. Without this the bare binary dropped
+    // into the model viewer and span forever, which is not a game. Any explicit
+    // mode wins; `explicit_model` is tracked separately because `model` carries
+    // a default value and so cannot be tested for emptiness.
+    if (render_room.empty() && room.empty() && probe.empty() && !census &&
+        !audio_selftest && !combat_selftest && !explicit_model)
+        render_room = kDefaultRoom;
 
     try {
         mcf::Archive ar(archive);
@@ -861,7 +896,17 @@ int main(int argc, char** argv) {
             };
             float px = ctr[0], pz = ctr[2], py = 0, pdeg = 0;
             if (has_spawn) { px = spawn_x + room_org[0]; pz = spawn_z + room_org[2]; }
-            if (have_col && !col.GetFloor(px, pz, mcf::Collision::kFloorMask, &py)) py = 0;
+            // A spawn with no floor under it silently dropped the player to
+            // y=0, i.e. under a terrain whose floor is at y=60 -- the player
+            // simply did not appear, with nothing said. Say it.
+            if (have_col && !col.GetFloor(px, pz, mcf::Collision::kFloorMask, &py)) {
+                py = 0;
+                lucent::warn("world",
+                             "spawn ({:.0f},{:.0f}) has no floor under it; placing "
+                             "the player at y=0, where the terrain will hide them. "
+                             "Use --collision-probe {} to find walkable ground.",
+                             px, pz, room_name);
+            }
             world.Spawn("MainPlayer", 0, px, py, pz).kind = 'C';
 
             // Service whatever the room script asked for. BGM lives in the APK
