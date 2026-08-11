@@ -32,10 +32,17 @@ bool World::Remove(const std::string& handle) {
     return true;
 }
 
+EventBox* World::FindBox(const std::string& name) {
+    for (auto& b : boxes)
+        if (b.name == name) return &b;
+    return nullptr;
+}
+
 void World::Reset() {
     actors_.clear();
     index_.clear();
     spawn_serial_ = 0;
+    boxes.clear();
 }
 
 std::string World::MotionPrefix(const std::string& model, int motion_id) {

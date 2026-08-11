@@ -183,6 +183,8 @@ int main(int argc, char** argv) {
     std::string bgm_dir = "scratch/raw/assets";
     bool audio_selftest = false;
     std::string probe;
+    float spawn_x = 0, spawn_z = 0;
+    bool has_spawn = false;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
@@ -196,6 +198,10 @@ int main(int argc, char** argv) {
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
         else if (a == "--audio-selftest") audio_selftest = true;
         else if (a == "--collision-probe" && i + 1 < argc) probe = argv[++i];
+        else if (a == "--spawn" && i + 2 < argc) {
+            spawn_x = std::stof(argv[++i]); spawn_z = std::stof(argv[++i]);
+            has_spawn = true;
+        }
         else if (a == "--help") {
             std::printf("usage: %s [--archive sk1.mpk] [--model NAME] "
                         "[--screenshot out.png]\n", argv[0]);
@@ -313,6 +319,9 @@ int main(int argc, char** argv) {
                          cm.Get(mcf::cam_data::kRotateY, 0.f),
                          cm.Get(mcf::cam_data::kSpeed, 0.3f),
                          cm.target_chr, cm.data.size());
+            for (const auto& b : world.boxes)
+                lucent::info("world", "  box '{}' ({:.0f},{:.0f},{:.0f})..({:.0f},{:.0f},{:.0f})",
+                             b.name, b.lo[0], b.lo[1], b.lo[2], b.hi[0], b.hi[1], b.hi[2]);
             lucent::info("world", "--- {} actors ---", world.actors().size());
             for (const auto& a : world.actors()) {
                 std::string slots;
@@ -508,9 +517,15 @@ int main(int argc, char** argv) {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
+            // Room-scoped state, rebuilt by loadRoom on every transition.
             mcf::Renderable stage;
-            if (!mcf::LoadRenderable(ar, render_room, white, &stage))
-                throw mcf::Error(std::format("no model for room {}", render_room));
+            mcf::Collision col;
+            bool have_col = false;
+            float room_org[3]{0, 0, 0};
+            struct Placed { const mcf::Renderable* r; float pos[3]; const mcf::Motion* mo; };
+            std::vector<Placed> placed;
+            std::map<std::string, mcf::Renderable> cache;   // survives transitions
+            std::map<std::string, mcf::Motion> motions;     // survives transitions
 
             mcf::World world;
             mcf::Audio audio;
@@ -522,7 +537,22 @@ int main(int argc, char** argv) {
                 throw mcf::Error(std::format("prelude: {}", sc.last_error()));
             if (!sc.CallFunction("SystemInit"))
                 throw mcf::Error(std::format("SystemInit: {}", sc.last_error()));
-            auto sp = std::format("sk1/{}.lua", render_room);
+
+            std::string room_name = render_room;
+            auto loadRoom = [&](const std::string& name) -> bool {
+                room_name = name;
+            stage = mcf::Renderable{};
+            if (!mcf::LoadRenderable(ar, room_name, white, &stage)) {
+                    lucent::error("world", "no model for room {}", room_name);
+                    return false;
+                }
+
+            // The Lua state persists ACROSS rooms: scenario flags (sccnt, scflagNN) are
+                // globals that must survive a transition, which is why SystemInit runs
+                // once at startup and not per room.
+                world.Reset();
+            
+            auto sp = std::format("sk1/{}.lua", room_name);
             if (ar.Has(sp) && !sc.Run(sp, ar.Read(sp)))
                 lucent::warn("lua", "{}: {}", sp, sc.last_error());
 
@@ -534,13 +564,13 @@ int main(int argc, char** argv) {
             // both overhang that grid by varying amounts (walls, and a uniform
             // 15-unit collision margin giving 330x270 boxes), so the FILENAME
             // is the anchor -- not anything measured off the geometry.
-            float room_org[3]{0, 0, 0};
+            room_org[0] = room_org[1] = room_org[2] = 0.f;
             {
-                auto us = render_room.rfind('_');
-                auto us2 = render_room.rfind('_', us - 1);
+                auto us = room_name.rfind('_');
+                auto us2 = room_name.rfind('_', us - 1);
                 if (us != std::string::npos && us2 != std::string::npos) {
-                    int gx = std::atoi(render_room.substr(us2 + 1, us - us2 - 1).c_str());
-                    int gy = std::atoi(render_room.substr(us + 1).c_str());
+                    int gx = std::atoi(room_name.substr(us2 + 1, us - us2 - 1).c_str());
+                    int gy = std::atoi(room_name.substr(us + 1).c_str());
                     room_org[0] = float(gx) * 300.f;
                     room_org[2] = float(gy) * 240.f;
                     lucent::info("world", "room grid ({},{}) -> origin ({:.0f},0,{:.0f})",
@@ -552,19 +582,17 @@ int main(int argc, char** argv) {
             // Y argument is not a world offset -- placing actors at
             // room_origin.y + script_y put them at wall height -- so the floor
             // is queried at the actor's XZ instead.
-            mcf::Collision col;
-            bool have_col = false;
+            have_col = false;
             {
-                auto cs = std::format("sk1/{}.scol", render_room);
+                auto cs = std::format("sk1/{}.scol", room_name);
                 if (ar.Has(cs)) { col = mcf::ParseScol(ar.Read(cs)); have_col = true; }
                 else lucent::warn("world", "no {}; actors keep their script Y", cs);
             }
 
             // One renderable per distinct model, instanced per actor.
-            std::map<std::string, mcf::Renderable> cache;
-            std::map<std::string, mcf::Motion> motions;
-            struct Placed { const mcf::Renderable* r; float pos[3]; const mcf::Motion* mo; };
-            std::vector<Placed> placed;
+            placed.clear();
+            
+            
             for (const auto& a : world.actors()) {
                 if (!a.alive) continue;
                 auto nm = mcf::ActorModelName(a.kind, a.type_id);
@@ -611,6 +639,10 @@ int main(int argc, char** argv) {
             lucent::info("world", "{} actors, {} placed, {} distinct models",
                          world.actors().size(), placed.size(), cache.size());
 
+                return true;
+            };
+            if (!loadRoom(render_room))
+                throw mcf::Error(std::format("cannot load room {}", render_room));
             float ctr[3], radius = 0;
             for (int k = 0; k < 3; ++k) {
                 ctr[k] = (stage.lo[k] + stage.hi[k]) * .5f;
@@ -686,6 +718,7 @@ int main(int argc, char** argv) {
                 return &hero_motions[id];
             };
             float px = ctr[0], pz = ctr[2], py = 0, pdeg = 0;
+            if (has_spawn) { px = spawn_x + room_org[0]; pz = spawn_z + room_org[2]; }
             if (have_col && !col.GetFloor(px, pz, mcf::Collision::kFloorMask, &py)) py = 0;
             world.Spawn("MainPlayer", 0, px, py, pz).kind = 'C';
 
@@ -799,8 +832,47 @@ int main(int argc, char** argv) {
                      LookAt(eye_cur, look, up);
 
                 t += dt * 30.f;      // motions are keyed in frames at 30fps
+                world.fade.Tick(dt * 1000.f);
+                sc.ResumeCoroutines();
                 serviceAudio();
                 audio.Update();
+
+                // Event boxes are edge-triggered: entering fires the handler
+                // once. Firing every frame would re-enter the same transition
+                // forever.
+                for (auto& bx : world.boxes) {
+                    bool in = px >= bx.lo[0] + room_org[0] && px <= bx.hi[0] + room_org[0] &&
+                              pz >= bx.lo[2] + room_org[2] && pz <= bx.hi[2] + room_org[2];
+                    if (in && !bx.inside && bx.enabled && !bx.no_touch) {
+                        lucent::info("world", "entered event box '{}'", bx.name);
+                        if (!sc.StartCoroutine(bx.name))
+                            lucent::warn("lua", "{}: {}", bx.name, sc.last_error());
+                    }
+                    bx.inside = in;
+                }
+
+                if (sc.has_jump) {
+                    sc.has_jump = false;
+                    auto& j = sc.jump;
+                    auto dest = std::format("M{:04d}_{:02d}_{:02d}", j.map, j.gx, j.gy);
+                    lucent::info("world", "mapjump -> {} at ({:.0f},{:.0f},{:.0f}) arrow {}",
+                                 dest, j.x, j.y, j.z, j.arrow);
+                    if (loadRoom(dest)) {
+                        px = j.x + room_org[0];
+                        pz = j.z + room_org[2];
+                        py = j.y + room_org[1];
+                        if (have_col) {
+                            float g;
+                            if (col.GetFloor(px, pz, mcf::Collision::kFloorMask, &g)) py = g;
+                        }
+                        // eArrow: UP=0 RI=1 DN=2 LF=3.
+                        pdeg = float(j.arrow) * (float(std::numbers::pi) / 2.f);
+                        cam_init = false;
+                        serviceAudio();
+                    } else {
+                        lucent::error("world", "mapjump to {} failed; staying put", dest);
+                    }
+                }
 
                 glViewport(0, 0, W, H);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

@@ -13,6 +13,7 @@
 #include "engine/world.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <format>
 
@@ -176,6 +177,38 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
     }
     if (n == "WepDel") { w.Remove(S(1)); return true; }
 
+    if (n == "SetFade") {               // (kind, milliseconds)
+        w.fade.kind = int(N(1));
+        w.fade.duration_ms = N(2);
+        w.fade.remaining_ms = N(2);
+        return true;
+    }
+    if (n == "SetFadeColor") {
+        for (int k = 0; k < 3; ++k) w.fade.colour[k] = uint8_t(N(1 + k));
+        return true;
+    }
+    if (n == "IsFadeFinish") { lua_pushboolean(L, w.fade.Finished()); return true; }
+
+    if (n == "AddEventBox") {           // (name, x0,y0,z0, x1,y1,z1, flag)
+        EventBox b;
+        b.name = S(1);
+        for (int k = 0; k < 3; ++k) {
+            float a = N(2 + k), c = N(5 + k);
+            b.lo[k] = std::min(a, c);
+            b.hi[k] = std::max(a, c);
+        }
+        if (auto* e = w.FindBox(b.name)) *e = b; else w.boxes.push_back(b);
+        return true;
+    }
+    if (n == "SetEventBoxEnable") {
+        if (auto* b = w.FindBox(S(1))) b->enabled = lua_toboolean(L, 2);
+        return true;
+    }
+    if (n == "SetEventBoxNoTouchEvent") {
+        if (auto* b = w.FindBox(S(1))) b->no_touch = true;
+        return true;
+    }
+
     // Camera. Scripts set these constantly (ANGLE, DISTANCE, ROTATE_Y, SPEED);
     // see docs/script-data-model.md.
     if (n == "CamSetData")  { w.camera.data[int(N(1))] = N(2); return true; }
@@ -196,6 +229,13 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
 bool DispatchAudio(lua_State* L, const CmdDef* def, Script& s) {
     std::string_view n = def->name;
     auto N = [&](int i) { return int(luaL_optnumber(L, i, 0)); };
+    if (n == "MapJump") {
+        s.jump = {N(1), N(2), N(3), N(7),
+                  float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),
+                  float(luaL_optnumber(L, 6, 0))};
+        s.has_jump = true;
+        return true;
+    }
     if (n == "BgmPlay")      { s.pending_bgm = N(1); return true; }
     if (n == "GetBgmID")     { lua_pushnumber(L, s.current_bgm); return true; }
     if (n == "SePlay")       { s.pending_se.push_back({N(1), false}); return true; }
@@ -287,6 +327,39 @@ bool Script::CallFunction(std::string_view fn) {
         return false;
     }
     return true;
+}
+
+bool Script::StartCoroutine(std::string_view fn) {
+    lua_State* th = lua_newthread(L_);
+    int ref = luaL_ref(L_, LUA_REGISTRYINDEX);      // keep it alive
+    lua_getglobal(th, std::string(fn).c_str());
+    if (!lua_isfunction(th, -1)) {
+        luaL_unref(L_, LUA_REGISTRYINDEX, ref);
+        last_error_ = std::format("'{}' is not a global function", fn);
+        return false;
+    }
+    int rc = lua_resume(th, nullptr, 0);   // Lua 5.3 signature
+    if (rc == LUA_YIELD) { co_.push_back(ref); return true; }
+    luaL_unref(L_, LUA_REGISTRYINDEX, ref);
+    if (rc != LUA_OK) {
+        last_error_ = lua_tostring(th, -1) ? lua_tostring(th, -1) : "unknown error";
+        return false;
+    }
+    return true;   // ran to completion without yielding
+}
+
+void Script::ResumeCoroutines() {
+    for (size_t i = 0; i < co_.size();) {
+        lua_rawgeti(L_, LUA_REGISTRYINDEX, co_[i]);
+        lua_State* th = lua_tothread(L_, -1);
+        lua_pop(L_, 1);
+        int rc = lua_resume(th, nullptr, 0);
+        if (rc == LUA_YIELD) { ++i; continue; }
+        if (rc != LUA_OK)
+            last_error_ = lua_tostring(th, -1) ? lua_tostring(th, -1) : "unknown error";
+        luaL_unref(L_, LUA_REGISTRYINDEX, co_[i]);
+        co_.erase(co_.begin() + long(i));
+    }
 }
 
 std::vector<std::string> Script::Globals() const {

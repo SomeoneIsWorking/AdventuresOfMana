@@ -27,6 +27,14 @@ public:
 
     bool Run(std::string_view name, std::span<const uint8_t> source);
     bool CallFunction(std::string_view fn);
+
+    // Event handlers YIELD (fadeout/fadein call coroutine.yield), so the engine
+    // runs them as coroutines -- hence NewCoroutine in the cmd API and
+    // GameScript::NewCoroutine/Update in the binary. A plain pcall cannot yield
+    // and dies with "attempt to yield from outside a coroutine".
+    bool StartCoroutine(std::string_view fn);
+    void ResumeCoroutines();
+    size_t live_coroutines() const { return co_.size(); }
     std::vector<std::string> Globals() const;
 
     const std::string& last_error() const { return last_error_; }
@@ -38,6 +46,11 @@ public:
     // Audio the scripts asked for; the host services these because it owns the
     // archive. -1 means "no request".
     struct SeReq { int id; bool loop; };
+    // MapJump(mapid, mapx, mapy, plx, ply, plz, arrow). The host services it,
+    // because loading a room means touching the archive and the GL state.
+    struct JumpReq { int map, gx, gy, arrow; float x, y, z; };
+    bool has_jump = false;
+    JumpReq jump{};
     int pending_bgm = -1;
     int current_bgm = 0;
     std::vector<SeReq> pending_se;
@@ -48,6 +61,7 @@ public:
     bool trace_first = false;
 
 private:
+    std::vector<int> co_;      // registry refs to live threads
     lua_State* L_ = nullptr;
     std::string last_error_;
 };

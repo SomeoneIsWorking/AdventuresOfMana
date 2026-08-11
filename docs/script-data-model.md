@@ -100,3 +100,44 @@ because it looks right — flagged here so it is not mistaken for a measured val
 
 `SPEED` is a per-frame lerp in the original; the port scales it by delta time so
 the result does not depend on frame rate.
+
+## Event boxes and map transitions
+
+`AddEventBox(name, x0,y0,z0, x1,y1,z1, flag)` is the most-called cmd function
+(552 calls). Entering the volume makes the engine call the **global Lua function
+of the same name**. That is how transitions, cutscenes and shops all start.
+
+Boxes are **edge-triggered** — fire on entry, not every frame — or a transition
+re-enters itself forever.
+
+### Handlers are COROUTINES, not calls
+
+This is the part that cannot be guessed from the signatures. A handler like:
+
+    function in_01()
+      CHOCOBO_BYE()
+      bgmfield()
+      mapjump(10, 2, 2, 150, 205, 0)
+    end
+
+reaches `mapjump` -> `mapjumpY` -> `fadeout()`, and `fadeout` runs
+
+    SetFade(1,600)
+    coroutine.yield()
+    while IsFadeFinish() == false do coroutine.yield() end
+
+so calling a handler with `lua_pcall` dies with *attempt to yield from outside a
+coroutine*. The engine runs them as threads — which is why `NewCoroutine` is in
+the cmd API and `GameScript::NewCoroutine` / `GameScript::Update` exist in the
+binary. The host starts each handler with `lua_newthread` + `lua_resume` and
+resumes live threads every frame.
+
+### The fade must actually take time
+
+`IsFadeFinish` could be stubbed to return true and transitions would "work" — but
+that deletes the wait the transition is built around, and every fade would be
+instant. `Fade` is a real timer ticked by the frame delta.
+
+`MapJump(mapid, mapx, mapy, plx, ply, plz, arrow)` loads
+`M<mapid>_<mapx>_<mapy>`, places the player at room-local `(plx, ply, plz)`
+snapped to the collision floor, and faces them per `eArrow` (UP=0 RI=1 DN=2 LF=3).

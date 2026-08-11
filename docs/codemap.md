@@ -37,6 +37,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Actor system | **Live actors driven by scripts**, rendered and animated in their rooms | `src/engine/world.{h,cpp}`, `src/host/render.cpp` |
 | Game loop + player | **Real-time loop, WASD/arrow movement, floor + wall collision, WAIT/WALK** | `src/host/main.cpp` |
 | Camera | **Script-driven follow camera** (`eCamGetData` slots) | `src/engine/world.h` |
+| Event boxes + transitions | **Edge-triggered boxes run handlers as coroutines; `mapjump` loads the destination room** | `src/engine/script.cpp`, `src/host/main.cpp` |
 | Audio | **BGM + SE play, driven by scripts** | `src/engine/audio.cpp` |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 

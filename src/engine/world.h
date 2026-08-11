@@ -8,6 +8,7 @@
 // developers documented every field in Japanese. Slot numbers are theirs.
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -94,6 +95,36 @@ struct Actor {
     }
 };
 
+// AddEventBox(name, x0,y0,z0, x1,y1,z1, flag) -- the most-called cmd function
+// (552 calls across the shipping scripts). When the player enters the volume the
+// engine calls the global Lua function of the same name, which is how map
+// transitions, cutscenes and shops all start.
+struct EventBox {
+    std::string name;
+    float lo[3]{}, hi[3]{};
+    bool enabled = true;
+    bool no_touch = false;   // SetEventBoxNoTouchEvent
+    bool inside = false;     // edge-triggered: fire on entry, not every frame
+};
+
+// SetFade(kind, milliseconds) starts a fade; scripts then block in a coroutine
+// on IsFadeFinish(). Stubbing IsFadeFinish to true would 'work' but would also
+// remove the wait that map transitions are built around, so the timer is real.
+struct Fade {
+    float remaining_ms = 0;
+    float duration_ms = 0;
+    int kind = 0;                 // 1 = out, 0 = in (as scripts use it)
+    uint8_t colour[3]{0, 0, 0};
+    bool Finished() const { return remaining_ms <= 0.f; }
+    void Tick(float dt_ms) { remaining_ms = std::max(0.f, remaining_ms - dt_ms); }
+    // 0 at the start of a fade-out, 1 when fully covered.
+    float Coverage() const {
+        if (duration_ms <= 0) return kind ? 1.f : 0.f;
+        float p = 1.f - remaining_ms / duration_ms;
+        return kind ? p : 1.f - p;
+    }
+};
+
 class World {
 public:
     Actor& Spawn(const std::string& handle, int type_id, float x, float y, float z);
@@ -102,6 +133,10 @@ public:
 
     const std::vector<Actor>& actors() const { return actors_; }
     Camera camera;
+    Fade fade;
+    std::vector<EventBox> boxes;
+
+    EventBox* FindBox(const std::string& name);
 
     void Reset();
 
