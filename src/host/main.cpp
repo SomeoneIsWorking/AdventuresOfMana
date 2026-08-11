@@ -6,16 +6,19 @@
 #include <SDL3/SDL.h>
 #include <GLES2/gl2.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <format>
 #include <numbers>
+#include <map>
 #include <string>
 #include <vector>
 
 #include <lucent/config.h>
 #include <lucent/log.h>
 
+#include "engine/script.h"
 #include "mcf/mcf.h"
 
 namespace {
@@ -151,6 +154,7 @@ int main(int argc, char** argv) {
     std::string model = "B0000_00";
     std::string shot, anim;
     float anim_t = 0.f;
+    bool census = false;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
@@ -158,6 +162,7 @@ int main(int argc, char** argv) {
         else if (a == "--screenshot" && i + 1 < argc) shot = argv[++i];
         else if (a == "--anim" && i + 1 < argc) anim = argv[++i];
         else if (a == "--time" && i + 1 < argc) anim_t = std::stof(argv[++i]);
+        else if (a == "--script-census") census = true;
         else if (a == "--help") {
             std::printf("usage: %s [--archive sk1.mpk] [--model NAME] "
                         "[--screenshot out.png]\n", argv[0]);
@@ -168,6 +173,73 @@ int main(int argc, char** argv) {
     try {
         mcf::Archive ar(archive);
         lucent::info("assets", "opened {} ({} entries)", archive, ar.entries().size());
+
+        if (census) {
+            // Run every shipping script against the recording bindings. This
+            // measures which of the 200 cmd functions the game actually
+            // exercises, so engine work can be ordered by evidence.
+            std::vector<std::string> scripts;
+            for (const auto& e : ar.entries())
+                if (e.name.size() > 4 && e.name.compare(e.name.size() - 4, 4, ".lua") == 0)
+                    scripts.push_back(e.name);
+            std::sort(scripts.begin(), scripts.end());
+            auto prelude = ar.Read("sk1/sk1.lua");
+            lucent::info("lua", "prelude sk1.lua: {} bytes; {} scripts to run",
+                         prelude.size(), scripts.size());
+
+            std::map<std::string, uint64_t> totals;
+            size_t ok = 0, failed = 0, handlers = 0, handler_errs = 0;
+            std::vector<std::string> errors;
+            for (const auto& name : scripts) {
+                if (name == "sk1/sk1.lua") continue;
+                mcf::Script sc;
+                if (!sc.Run("sk1.lua", prelude)) {
+                    lucent::error("lua", "prelude failed: {}", sc.last_error());
+                    break;
+                }
+                // sk1.lua's own comment marks SystemInit as startup-only; it
+                // establishes the scenario globals (sccnt, scflagNN, ...) that
+                // the map scripts read. Skipping it made 102 scripts fail on
+                // "attempt to compare nil with number".
+                if (!sc.CallFunction("SystemInit")) {
+                    lucent::error("lua", "SystemInit failed: {}", sc.last_error());
+                    break;
+                }
+                // Baseline: functions the prelude alone defines. Anything the
+                // map script adds is one of ITS event handlers.
+                auto before = sc.Globals();
+                auto body = ar.Read(name);
+                if (!sc.Run(name, body)) {
+                    ++failed;
+                    if (errors.size() < 12) errors.push_back(
+                        std::format("{}: {}", name, sc.last_error()));
+                } else {
+                    ++ok;
+                    // Load-time calls alone undercount badly: the interesting
+                    // API surface lives in the event handlers, which only run
+                    // when the player trips a box. Fire each one to see it.
+                    for (const auto& g : sc.Globals()) {
+                        if (std::binary_search(before.begin(), before.end(), g)) continue;
+                        ++handlers;
+                        if (!sc.CallFunction(g)) ++handler_errs;
+                    }
+                }
+                for (const auto& [fn, rec] : sc.calls) totals[fn] += rec.count;
+            }
+            lucent::info("lua", "executed {} map scripts, {} failed", ok, failed);
+            lucent::info("lua", "invoked {} event handlers, {} raised errors "
+                         "(expected: many need live game state)", handlers, handler_errs);
+            for (const auto& e : errors) lucent::warn("lua", "  {}", e);
+
+            std::vector<std::pair<std::string, uint64_t>> ranked(totals.begin(), totals.end());
+            std::sort(ranked.begin(), ranked.end(),
+                      [](auto& a, auto& b) { return a.second > b.second; });
+            lucent::info("lua", "--- cmd functions CALLED: {} of {} ---",
+                         ranked.size(), mcf::Script::api_size());
+            for (const auto& [fn, n] : ranked)
+                std::printf("%9llu  %s\n", (unsigned long long)n, fn.c_str());
+            return 0;
+        }
 
         auto mdl = mcf::ParseSmdl(ar.Read(std::format("sk1/{}.smdl", model)));
         lucent::info("assets", "{}: {} verts, {} indices ({}-bit), stride {}, {} bones",

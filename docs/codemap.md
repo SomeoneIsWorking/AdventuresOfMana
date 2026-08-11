@@ -33,6 +33,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Collision format (`.scol`/`SCol`) | **DONE at loader level — 992/992 parse. 40-byte node internals not reversed** | `tools/asset/scol.py` |
 | C++ asset layer | **DONE for MPK/.stex/.smdl** — port of the verified Python | `src/mcf/` |
 | Desktop host (window + GLES2) | **Textured characters + rooms; GPU skinning + .smot playback** | `src/host/main.cpp` |
+| Lua bridge | **Lua 5.3 + all 200 `cmd` bindings; 714/715 scripts run** (stubs record calls) | `src/engine/script.cpp` |
 | Audio / input / game loop | NOT STARTED | — |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 
@@ -73,6 +74,11 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 Needs SDL3 and GLESv2; lucent is fetched by CMake. `--screenshot` renders one
 frame and exits, using SDL's `offscreen` video driver when no display is present,
 so the renderer is verifiable headlessly.
+
+## Lua API priority
+
+`docs/lua-census.md` measures which of the 200 `cmd` functions the shipping
+scripts actually call. Implement in that order.
 
 ## Where the port stands
 

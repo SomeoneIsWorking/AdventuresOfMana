@@ -102,7 +102,21 @@ for regs, call_addr in regs_at_call:
     name = cstr(regs.get('x1', 0)) if 'x1' in regs else None
     wrapper = regs.get('x2')
     impl = scan(wrapper, 400) if wrapper else None      # follow wrapper -> real fn
-    api.append((name, wrapper, impl))
+    # What the wrapper PUSHES is the Lua-visible return type; the mangled name
+    # of the implementation does not carry it.
+    pushes = scan(wrapper, 400, want_bl='tolua_push')
+    kinds = set()
+    a = wrapper
+    for _ in range(400):
+        if a not in insn: break
+        mn, ops = insn[a]
+        if mn == 'bl':
+            mm = re.search(r'<([^>]+)>', ops)
+            t = (mm.group(1) if mm else ops).replace('@plt', '')
+            if t.startswith('tolua_push'): kinds.add(t[len('tolua_push'):])
+            elif t == 'tolua_error': break
+        a += 4
+    api.append((name, wrapper, impl, kinds))
 
 named = [a for a in api if a[0]]
 resolved = [a for a in api if a[2]]
@@ -112,8 +126,9 @@ print(f"  impls  resolved: {len(resolved)}/{len(api)}", file=sys.stderr)
 demangle = subprocess.run(['c++filt'], input='\n'.join(
     (a[2] or '').replace('@plt', '') for a in api), capture_output=True, text=True).stdout.split('\n')
 
-print("| # | Lua name | native implementation |")
-print("|---|----------|-----------------------|")
-for i, (name, wrapper, impl) in enumerate(api):
+print("| # | Lua name | native implementation | returns |")
+print("|---|----------|-----------------------|---------|")
+for i, (name, wrapper, impl, kinds) in enumerate(api):
     sig = demangle[i].strip() if i < len(demangle) else ''
-    print(f"| {i+1} | `{name or '??'}` | `{sig or '??'}` |")
+    ret = "+".join(sorted(kinds)) if kinds else "nothing"
+    print(f"| {i+1} | `{name or '??'}` | `{sig or '??'}` | {ret} |")
