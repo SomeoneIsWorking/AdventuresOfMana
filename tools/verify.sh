@@ -13,7 +13,7 @@ fi
 echo "corpus: $n files"
 
 fail=0
-for t in stex smdl smot scol; do
+for t in stex smdl smot scol roomdata; do
   echo "=== $t ==="
   python3 "tools/asset/$t.py" || fail=1
 done

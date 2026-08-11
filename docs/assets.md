@@ -564,3 +564,95 @@ Two candidate explanations, neither confirmed:
 Distinguishing them means reversing `GetIDString` ->
 `ModeGame`/`GameParameter`. Until then dialogue cannot be displayed, and no
 amount of UI work changes that.
+
+## Per-room data tables — `.odt`, `.gdt`, `.edt`
+
+Three sibling tables ship next to each room's `.smdl`/`.scol`. All three layouts
+come from the engine's own loaders in `libmcfandroid.so`, not from pattern
+matching the bytes. Parser: `tools/asset/roomdata.py` (in `tools/verify.sh`).
+
+### `.odt` — map objects, `ModeGame::ObjFileLoad(char*, float, float)` @ `0x2e6904`
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0x00 | u32 | version, **must be 2** (`cmp w8, #0x2`) |
+| 0x04 | i32 | record count (`cmp w8, #0x1; b.lt` skips the file) |
+| 0x40 | — | first record; stride **0xC0** (`add x8, x27, #0xc0`) |
+
+Each record is an `AppObjectModel::PARAMETERIMAGE` handed to
+`ModeGame::CreateMapObject`. Decoded fields:
+
+| Offset in record | Type | Meaning |
+|---|---|---|
+| 0x00 | i32 | kind — **1 in all 3284 shipping records** |
+| 0x04 | i32 | object id; looked up in a table of 0x138-byte entries |
+| 0x08 | f32×3 | position X, Y, Z, in **world** coordinates |
+
+The remaining 0xA8 bytes are mostly 1.0f scale-looking values and zeroes and are
+NOT decoded. **424/424 files satisfy `len == 0x40 + count*0xC0` exactly** — a
+real test, since a wrong header size or stride fails the equation outright.
+
+### `.gdt` — ground attributes, `ModeGame::Load_GroundAttribute(char*,int,int)` @ `0x2e6cf4`
+
+A per-room grid of 7.5-unit cells. The engine computes the grid itself and then
+validates **all five header fields** against its own values before copying the
+payload, so the layout is not inferred:
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0x00 | u32 | version, must be 1 |
+| 0x04 | i32 | columns — `ceil(room_width / 7.5)` |
+| 0x08 | i32 | rows — `ceil(room_depth / 7.5)` |
+| 0x0C | f32 | cell width, **7.5** (`fmov v0.2s, #7.5`) |
+| 0x10 | f32 | cell height, 7.5 |
+| 0x14 | u32×cols×rows | attribute per cell |
+
+**657/657 files satisfy `len == 0x14 + cols*rows*4`**, and the cell size is 7.5
+in every one. Grid dimensions are 40×32 (385 files) and 44×36 (271 files), i.e.
+implied extents of 300×240 and 330×270.
+
+**That 330×270 independently corroborates the collision finding**: `.scol` AABBs
+carry a uniform 15-unit margin around a 300×240 room, which is exactly
+300+2×15 by 240+2×15. Two unrelated formats agreeing is real evidence for the
+300×240 world cell. Both grid sizes appear *within* the same map, so this is a
+per-room padding choice, not a per-map room size.
+
+### `.edt` — effect placements, `ModeGame::EffFileLoad(char*, int, int)` @ `0x2e6b54`
+
+Headerless array of **28-byte** records. The size is not guessed: the loader
+rejects anything below `0x1c` bytes (`cmp w0, #0x1c; b.lo`) and derives the
+count with a divide-by-7-words (`umull` by `0x24924925`, `lsr #32`).
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0x00 | i32 | effect id |
+| 0x04 | i32 | flags / sub-type |
+| 0x08 | f32×3 | position X, Y, Z |
+| 0x14 | f32 | scale — 1.0 in every shipping record |
+| 0x18 | i32 | 0 in every shipping record |
+
+**247/247 parse.** Three files (`M0022_00_09`, `M0022_06_06`, `M0022_08_10`) are
+a single byte `0x61`; the engine's own size check discards them, so they are
+empty tables and are read as such rather than counted as failures.
+
+### OPEN: 303 objects sit outside their own room cell
+
+Under the verified 300×240 world cell, **2981 of 3284** `.odt` objects land
+inside the cell their filename names. The other 303 do not, and the split is by
+map, not random: maps M0000–M0011 (overworld) are perfect, 16 dungeon maps are
+not. Median overshoot is 105 units and the worst is 1755, so this is **not**
+benign edge overhang like the wall meshes.
+
+Ruled out by measurement, not by argument:
+- **Room-local coordinates** — would put every object in `[0,300]×[0,240]`.
+  Actual counts are near zero for the dungeon maps (e.g. M0014: 0 of 69).
+- **A different per-map cell size** — no candidate from a 9×9 sweep of plausible
+  widths and heights fits all objects for any of the failing maps. The overworld
+  by contrast is fit **uniquely** by (300, 240) across 2331 objects.
+- **A different per-room cell size from `.gdt`** — the two grid sizes are mixed
+  inside single maps and correspond to 300×240 plus optional margin, so they do
+  not supply a per-map origin.
+
+Most likely a per-map origin or room-index remap that has not been reversed.
+Nothing in the port depends on this yet; `roomdata.py` reports the count with
+its denominator so the number cannot quietly drift.

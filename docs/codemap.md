@@ -31,6 +31,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Model format (`.smdl`/`Smd3`) | **DONE — 1375/1375 parse, geometry rendered** | `tools/asset/smdl.py`, `render_smdl.py` |
 | Motion format (`.smot`/`Smot`) | **DONE — 1721/1721 parse; quaternions verified. 98 of 60,803 time arrays unexplained** | `tools/asset/smot.py` |
 | Collision format (`.scol`/`SCol`) | **DONE — cells + triangles reversed; floor queries work** | `tools/asset/scol.py`, `Collision::GetFloor` |
+| Room data tables (`.odt`/`.gdt`/`.edt`) | **Layouts from the engine's own loaders; 1328/1328 files parse.** Object placement open for 303 of 3284 (dungeon maps only) | `tools/asset/roomdata.py` |
 | C++ asset layer | **DONE for MPK/.stex/.smdl** — port of the verified Python | `src/mcf/` |
 | Desktop host (window + GLES2) | **Textured characters + rooms; GPU skinning + .smot playback** | `src/host/main.cpp` |
 | Lua bridge | **Lua 5.3 + all 200 `cmd` bindings; 714/715 scripts run** (stubs record calls) | `src/engine/script.cpp` |
@@ -38,7 +39,8 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Game loop + player | **Real-time loop, WASD/arrow movement, floor + wall collision, WAIT/WALK** | `src/host/main.cpp` |
 | Camera | **Script-driven follow camera** (`eCamGetData` slots) | `src/engine/world.h` |
 | Fade | **Timed fades with the game's own shader**, verified to darken the frame | `src/host/main.cpp` |
-| Combat volumes | **Attack arcs + damage spheres on bones; overlap predicate self-tested** | `src/engine/world.cpp` |
+| Combat volumes | **Attack arcs + damage spheres on bones; overlap predicate self-tested; fires in-game** (481 hits / 744 pairs on a real room; 0 hits at range, explained) | `src/engine/world.cpp`, `src/host/main.cpp` |
+| Enemy behaviour | PLACEHOLDER — closes on the player, stops at 40 units, no mutual separation (they stack). Real AI is unreversed native code. No damage is applied yet | `src/host/main.cpp` |
 | Event boxes + transitions | **Edge-triggered boxes run handlers as coroutines; `mapjump` loads the destination room** | `src/engine/script.cpp`, `src/host/main.cpp` |
 | Audio | **BGM + SE play, driven by scripts** | `src/engine/audio.cpp` |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
