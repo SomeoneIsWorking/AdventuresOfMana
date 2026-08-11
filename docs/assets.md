@@ -368,3 +368,55 @@ materials. The host logs it by name and draws it untextured.
 | 3 | 32 B | mesh record; field 0 = number of draw ranges |
 | 6, 7 | 16 B | vertex / index buffer descriptors (4th word unused) |
 | 11 | — | the raw vertex + index data blob |
+
+---
+
+# Map texturing: `.stexinfo` + `.mtex` — REVERSED
+
+Characters and maps take **different texture paths**, which is why map models
+carry no `.stex`:
+
+- **Characters** ship a `.stex` holding their atlases inline.
+- **Maps** ship a `.stexinfo` *name list*; each name resolves to a shared
+  `sk1/<name>.mtex`. Map textures are pooled across rooms rather than duplicated
+  per room — 186 `.mtex` files serve 994 `.stexinfo` lists.
+
+A map material's `texture_index` (`.smdl` section 0, +0x10) indexes the
+`.stexinfo` list, whose entry name gives the `.mtex`. Confirmed on
+`M0010_03_02`: 13 materials -> 13 `.stexinfo` entries -> 13 `.mtex` files, all
+present, and the material's own Maya source path
+(`.../sourceimages/house_01.tga`) matches the `.stexinfo` name (`house_01`).
+
+## `.stexinfo`
+
+    u32 count, then `count` x 256-byte STEXINFOFILE_BODY records.
+    Each record begins with a NUL-terminated name; +0x80 holds a small u32
+    (2 in the sampled files), meaning not yet determined.
+
+## `.mtex` — 128-byte header, pixels at +0x80
+
+Layout from `AppMapTexture::SetBinary`, which forwards the fields straight into
+`MCFSiSurfaceTexture::Create`:
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x00 | u32 | format code — through the **same** table as `.stex` (`.rodata:0x9dda0`) |
+| 0x04 | u32 | width |
+| 0x08 | u32 | height |
+| 0x0C | u32 | **max mip level** — the level count is this value **+ 1** |
+| 0x10 | u32 | pixel data size |
+| 0x80 | — | pixel data |
+
+The +1 matters and is easy to get wrong: `anvil_01` stores 7 with a 128x128
+image, and 4 x (128^2 + ... + 1^2) over **8** levels is 87380, exactly the stored
+size, whereas 7 levels gives 87376.
+
+## Verification
+
+**185/186 `.mtex` files** satisfy `128 + data_size == filesize` **and**
+`data_size == 4 * sum(mip areas)`. All 186 are format code 0 -> RGBA8888.
+
+The single failure is `room_field.mtex`, the only non-power-of-two texture in the
+game (240x240): its mip chain is 58 bytes larger than the exact sum, so NPOT
+levels are padded. Not resolved — it is one file, and the padding rule should be
+derived rather than guessed.

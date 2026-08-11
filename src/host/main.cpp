@@ -135,19 +135,48 @@ int main(int argc, char** argv) {
                      model, mdl.vertex_count, mdl.index_count, mdl.index_size * 8,
                      mdl.vertex_stride, mdl.bone_count);
 
-        mcf::TextureSet tex;
+        // Two texture paths. Characters ship a .stex holding their atlases
+        // inline. Maps instead ship a .stexinfo NAME LIST, and each name
+        // resolves to a shared sk1/<name>.mtex -- so map textures are pooled
+        // across rooms rather than duplicated per room.
+        std::vector<mcf::TextureSet> owned;
+        std::vector<const mcf::Texture*> textures_src;
         std::string texname = std::format("sk1/{}.stex", model);
+        std::string infoname = std::format("sk1/{}.stexinfo", model);
+
         if (ar.Has(texname)) {
-            tex = mcf::ParseStex(ar.Read(texname));
-            for (const auto& t : tex.textures)
-                lucent::info("assets", "  texture '{}' {}x{} mips={}", t.name, t.width,
-                             t.height, t.mips);
+            owned.push_back(mcf::ParseStex(ar.Read(texname)));
+            for (const auto& t : owned.back().textures) textures_src.push_back(&t);
+        } else if (ar.Has(infoname)) {
+            auto names = mcf::ParseStexInfo(ar.Read(infoname));
+            lucent::info("assets", "  .stexinfo lists {} shared textures", names.size());
+            owned.reserve(names.size());
+            for (const auto& n : names) {
+                std::string mt = std::format("sk1/{}.mtex", n);
+                if (!ar.Has(mt)) {
+                    // Must not be silent: a missing entry shifts every later
+                    // index and would mis-texture the whole room.
+                    lucent::warn("assets", "  .stexinfo names '{}' but {} is not in "
+                                 "the archive; that slot draws white", n, mt);
+                    owned.push_back({});
+                    continue;
+                }
+                owned.push_back(mcf::ParseMtex(ar.Read(mt), n));
+            }
+            for (const auto& o : owned)
+                textures_src.push_back(o.textures.empty() ? nullptr : &o.textures[0]);
+        }
+        mcf::TextureSet tex;
+        if (!textures_src.empty()) {
+            for (const auto* t : textures_src)
+                if (t) lucent::info("assets", "  texture '{}' {}x{} mips={}", t->name,
+                                    t->width, t->height, t->mips);
         } else {
             // Map geometry does not carry a .stex; it binds shared textures via
             // .stexinfo + .mtex through AppMapTexture::SetBinary, which is not
             // reversed yet. Not an error -- a known gap.
-            lucent::warn("assets", "no {} in archive; drawing untextured white "
-                         "(map models use .stexinfo/.mtex, not yet supported)", texname);
+            lucent::warn("assets", "neither {} nor {} in archive; drawing untextured",
+                         texname, infoname);
         }
 
         for (size_t i = 0; i < mdl.materials.size(); ++i)
@@ -213,7 +242,9 @@ int main(int argc, char** argv) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         std::vector<GLuint> textures;
-        for (const auto& t : tex.textures) {
+        for (const auto* tp : textures_src) {
+            if (!tp) { textures.push_back(gltex); continue; }
+            const auto& t = *tp;
             GLuint id = 0;
             glGenTextures(1, &id);
             glBindTexture(GL_TEXTURE_2D, id);

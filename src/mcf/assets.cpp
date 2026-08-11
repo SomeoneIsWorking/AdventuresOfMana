@@ -142,6 +142,39 @@ TextureSet ParseStex(std::vector<uint8_t> file) {
     return ts;
 }
 
+TextureSet ParseMtex(std::vector<uint8_t> file, std::string name) {
+    TextureSet ts;
+    ts.data = std::move(file);
+    std::span<const uint8_t> b(ts.data);
+    if (b.size() < 128) throw Error("truncated .mtex");
+
+    Texture t;
+    uint32_t fmtcode = RdU32(b, 0);
+    t.fmtcode = fmtcode;
+    t.width = RdU32(b, 4);
+    t.height = RdU32(b, 8);
+    t.mips = RdU32(b, 12) + 1;   // stored value is the MAX LEVEL, not the count
+    uint32_t size = RdU32(b, 16);
+    t.name = std::move(name);
+    if (128 + size > b.size())
+        throw Error(std::format(".mtex '{}': 128 + {} exceeds file size {}", t.name,
+                                size, b.size()));
+    t.pixels = b.subspan(128, size);
+    ts.textures.push_back(std::move(t));
+    return ts;
+}
+
+std::vector<std::string> ParseStexInfo(std::span<const uint8_t> b) {
+    if (b.size() < 4) throw Error("truncated .stexinfo");
+    uint32_t n = RdU32(b, 0);
+    if (4 + size_t(n) * 256 > b.size())
+        throw Error(std::format(".stexinfo declares {} entries but holds {} bytes",
+                                n, b.size()));
+    std::vector<std::string> names;
+    for (uint32_t i = 0; i < n; ++i) names.push_back(RdCStr(b, 4 + size_t(i) * 256));
+    return names;
+}
+
 // ---------------------------------------------------------------------------
 // .smdl
 // ---------------------------------------------------------------------------

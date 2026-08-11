@@ -81,6 +81,18 @@ struct TextureSet {
 
 TextureSet ParseStex(std::vector<uint8_t> file);
 
+// A `.mtex` is one standalone texture: 128-byte header
+// {u32 format, u32 width, u32 height, u32 max_mip_level, u32 data_size}
+// followed by pixels at +0x80. Layout from AppMapTexture::SetBinary, which
+// forwards them to MCFSiSurfaceTexture::Create.
+TextureSet ParseMtex(std::vector<uint8_t> file, std::string name);
+
+// A `.stexinfo` is a texture *name list* for a map: u32 count followed by
+// 256-byte STEXINFOFILE_BODY records, each beginning with a NUL-terminated
+// name. Map materials index into this list; each name resolves to
+// `sk1/<name>.mtex`.
+std::vector<std::string> ParseStexInfo(std::span<const uint8_t> file);
+
 // ---------------------------------------------------------------------------
 // .smdl model (magic "Smd3")
 // ---------------------------------------------------------------------------
