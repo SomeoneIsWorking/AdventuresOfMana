@@ -14,14 +14,14 @@ The stock engine only; the 5play `libRMS.so` mod-menu injection is excluded from
 | Scripting: Lua 5.3 + tolua++, one module `cmd`, **200 functions** | `docs/cmd-api.md` |
 | Platform abstraction exists: `MCFSiPlatform` -> `MCFSiPlatform_Android` (sole backend) | symbol scan |
 | Gamepad path already ships (Android TV / LEANBACK) | manifest + `SiController` |
-| Assets: one `sk1.mpk`, custom format, magic `mcfa`, zlib, no AES | header + `LibMpk*` exports |
+| Assets: one `sk1.mpk`, magic `mcfa`, 9886 entries, custom codec (NOT zlib), no AES | `docs/mpk-format.md` |
 
 ## Subsystems
 
 | Subsystem | Status | Where |
 |---|---|---|
 | `cmd` Lua API extraction | **DONE — verified 200/200 names+impls** | `tools/asset/extract_cmd_api.py` -> `docs/cmd-api.md` |
-| MPK archive reader | NOT STARTED | `tools/asset/` |
+| MPK archive reader | **IN PROGRESS** — header+directory reversed; codec is custom, not zlib | `docs/mpk-format.md` |
 | Model / motion / texture formats | NOT STARTED | — |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 | Desktop host (window/GL/audio/input) | NOT STARTED | `src/host/` |
