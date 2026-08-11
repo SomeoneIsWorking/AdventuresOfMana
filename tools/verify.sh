@@ -24,6 +24,12 @@ if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
 
   echo "=== audio self-test ==="
   SDL_AUDIODRIVER=dummy ./build/mana --audio-selftest || fail=1
+
+  # Loads every room in the game headlessly. Non-zero on a mesh/script failure
+  # or an unresolved object id.
+  echo "=== room census ==="
+  ./build/mana --room-census 2>&1 | grep "^\[census\]" || fail=1
+  ./build/mana --room-census >/dev/null 2>&1 || fail=1
 else
   echo "=== audio self-test SKIPPED (build/mana or scratch/raw/assets missing) ==="
 fi

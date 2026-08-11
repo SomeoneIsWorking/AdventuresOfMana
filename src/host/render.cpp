@@ -114,6 +114,11 @@ std::string ActorModelName(char kind, int type_id) {
     // CHOCOBOT and C0006_00 is the same bird in armour. That is a semantic
     // check, not just "a file with that name exists".
     if (kind == 'N') {
+        // eNPC.TRANS = -1, annotated 透明 ("transparent") in the enum: a
+        // deliberately invisible NPC used as a pure trigger/anchor. It has no
+        // model by design, so returning a name at all would make the room
+        // census report a missing asset that does not exist.
+        if (type_id < 0) return {};
         if (type_id < 10) return std::format("C{:04d}_00", type_id);
         return std::format("N{:04d}_00", type_id - 10);
     }

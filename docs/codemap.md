@@ -119,6 +119,26 @@ draws it GPU-skinned. Frames at t=0 and t=20 differ by 22,416 bytes, which is ho
 the animation is confirmed to be applied rather than silently falling back to
 bind pose.
 
+## Whole-game coverage
+
+    ./build/mana --room-census
+
+Loads **every** room the way the real path does — mesh, collision, `.odt`
+objects, and the room script against a live actor system — headlessly, and
+reports with denominators. Current state:
+
+    996 rooms: 0 mesh parse failures, 5 without collision, 288 without a
+               script, 0 script failures
+    165 actors spawned, 0 with no model, 8 intentionally invisible (eNPC.TRANS)
+    493 event boxes
+    423 rooms have an .odt; 3284 objects, 0 unresolved ids
+
+It parses rather than uploads models, so it is fast and headless but **cannot**
+catch GPU upload or render faults — stated because a green census would
+otherwise imply more than it checks. It exits non-zero on a mesh or script
+failure or an unresolved object id, and refuses (exit 2) if the archive holds no
+rooms at all.
+
 ## Verified playable, end to end
 
     ./build/mana --walk-to 105 117 --warmup 400 --screenshot out.png

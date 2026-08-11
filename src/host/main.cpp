@@ -193,6 +193,7 @@ int main(int argc, char** argv) {
     std::string shot, anim;
     float anim_t = 0.f;
     bool census = false;
+    bool room_census = false;
     std::string room, render_room;
     std::string bgm_dir = "scratch/raw/assets";
     bool audio_selftest = false;
@@ -216,6 +217,7 @@ int main(int argc, char** argv) {
         else if (a == "--anim" && i + 1 < argc) anim = argv[++i];
         else if (a == "--time" && i + 1 < argc) anim_t = std::stof(argv[++i]);
         else if (a == "--script-census") census = true;
+        else if (a == "--room-census") room_census = true;
         else if (a == "--run-room" && i + 1 < argc) room = argv[++i];
         else if (a == "--render-room" && i + 1 < argc) render_room = argv[++i];
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
@@ -254,6 +256,7 @@ int main(int argc, char** argv) {
                 "  --fixed-step        step at a fixed 30 Hz (implied by --warmup)\n"
                 "  --collision-probe ROOM                  walk outward, report walls\n"
                 "  --script-census     run every shipping script and tally cmd calls\n"
+                "  --room-census       load every room headlessly, report what is missing\n"
                 "  --combat-selftest / --audio-selftest    self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n",
@@ -271,7 +274,7 @@ int main(int argc, char** argv) {
     // mode wins; `explicit_model` is tracked separately because `model` carries
     // a default value and so cannot be tested for emptiness.
     if (render_room.empty() && room.empty() && probe.empty() && !census &&
-        !audio_selftest && !combat_selftest && !explicit_model)
+        !audio_selftest && !combat_selftest && !explicit_model && !room_census)
         render_room = kDefaultRoom;
 
     try {
@@ -428,6 +431,89 @@ int main(int argc, char** argv) {
                              a.pos[1], a.pos[2], a.motion, a.alive, slots);
             }
             return 0;
+        }
+
+        if (room_census) {
+            // Coverage over the WHOLE game, not the handful of rooms used for
+            // development. Loads every room the way the real path does -- mesh,
+            // collision, .odt objects, and the room script against a live actor
+            // system -- and reports what is missing, with denominators.
+            //
+            // No GL here: models are parsed, not uploaded, so this runs
+            // headless and fast. That means it cannot catch upload/render
+            // faults, which is stated rather than left implied.
+            std::vector<std::string> rooms;
+            for (const auto& e : ar.entries()) {
+                if (e.name.size() < 10) continue;
+                if (e.name.compare(0, 5, "sk1/M") != 0) continue;
+                if (e.name.compare(e.name.size() - 5, 5, ".smdl") != 0) continue;
+                rooms.push_back(e.name.substr(4, e.name.size() - 9));
+            }
+            std::sort(rooms.begin(), rooms.end());
+            if (rooms.empty()) {
+                lucent::error("census", "no sk1/M*.smdl in the archive -- scanned "
+                              "NOTHING, which is not a pass");
+                return 2;
+            }
+
+            mcf::World w;
+            mcf::Script sc2;
+            sc2.world = &w;
+            if (!sc2.Run("sk1.lua", ar.Read("sk1/sk1.lua")))
+                throw mcf::Error(std::format("prelude: {}", sc2.last_error()));
+            if (!sc2.CallFunction("SystemInit"))
+                throw mcf::Error(std::format("SystemInit: {}", sc2.last_error()));
+
+            struct { long rooms = 0, mesh_fail = 0, no_col = 0, no_script = 0,
+                          script_fail = 0, actors = 0, boxes = 0, objects = 0,
+                          obj_unknown = 0, actor_no_model = 0, with_odt = 0,
+                          invisible = 0; } c;
+            std::map<std::string, int> missing_models;
+            for (const auto& r : rooms) {
+                ++c.rooms;
+                try { mcf::ParseSmdl(ar.Read(std::format("sk1/{}.smdl", r))); }
+                catch (const std::exception&) { ++c.mesh_fail; continue; }
+
+                auto cs = std::format("sk1/{}.scol", r);
+                if (!ar.Has(cs)) ++c.no_col;
+
+                w.Reset();
+                auto sp = std::format("sk1/{}.lua", r);
+                if (!ar.Has(sp)) ++c.no_script;
+                else if (!sc2.Run(sp, ar.Read(sp))) ++c.script_fail;
+
+                c.actors += long(w.actors().size());
+                c.boxes += long(w.boxes.size());
+                for (const auto& a : w.actors()) {
+                    auto nm = mcf::ActorModelName(a.kind, a.type_id);
+                    if (nm.empty()) { ++c.invisible; continue; }   // eNPC.TRANS
+                    if (!ar.Has(std::format("sk1/{}.smdl", nm))) {
+                        ++c.actor_no_model;
+                        missing_models[nm]++;
+                    }
+                }
+
+                auto op = std::format("sk1/{}.odt", r);
+                if (ar.Has(op)) {
+                    ++c.with_odt;
+                    for (const auto& o : mcf::ParseOdt(ar.Read(op))) {
+                        ++c.objects;
+                        if (!mcf::MapObjectModel(o.id)) ++c.obj_unknown;
+                    }
+                }
+            }
+            lucent::info("census", "{} rooms: {} mesh parse failures, {} without "
+                         "collision, {} without a script, {} script failures",
+                         c.rooms, c.mesh_fail, c.no_col, c.no_script, c.script_fail);
+            lucent::info("census", "  {} actors spawned, {} with no model ({} distinct), "
+                         "{} intentionally invisible (eNPC.TRANS)",
+                         c.actors, c.actor_no_model, missing_models.size(), c.invisible);
+            lucent::info("census", "  {} event boxes", c.boxes);
+            lucent::info("census", "  {} rooms have an .odt; {} objects, {} unresolved ids",
+                         c.with_odt, c.objects, c.obj_unknown);
+            for (const auto& [nm, n] : missing_models)
+                lucent::info("census", "    missing model {} x{}", nm, n);
+            return (c.mesh_fail || c.script_fail || c.obj_unknown) ? 1 : 0;
         }
 
         if (census) {
@@ -764,6 +850,7 @@ int main(int argc, char** argv) {
             for (const auto& a : world.actors()) {
                 if (!a.alive) continue;
                 auto nm = mcf::ActorModelName(a.kind, a.type_id);
+                if (nm.empty()) continue;   // eNPC.TRANS: invisible by design
                 if (!cache.count(nm)) {
                     mcf::Renderable r;
                     if (!mcf::LoadRenderable(ar, nm, white, &r)) {
@@ -1356,6 +1443,7 @@ int main(int argc, char** argv) {
                 for (const auto& a : world.actors()) {
                     if (!a.alive || a.handle == "MainPlayer") continue;
                     auto nm = mcf::ActorModelName(a.kind, a.type_id);
+                    if (nm.empty()) continue;   // eNPC.TRANS: invisible by design
                     auto it = cache.find(nm);
                     if (it == cache.end()) continue;
                     const mcf::Motion* mo = nullptr;
