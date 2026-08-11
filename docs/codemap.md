@@ -31,8 +31,10 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Model format (`.smdl`/`Smd3`) | **DONE — 1375/1375 parse, geometry rendered** | `tools/asset/smdl.py`, `render_smdl.py` |
 | Motion format (`.smot`/`Smot`) | **DONE — 1721/1721 parse; quaternions verified. 98 of 60,803 time arrays unexplained** | `tools/asset/smot.py` |
 | Collision format (`.scol`/`SCol`) | **DONE at loader level — 992/992 parse. 40-byte node internals not reversed** | `tools/asset/scol.py` |
+| C++ asset layer | **DONE for MPK/.stex/.smdl** — port of the verified Python | `src/mcf/` |
+| Desktop host (window + GLES2) | **FIRST LIGHT** — textured model renders | `src/host/main.cpp` |
+| Audio / input / game loop | NOT STARTED | — |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
-| Desktop host (window/GL/audio/input) | NOT STARTED | `src/host/` |
 
 ## Open questions (gate the next step)
 
@@ -54,6 +56,15 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 - NOTE: container magics are written but **never checked** by the engine, so
   magic-based dispatch is not an option — `Resource::LoadFromFile` switches on a
   `ResourceKind` enum derived from the caller, not the file.
+
+## Building and running
+
+    cmake -S . -B build -G Ninja && cmake --build build
+    ./build/mana --model B0000_00 --screenshot out.png
+
+Needs SDL3 and GLESv2; lucent is fetched by CMake. `--screenshot` renders one
+frame and exits, using SDL's `offscreen` video driver when no display is present,
+so the renderer is verifiable headlessly.
 
 ## Where the port stands
 

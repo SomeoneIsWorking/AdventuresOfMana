@@ -1,0 +1,382 @@
+// Desktop host: opens sk1.mpk, uploads a model + its texture, and draws it with
+// the game's OWN GLES2 shaders (lifted verbatim from libmcfandroid.so .rodata).
+//
+// --screenshot renders a single frame and writes a PNG, so correctness can be
+// checked without a display. That is the acceptance test for this stage.
+#include <SDL3/SDL.h>
+#include <GLES2/gl2.h>
+
+#include <cmath>
+#include <cstring>
+#include <format>
+#include <numbers>
+#include <string>
+#include <vector>
+
+#include <lucent/config.h>
+#include <lucent/log.h>
+
+#include "mcf/mcf.h"
+
+namespace {
+
+// --- the shipping game's shaders, byte-for-byte from the binary --------------
+// Matches the 24-byte vertex layout (position, color, texcoord0).
+constexpr const char* kVS =
+    "attribute vec4 position; attribute vec4 color; attribute vec2 texcoord0; "
+    "uniform mat4 mVP; varying vec4 colorVarying; varying vec2 texcoordVarying; "
+    "void main() { gl_Position = mVP * position; colorVarying = color; "
+    "texcoordVarying = texcoord0; }";
+
+constexpr const char* kFS =
+    "precision highp float; uniform sampler2D texture0; varying vec4 colorVarying; "
+    "varying vec2 texcoordVarying; void main() { vec4 color = texture2D( texture0 , "
+    "texcoordVarying ); gl_FragColor = colorVarying * color; }";
+
+struct Mat4 {
+    float m[16]{};
+    static Mat4 Identity() {
+        Mat4 r;
+        r.m[0] = r.m[5] = r.m[10] = r.m[15] = 1.f;
+        return r;
+    }
+    Mat4 operator*(const Mat4& o) const {
+        Mat4 r;
+        for (int c = 0; c < 4; ++c)
+            for (int i = 0; i < 4; ++i) {
+                float s = 0;
+                for (int k = 0; k < 4; ++k) s += m[k * 4 + i] * o.m[c * 4 + k];
+                r.m[c * 4 + i] = s;
+            }
+        return r;
+    }
+};
+
+Mat4 Perspective(float fovy, float aspect, float zn, float zf) {
+    Mat4 r;
+    float f = 1.f / std::tan(fovy * 0.5f);
+    r.m[0] = f / aspect;
+    r.m[5] = f;
+    r.m[10] = (zf + zn) / (zn - zf);
+    r.m[11] = -1.f;
+    r.m[14] = (2.f * zf * zn) / (zn - zf);
+    return r;
+}
+
+Mat4 LookAt(const float e[3], const float c[3], const float up[3]) {
+    auto sub = [](const float a[3], const float b[3], float o[3]) {
+        for (int i = 0; i < 3; ++i) o[i] = a[i] - b[i];
+    };
+    auto norm = [](float v[3]) {
+        float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        if (l > 0) for (int i = 0; i < 3; ++i) v[i] /= l;
+    };
+    auto cross = [](const float a[3], const float b[3], float o[3]) {
+        o[0] = a[1] * b[2] - a[2] * b[1];
+        o[1] = a[2] * b[0] - a[0] * b[2];
+        o[2] = a[0] * b[1] - a[1] * b[0];
+    };
+    float fwd[3], s[3], u[3];
+    sub(c, e, fwd); norm(fwd);
+    cross(fwd, up, s); norm(s);
+    cross(s, fwd, u);
+    Mat4 r = Mat4::Identity();
+    r.m[0] = s[0];  r.m[4] = s[1];  r.m[8]  = s[2];
+    r.m[1] = u[0];  r.m[5] = u[1];  r.m[9]  = u[2];
+    r.m[2] = -fwd[0]; r.m[6] = -fwd[1]; r.m[10] = -fwd[2];
+    r.m[12] = -(s[0]*e[0] + s[1]*e[1] + s[2]*e[2]);
+    r.m[13] = -(u[0]*e[0] + u[1]*e[1] + u[2]*e[2]);
+    r.m[14] =  (fwd[0]*e[0] + fwd[1]*e[1] + fwd[2]*e[2]);
+    return r;
+}
+
+GLuint Compile(GLenum kind, const char* src) {
+    GLuint s = glCreateShader(kind);
+    glShaderSource(s, 1, &src, nullptr);
+    glCompileShader(s);
+    GLint ok = 0;
+    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[2048]{};
+        glGetShaderInfoLog(s, sizeof(log), nullptr, log);
+        throw mcf::Error(std::format("shader compile failed: {}", log));
+    }
+    return s;
+}
+
+void WritePng(const std::string& path, int w, int h, const std::vector<uint8_t>& rgba);
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    lucent::config::set_prefix("MANA_");
+
+    std::string archive = "scratch/raw/assets/sk1/sk1.mpk";
+    std::string model = "B0000_00";
+    std::string shot;
+    for (int i = 1; i < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "--archive" && i + 1 < argc) archive = argv[++i];
+        else if (a == "--model" && i + 1 < argc) model = argv[++i];
+        else if (a == "--screenshot" && i + 1 < argc) shot = argv[++i];
+        else if (a == "--help") {
+            std::printf("usage: %s [--archive sk1.mpk] [--model NAME] "
+                        "[--screenshot out.png]\n", argv[0]);
+            return 0;
+        }
+    }
+
+    try {
+        mcf::Archive ar(archive);
+        lucent::info("assets", "opened {} ({} entries)", archive, ar.entries().size());
+
+        auto mdl = mcf::ParseSmdl(ar.Read(std::format("sk1/{}.smdl", model)));
+        lucent::info("assets", "{}: {} verts, {} indices ({}-bit), stride {}, {} bones",
+                     model, mdl.vertex_count, mdl.index_count, mdl.index_size * 8,
+                     mdl.vertex_stride, mdl.bone_count);
+
+        mcf::TextureSet tex;
+        std::string texname = std::format("sk1/{}.stex", model);
+        if (ar.Has(texname)) {
+            tex = mcf::ParseStex(ar.Read(texname));
+            for (const auto& t : tex.textures)
+                lucent::info("assets", "  texture '{}' {}x{} mips={}", t.name, t.width,
+                             t.height, t.mips);
+        } else {
+            // Map geometry does not carry a .stex; it binds shared textures via
+            // .stexinfo + .mtex through AppMapTexture::SetBinary, which is not
+            // reversed yet. Not an error -- a known gap.
+            lucent::warn("assets", "no {} in archive; drawing untextured white "
+                         "(map models use .stexinfo/.mtex, not yet supported)", texname);
+        }
+
+        if (shot.empty() && !SDL_getenv("DISPLAY") && !SDL_getenv("WAYLAND_DISPLAY"))
+            lucent::warn("host", "no display detected; use --screenshot for headless");
+        if (!shot.empty() && !SDL_getenv("DISPLAY") && !SDL_getenv("WAYLAND_DISPLAY"))
+            SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
+
+        if (!SDL_Init(SDL_INIT_VIDEO))
+            throw mcf::Error(std::format("SDL_Init: {}", SDL_GetError()));
+
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+
+        const int W = 720, H = 720;
+        SDL_Window* win = SDL_CreateWindow("Adventures of Mana", W, H, SDL_WINDOW_OPENGL);
+        if (!win) throw mcf::Error(std::format("SDL_CreateWindow: {}", SDL_GetError()));
+        SDL_GLContext ctx = SDL_GL_CreateContext(win);
+        if (!ctx) throw mcf::Error(std::format("SDL_GL_CreateContext: {}", SDL_GetError()));
+        lucent::info("host", "GL_VERSION  {}", (const char*)glGetString(GL_VERSION));
+        lucent::info("host", "GL_RENDERER {}", (const char*)glGetString(GL_RENDERER));
+
+        GLuint prog = glCreateProgram();
+        glAttachShader(prog, Compile(GL_VERTEX_SHADER, kVS));
+        glAttachShader(prog, Compile(GL_FRAGMENT_SHADER, kFS));
+        glBindAttribLocation(prog, 0, "position");
+        glBindAttribLocation(prog, 1, "color");
+        glBindAttribLocation(prog, 2, "texcoord0");
+        glLinkProgram(prog);
+        GLint linked = 0;
+        glGetProgramiv(prog, GL_LINK_STATUS, &linked);
+        if (!linked) {
+            char log[2048]{};
+            glGetProgramInfoLog(prog, sizeof(log), nullptr, log);
+            throw mcf::Error(std::format("link failed: {}", log));
+        }
+
+        GLuint vbo, ibo;
+        glGenBuffers(1, &vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        auto vs = mdl.vertices();
+        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(vs.size()), vs.data(), GL_STATIC_DRAW);
+        glGenBuffers(1, &ibo);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+        auto is = mdl.indices();
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(is.size()), is.data(),
+                     GL_STATIC_DRAW);
+
+        // A missing texture must not render as black -- that is visually
+        // identical to "nothing drew", and would make a real failure look like
+        // a content gap (or vice versa). Untextured geometry shows white.
+        GLuint gltex = 0;
+        glGenTextures(1, &gltex);
+        glBindTexture(GL_TEXTURE_2D, gltex);
+        const uint8_t kWhite[4] = {255, 255, 255, 255};
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, kWhite);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        if (!tex.textures.empty()) {
+            const auto& t = tex.textures[0];
+            glBindTexture(GL_TEXTURE_2D, gltex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, GLsizei(t.width), GLsizei(t.height),
+                         0, GL_RGBA, GL_UNSIGNED_BYTE, t.pixels.data());
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        }
+
+        // Frame the model from its own bounds so any model fills the view.
+        const auto* pa = mdl.Find(mcf::VertexUsage::kPosition);
+        if (!pa) throw mcf::Error("model has no position attribute");
+        float lo[3]{1e30f, 1e30f, 1e30f}, hi[3]{-1e30f, -1e30f, -1e30f};
+        for (uint32_t i = 0; i < mdl.vertex_count; ++i) {
+            float p[3];
+            std::memcpy(p, vs.data() + i * mdl.vertex_stride + pa->offset, 12);
+            for (int k = 0; k < 3; ++k) { lo[k] = std::min(lo[k], p[k]); hi[k] = std::max(hi[k], p[k]); }
+        }
+        float ctr[3], radius = 0;
+        for (int k = 0; k < 3; ++k) { ctr[k] = (lo[k] + hi[k]) * .5f; radius = std::max(radius, hi[k] - lo[k]); }
+        lucent::info("host", "bounds ({:.1f},{:.1f},{:.1f})..({:.1f},{:.1f},{:.1f})",
+                     lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
+
+        const auto* ca = mdl.Find(mcf::VertexUsage::kColor);
+        const auto* ta = mdl.Find(mcf::VertexUsage::kTexcoord0);
+
+        glEnable(GL_DEPTH_TEST);
+        glClearColor(0.10f, 0.11f, 0.14f, 1.f);
+
+        float yaw = 0.6f;
+        bool running = true;
+        int frames = 0;
+        while (running) {
+            SDL_Event ev;
+            while (SDL_PollEvent(&ev)) {
+                if (ev.type == SDL_EVENT_QUIT) running = false;
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_ESCAPE) running = false;
+                    if (ev.key.key == SDLK_LEFT) yaw -= 0.15f;
+                    if (ev.key.key == SDLK_RIGHT) yaw += 0.15f;
+                }
+            }
+
+            float d = radius * 1.6f;
+            float eye[3]{ctr[0] + std::sin(yaw) * d, ctr[1] + radius * 0.25f,
+                         ctr[2] + std::cos(yaw) * d};
+            float up[3]{0, 1, 0};
+            Mat4 vp = Perspective(45.f * float(std::numbers::pi) / 180.f, float(W) / H,
+                                  radius * 0.05f, radius * 8.f) *
+                      LookAt(eye, ctr, up);
+
+            glViewport(0, 0, W, H);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glUseProgram(prog);
+            glUniformMatrix4fv(glGetUniformLocation(prog, "mVP"), 1, GL_FALSE, vp.m);
+            glUniform1i(glGetUniformLocation(prog, "texture0"), 0);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, gltex);
+
+            glBindBuffer(GL_ARRAY_BUFFER, vbo);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+            GLsizei stride = GLsizei(mdl.vertex_stride);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride,
+                                  (void*)(uintptr_t)pa->offset);
+            if (ca) {
+                glEnableVertexAttribArray(1);
+                glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride,
+                                      (void*)(uintptr_t)ca->offset);
+            } else {
+                glDisableVertexAttribArray(1);
+                glVertexAttrib4f(1, 1, 1, 1, 1);
+            }
+            if (ta) {
+                glEnableVertexAttribArray(2);
+                glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride,
+                                      (void*)(uintptr_t)ta->offset);
+            }
+            glDrawElements(GL_TRIANGLES, GLsizei(mdl.index_count),
+                           mdl.index_size == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT,
+                           nullptr);
+
+            if (!shot.empty()) {
+                std::vector<uint8_t> px(size_t(W) * H * 4);
+                glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                // glReadPixels is bottom-up; flip to image order.
+                std::vector<uint8_t> flip(px.size());
+                for (int y = 0; y < H; ++y)
+                    std::memcpy(&flip[size_t(y) * W * 4],
+                                &px[size_t(H - 1 - y) * W * 4], size_t(W) * 4);
+                WritePng(shot, W, H, flip);
+                lucent::info("host", "wrote {}", shot);
+                running = false;
+            }
+            SDL_GL_SwapWindow(win);
+            ++frames;
+        }
+        lucent::info("host", "{} frames", frames);
+        SDL_GL_DestroyContext(ctx);
+        SDL_DestroyWindow(win);
+        SDL_Quit();
+    } catch (const std::exception& e) {
+        lucent::error("host", "{}", e.what());
+        return 1;
+    }
+    return 0;
+}
+
+// --- minimal PNG writer (zlib "stored" blocks; no external image dep) --------
+namespace {
+uint32_t Crc32(const uint8_t* d, size_t n, uint32_t crc = 0) {
+    static uint32_t tbl[256];
+    static bool init = false;
+    if (!init) {
+        for (uint32_t i = 0; i < 256; ++i) {
+            uint32_t c = i;
+            for (int k = 0; k < 8; ++k) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+            tbl[i] = c;
+        }
+        init = true;
+    }
+    crc = ~crc;
+    for (size_t i = 0; i < n; ++i) crc = tbl[(crc ^ d[i]) & 0xFF] ^ (crc >> 8);
+    return ~crc;
+}
+
+void Put32(std::vector<uint8_t>& v, uint32_t x) {
+    v.push_back(uint8_t(x >> 24)); v.push_back(uint8_t(x >> 16));
+    v.push_back(uint8_t(x >> 8));  v.push_back(uint8_t(x));
+}
+
+void Chunk(std::vector<uint8_t>& out, const char* tag, const std::vector<uint8_t>& d) {
+    Put32(out, uint32_t(d.size()));
+    std::vector<uint8_t> body(tag, tag + 4);
+    body.insert(body.end(), d.begin(), d.end());
+    out.insert(out.end(), body.begin(), body.end());
+    Put32(out, Crc32(body.data(), body.size()));
+}
+
+void WritePng(const std::string& path, int w, int h, const std::vector<uint8_t>& rgba) {
+    std::vector<uint8_t> raw;
+    raw.reserve(size_t(h) * (size_t(w) * 4 + 1));
+    for (int y = 0; y < h; ++y) {
+        raw.push_back(0);
+        raw.insert(raw.end(), &rgba[size_t(y) * w * 4], &rgba[size_t(y) * w * 4] + size_t(w) * 4);
+    }
+    std::vector<uint8_t> z{0x78, 0x01};
+    uint32_t a = 1, b = 0;
+    for (uint8_t c : raw) { a = (a + c) % 65521; b = (b + a) % 65521; }
+    for (size_t i = 0; i < raw.size(); i += 65535) {
+        uint16_t n = uint16_t(std::min<size_t>(65535, raw.size() - i));
+        z.push_back(i + n >= raw.size() ? 1 : 0);
+        z.push_back(uint8_t(n)); z.push_back(uint8_t(n >> 8));
+        z.push_back(uint8_t(~n)); z.push_back(uint8_t(~n >> 8));
+        z.insert(z.end(), raw.begin() + long(i), raw.begin() + long(i + n));
+    }
+    Put32(z, (b << 16) | a);
+
+    std::vector<uint8_t> png{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+    std::vector<uint8_t> ihdr;
+    Put32(ihdr, uint32_t(w)); Put32(ihdr, uint32_t(h));
+    ihdr.insert(ihdr.end(), {8, 6, 0, 0, 0});
+    Chunk(png, "IHDR", ihdr);
+    Chunk(png, "IDAT", z);
+    Chunk(png, "IEND", {});
+    if (FILE* f = std::fopen(path.c_str(), "wb")) {
+        std::fwrite(png.data(), 1, png.size(), f);
+        std::fclose(f);
+    }
+}
+}  // namespace

@@ -4,3 +4,4 @@ build/
 *.mpk
 *.so
 assets/
+compile_commands.json
