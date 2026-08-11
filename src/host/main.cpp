@@ -196,6 +196,10 @@ int main(int argc, char** argv) {
     bool has_spawn = false;
     bool fade_test = false;
     bool combat_selftest = false;
+    bool auto_attack = false;
+    int warmup = 0;
+    bool fixed_step = false;
+    bool combat_demo = false;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
@@ -209,6 +213,12 @@ int main(int argc, char** argv) {
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
         else if (a == "--audio-selftest") audio_selftest = true;
         else if (a == "--combat-selftest") combat_selftest = true;
+        else if (a == "--auto-attack") auto_attack = true;
+        // --warmup implies --fixed-step: see the loop, a frame count on an
+        // uncapped loop is not a duration.
+        else if (a == "--warmup" && i + 1 < argc) { warmup = std::atoi(argv[++i]); fixed_step = true; }
+        else if (a == "--fixed-step") fixed_step = true;
+        else if (a == "--combat-demo") combat_demo = true;
         else if (a == "--collision-probe" && i + 1 < argc) probe = argv[++i];
         else if (a == "--fade-test") fade_test = true;
         else if (a == "--spawn" && i + 2 < argc) {
@@ -758,8 +768,13 @@ int main(int argc, char** argv) {
 
             // The player. Scripts address it as "MainPlayer" (_plName in
             // sk1.lua) and it uses the C0000_00 character model.
-            mcf::Renderable hero;
-            bool have_hero = mcf::LoadRenderable(ar, "C0000_00", white, &hero);
+            // The player's model must also live in `cache`: the combat test
+            // resolves an attacker's model through that map, so loading it only
+            // into `hero` made the player invisible to its own hit test.
+            bool have_hero = cache.count("C0000_00") ||
+                             mcf::LoadRenderable(ar, "C0000_00", white, &cache["C0000_00"]);
+            if (!have_hero) cache.erase("C0000_00");
+            mcf::Renderable& hero = cache["C0000_00"];
             std::map<int, mcf::Motion> hero_motions;
             auto heroMotion = [&](int id) -> const mcf::Motion* {
                 auto it = hero_motions.find(id);
@@ -812,6 +827,23 @@ int main(int argc, char** argv) {
                 world.fade.remaining_ms = 500;
                 world.fade.colour[0] = world.fade.colour[1] = world.fade.colour[2] = 0;
             }
+            // Give the player a sword arc and every enemy a body sphere, matching
+            // how the scripts configure them (attack 35@180 on a bone; damage 15
+            // on y_ang). Scripts normally do this from handlers that need combat
+            // state we do not have yet, so the host seeds it.
+            constexpr int kMotionWait = 0, kMotionWalk = 1, kMotionAttack = 23;
+            constexpr float kAttackFrames = 24.f;   // ~0.8 s at 30 fps
+            float attack_left = 0.f;
+            if (auto* pl = world.Find("MainPlayer")) {
+                auto& av = pl->attack[0];
+                av.bone = "cog"; av.radius = 45.f; av.arc_deg = 180.f; av.valid = false;
+            }
+            for (auto& a : world.actors_mutable())
+                if (a.kind == 'E' || a.kind == 'B') {
+                    auto& dv = a.damage[0];
+                    dv.bone = "y_ang"; dv.radius = 15.f; dv.valid = true;
+                }
+
             float eye_cur[3]{};
             bool cam_init = false;
             bool running = true;
@@ -819,11 +851,27 @@ int main(int argc, char** argv) {
             float t = anim_t;
             int frames = 0;
             const float kWalk = 60.f;   // units/sec; rooms are 300x240
+            // A silent combat loop is ambiguous: nothing in range, or the test
+            // never ran at all. These make the negative say which.
+            struct CombatStats {
+                long swing_frames = 0;   // frames an attack volume was live
+                long pairs = 0;          // attack/damage volume pairs tested
+                long hits = 0;
+                long atk_no_model = 0, def_no_model = 0, def_no_bone = 0;
+                float closest = 1e30f;   // nearest volume separation seen
+            } cs;
             while (running) {
                 uint64_t now = SDL_GetTicks();
                 float dt = float(now - prev) / 1000.f;
                 prev = now;
                 if (dt > 0.1f) dt = 0.1f;
+                // A frame COUNT is only a duration if the step is fixed. The
+                // loop is uncapped, so --warmup 400 on this machine was ~0.5 s,
+                // not the 13 s the number suggests -- enemies closing at 30
+                // units/s covered 15 of the 98 they start at and combat looked
+                // dead. Headless runs therefore step at a fixed 30 Hz, which
+                // also makes them reproducible across machines.
+                if (fixed_step) dt = 1.f / 30.f;
 
                 SDL_Event ev;
                 while (SDL_PollEvent(&ev)) {
@@ -840,7 +888,17 @@ int main(int argc, char** argv) {
                     if (key[SDL_SCANCODE_UP]    || key[SDL_SCANCODE_W]) mz -= 1;
                     if (key[SDL_SCANCODE_DOWN]  || key[SDL_SCANCODE_S]) mz += 1;
                 }
-                bool moving = (mx != 0 || mz != 0);
+                bool attacking = attack_left > 0.f;
+                if (combat_demo && !attacking && frames > 30) {
+                    attack_left = kAttackFrames;   // swing continuously, for testing
+                    attacking = true;
+                }
+                if (auto_attack && !attacking) { attack_left = kAttackFrames; attacking = true; }
+                if (key && (key[SDL_SCANCODE_SPACE] || key[SDL_SCANCODE_Z]) && !attacking) {
+                    attack_left = kAttackFrames;
+                    attacking = true;
+                }
+                bool moving = (mx != 0 || mz != 0) && !attacking;   // no moving mid-swing
                 if (moving) {
                     float ox = px, oz = pz;
                     float len = std::sqrt(mx * mx + mz * mz);
@@ -889,6 +947,40 @@ int main(int argc, char** argv) {
                 vp = Perspective(fov * 2.f * kDeg, float(W) / H, zn, zf) *
                      LookAt(eye_cur, look, up);
 
+                // Drive the player's attack volume from the swing, and keep the
+                // world actor in sync so the shared hit test sees it.
+                if (attack_left > 0.f) attack_left -= dt * 30.f;
+                if (auto* pl = world.Find("MainPlayer")) {
+                    pl->pos[0] = px - room_org[0];
+                    pl->pos[1] = py - room_org[1];
+                    pl->pos[2] = pz - room_org[2];
+                    pl->rot_y = pdeg;
+                    pl->motion = attacking ? kMotionAttack : (moving ? kMotionWalk : kMotionWait);
+                    // Only the middle of the swing connects, so a held key does
+                    // not produce a continuous damage beam.
+                    auto it = pl->attack.find(0);
+                    if (it != pl->attack.end())
+                        it->second.valid = attack_left > kAttackFrames * 0.25f &&
+                                           attack_left < kAttackFrames * 0.75f;
+                }
+
+                // Enemies close on the player. Deliberately minimal -- the real
+                // AI lives in native code that is not reversed.
+                for (auto& a : world.actors_mutable()) {
+                    if (!a.alive || (a.kind != 'E' && a.kind != 'B')) continue;
+                    float ax = a.pos[0] + room_org[0], az = a.pos[2] + room_org[2];
+                    float dx = px - ax, dz = pz - az;
+                    float d2 = dx * dx + dz * dz;
+                    if (d2 < 1.f || d2 > 200.f * 200.f) continue;
+                    float d = std::sqrt(d2);
+                    if (d < 40.f) { a.motion = kMotionWait; continue; }
+                    float step = 30.f * dt;
+                    a.pos[0] += dx / d * step;
+                    a.pos[2] += dz / d * step;
+                    a.rot_y = std::atan2(dx, dz);
+                    a.motion = kMotionWalk;
+                }
+
                 t += dt * 30.f;      // motions are keyed in frames at 30fps
                 if (!fade_test) world.fade.Tick(dt * 1000.f);
                 sc.ResumeCoroutines();
@@ -917,9 +1009,10 @@ int main(int argc, char** argv) {
                     if (!atk.alive || atk.attack.empty()) continue;
                     auto an = mcf::ActorModelName(atk.kind, atk.type_id);
                     auto ait = cache.find(an);
-                    if (ait == cache.end()) continue;
+                    if (ait == cache.end()) { ++cs.atk_no_model; continue; }
                     for (const auto& [ai, av] : atk.attack) {
                         if (!av.valid || av.bone.empty()) continue;
+                        ++cs.swing_frames;
                         float ap[3];
                         if (!mcf::BoneLocalPos(ait->second.model, nullptr, t, av.bone, ap))
                             continue;
@@ -929,16 +1022,22 @@ int main(int argc, char** argv) {
                             if (&def == &atk || !def.alive || def.damage.empty()) continue;
                             auto dn = mcf::ActorModelName(def.kind, def.type_id);
                             auto dit = cache.find(dn);
-                            if (dit == cache.end()) continue;
+                            if (dit == cache.end()) { ++cs.def_no_model; continue; }
                             for (const auto& [di, dv] : def.damage) {
                                 if (!dv.valid || dv.bone.empty()) continue;
                                 float dp[3];
                                 if (!mcf::BoneLocalPos(dit->second.model, nullptr, t, dv.bone, dp))
-                                    continue;
+                                    { ++cs.def_no_bone; continue; }
                                 for (int k = 0; k < 3; ++k)
                                     dp[k] += def.pos[k] + room_org[k] + dv.offset[k];
+                                ++cs.pairs;
+                                float sx = dp[0] - ap[0], sz = dp[2] - ap[2],
+                                      sy = dp[1] - ap[1];
+                                cs.closest = std::min(cs.closest,
+                                    std::sqrt(sx * sx + sy * sy + sz * sz));
                                 if (!mcf::HitArcSphere(ap, av.radius, av.arc_deg,
                                                        atk.rot_y, dp, dv.radius)) continue;
+                                ++cs.hits;
                                 lucent::info("combat", "{} atk[{}] '{}' hits {} dmg[{}] '{}'",
                                              atk.handle, ai, av.bone, def.handle, di, dv.bone);
                             }
@@ -973,7 +1072,26 @@ int main(int argc, char** argv) {
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
                 anim_t = t;
                 drawOne(stage, origin_zero, nullptr);
-                for (const auto& p : placed) drawOne(*p.r, p.pos, p.mo);
+                // Draw from LIVE actor state: `placed` was a load-time snapshot,
+                // so enemies that move would have rendered at their spawn point.
+                for (const auto& a : world.actors()) {
+                    if (!a.alive || a.handle == "MainPlayer") continue;
+                    auto nm = mcf::ActorModelName(a.kind, a.type_id);
+                    auto it = cache.find(nm);
+                    if (it == cache.end()) continue;
+                    const mcf::Motion* mo = nullptr;
+                    if (!it->second.model.bones.empty()) {
+                        auto f = ar.FindByPrefix(mcf::World::MotionPrefix(nm, a.motion));
+                        if (!f.empty()) {
+                            auto mit = motions.find(f);
+                            if (mit == motions.end()) mit = motions.emplace(f, mcf::ParseSmot(ar.Read(f))).first;
+                            mo = &mit->second;
+                        }
+                    }
+                    float wp[3]{a.pos[0] + room_org[0], a.pos[1] + room_org[1],
+                                a.pos[2] + room_org[2]};
+                    drawOne(it->second, wp, mo, a.rot_y);
+                }
                 if (have_hero) {
                     float hp[3]{px, py, pz};
                     drawOne(hero, hp, heroMotion(moving ? 1 : 0), pdeg);
@@ -1005,7 +1123,7 @@ int main(int argc, char** argv) {
                 // Capture BEFORE presenting: SDL_GL_SwapWindow may discard the
                 // back buffer, so reading after it returns an undefined (here,
                 // black) image.
-                if (!shot.empty()) {
+                if (!shot.empty() && frames >= warmup) {
                     std::vector<uint8_t> px(size_t(W) * H * 4);
                     glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
                     std::vector<uint8_t> fl(px.size());
@@ -1021,6 +1139,13 @@ int main(int argc, char** argv) {
             lucent::info("host", "{} frames; audio decoded {} sounds / {} frames, bgm={}",
                          frames, audio.stat.decoded_sounds, audio.stat.decoded_frames,
                          audio.bgm_id());
+            lucent::info("combat",
+                         "{} hits from {} volume pairs over {} live-swing frames; "
+                         "closest approach {} units; skipped {} attackers / {} "
+                         "defenders with no loaded model, {} with no such bone",
+                         cs.hits, cs.pairs, cs.swing_frames,
+                         cs.pairs ? std::format("{:.1f}", cs.closest) : "n/a",
+                         cs.atk_no_model, cs.def_no_model, cs.def_no_bone);
             SDL_GL_DestroyContext(ctx);
             SDL_DestroyWindow(win);
             SDL_Quit();

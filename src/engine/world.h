@@ -154,6 +154,7 @@ public:
     bool Remove(const std::string& handle);
 
     const std::vector<Actor>& actors() const { return actors_; }
+    std::vector<Actor>& actors_mutable() { return actors_; }
     Camera camera;
     Fade fade;
     std::vector<EventBox> boxes;
