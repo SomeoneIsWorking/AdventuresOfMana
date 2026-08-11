@@ -43,6 +43,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Enemy behaviour | PLACEHOLDER — closes on the player, stops at 40 units, no mutual separation (they stack). Real AI is unreversed native code. No damage is applied yet | `src/host/main.cpp` |
 | Event boxes + transitions | **Edge-triggered boxes run handlers as coroutines; `mapjump` loads the destination room** | `src/engine/script.cpp`, `src/host/main.cpp` |
 | Audio | **BGM + SE play, driven by scripts** | `src/engine/audio.cpp` |
+| Game data tables (`enemydat.bin`) | PARTIAL — file identified via `DataTableInit`; enemy table is 107 records of 408 bytes (exact division) and the 10 fields the engine reads are located. **Which field is HP is NOT established** | `docs/assets.md` |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 
 ## Open questions (gate the next step)
@@ -72,7 +73,8 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 - `.stexinfo` record +0x80 (a small u32) is unidentified.
 - **Dialogue text is missing from the extracted data entirely** — see
   `docs/assets.md`. Likely in the OBB this repack omits, or hashed. Blocks all
-  UI/dialogue work.
+  UI/dialogue work. **NEW LEAD, not yet followed:** `DataTableGetName` and
+  `DataTableGetHelpString` index `sk1/enemydat.bin`, which IS present.
 - NOTE: container magics are written but **never checked** by the engine, so
   magic-based dispatch is not an option — `Resource::LoadFromFile` switches on a
   `ResourceKind` enum derived from the caller, not the file.

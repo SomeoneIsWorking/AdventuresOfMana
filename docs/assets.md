@@ -725,3 +725,44 @@ Note the first attempt to measure this reported "no change" — a `< 40`
 near-black threshold, while the shadow quads are exactly 50. The instrument was
 wrong, not the fix; the counts above come from a direct before/after pixel diff
 with no threshold.
+
+## `sk1/enemydat.bin` — the game's data tables
+
+Found via the `DataTable*` exports. `DataTableInit()` @ `0x2c36bc` reads exactly
+one file, `sk1/enemydat.bin`, and stores the buffer and its byte size in `.data`
+at `0x420ce8` / `0x420ce0`. Every `DataTableGet*` accessor indexes into it:
+
+| Accessor | Record stride | Keyed by |
+|---|---|---|
+| `DataTableGetEnemy(int)` @ `0x2c3d4c` | **0x198 (408)** | linear search on word 0 |
+| `DataTableGetItem(int)` @ `0x2c38f4` | 0x14 (20) | direct index, bounds `< 0x25` |
+
+`DataTableGetEnemy` derives its record count by dividing the stored file size by
+0x198 (the `umulh` by `0xa0a0…a1` then `lsr #8`). **43656 / 408 = 107 exactly**,
+so the enemy table is 107 records and the stride is confirmed by the file
+dividing evenly.
+
+Sibling accessors, not yet followed: `DataTableGetLevelUp`, `DataTableGetName`,
+`DataTableGetItemName`, `DataTableGetItemArticleName`, `DataTableGetWeapon`,
+`DataTableGetThrowWeapon`, `DataTableGetDefence`, `DataTableGetMagic`,
+`DataTableGetHelpString`, `DataTableGetBgm`, `DataTableGetEffectPrm`,
+`DataTableGetIdType`, `DataTableIconPictureID`.
+
+### Enemy record fields the engine actually reads
+
+`AppCharacterEnemy::SetEnemyId` / `::SetBossId` memcpy the whole 408-byte record
+into the character at `+0x3a24`, so every later `[x19, #0x3a**]` access is a
+record field at a known offset. Those functions read exactly ten:
+
+| Record offset | Read as |
+|---|---|
+| +0x000 | i32 — the id the accessor searches on |
+| +0x008, +0x020 | i32 |
+| +0x058, +0x05C, +0x060, +0x068 | f32 |
+| +0x064, +0x06C, +0x078, +0x07C | i32 |
+
+**Which field is HP is NOT established**, and no combat damage is applied in the
+port on a guess. Ids are sparse (0..209 across 107 records), not sequential.
+
+`DataTableGetName` and `DataTableGetHelpString` are a live lead on the missing
+text problem recorded above and have not been followed yet.
