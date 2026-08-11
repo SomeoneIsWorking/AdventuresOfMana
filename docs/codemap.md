@@ -35,7 +35,8 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Desktop host (window + GLES2) | **Textured characters + rooms; GPU skinning + .smot playback** | `src/host/main.cpp` |
 | Lua bridge | **Lua 5.3 + all 200 `cmd` bindings; 714/715 scripts run** (stubs record calls) | `src/engine/script.cpp` |
 | Actor system | **Live actors driven by scripts**, rendered and animated in their rooms | `src/engine/world.{h,cpp}`, `src/host/render.cpp` |
-| Audio / input / game loop | NOT STARTED | — |
+| Game loop + player | **Real-time loop, WASD/arrow movement, floor-following, WAIT/WALK** | `src/host/main.cpp` |
+| Audio | NOT STARTED — 176 .wav + 60 .ogg extracted, untouched | — |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 
 ## Open questions (gate the next step)
@@ -91,6 +92,15 @@ it on the floor via a collision query, resolves its motion by numeric prefix, an
 draws it GPU-skinned. Frames at t=0 and t=20 differ by 22,416 bytes, which is how
 the animation is confirmed to be applied rather than silently falling back to
 bind pose.
+
+## Running it
+
+    ./build/mana --render-room M0000_03_06              # interactive
+    ./build/mana --render-room M0000_03_06 --screenshot out.png   # one frame, headless
+
+Arrow keys / WASD move the player, Esc quits. The player refuses to step off the
+collision mesh and follows floor height; motion switches between WAIT (0) and
+WALK (1). ~4000 frames in 3 s headless (uncapped, no vsync).
 
 ## Where the port stands
 

@@ -535,11 +535,14 @@ int main(int argc, char** argv) {
             glViewport(0, 0, W, H);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+            float origin_zero[3]{0, 0, 0};
             auto drawOne = [&](const mcf::Renderable& r, const float t[3],
-                               const mcf::Motion* mo) {
+                               const mcf::Motion* mo, float yaw = 0.f) {
                 GLuint pr = r.skinned() ? progSkin : progFlat;
                 glUseProgram(pr);
                 Mat4 m = Mat4::Identity();
+                float cs = std::cos(yaw), sn = std::sin(yaw);
+                m.m[0] = cs; m.m[2] = -sn; m.m[8] = sn; m.m[10] = cs;
                 m.m[12] = t[0]; m.m[13] = t[1]; m.m[14] = t[2];
                 Mat4 mvp = vp * m;
                 glUniformMatrix4fv(glGetUniformLocation(pr, "mVP"), 1, GL_FALSE, mvp.m);
@@ -581,20 +584,95 @@ int main(int argc, char** argv) {
                 }
             };
 
-            float origin[3]{0, 0, 0};
-            drawOne(stage, origin, nullptr);
-            for (const auto& p : placed) drawOne(*p.r, p.pos, p.mo);
+            // The player. Scripts address it as "MainPlayer" (_plName in
+            // sk1.lua) and it uses the C0000_00 character model.
+            mcf::Renderable hero;
+            bool have_hero = mcf::LoadRenderable(ar, "C0000_00", white, &hero);
+            std::map<int, mcf::Motion> hero_motions;
+            auto heroMotion = [&](int id) -> const mcf::Motion* {
+                auto it = hero_motions.find(id);
+                if (it != hero_motions.end()) return &it->second;
+                auto f = ar.FindByPrefix(mcf::World::MotionPrefix("C0000_00", id));
+                if (f.empty()) return nullptr;
+                hero_motions[id] = mcf::ParseSmot(ar.Read(f));
+                return &hero_motions[id];
+            };
+            float px = ctr[0], pz = ctr[2], py = 0, pdeg = 0;
+            if (have_col && !col.GetFloor(px, pz, ~0u, &py)) py = 0;
+            world.Spawn("MainPlayer", 0, px, py, pz).kind = 'C';
 
-            if (!shot.empty()) {
-                std::vector<uint8_t> px(size_t(W) * H * 4);
-                glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-                std::vector<uint8_t> fl(px.size());
-                for (int y = 0; y < H; ++y)
-                    std::memcpy(&fl[size_t(y) * W * 4], &px[size_t(H - 1 - y) * W * 4], size_t(W) * 4);
-                WritePng(shot, W, H, fl);
-                lucent::info("host", "wrote {}", shot);
+            bool running = true;
+            uint64_t prev = SDL_GetTicks();
+            float t = anim_t;
+            int frames = 0;
+            const float kWalk = 60.f;   // units/sec; rooms are 300x240
+            while (running) {
+                uint64_t now = SDL_GetTicks();
+                float dt = float(now - prev) / 1000.f;
+                prev = now;
+                if (dt > 0.1f) dt = 0.1f;
+
+                SDL_Event ev;
+                while (SDL_PollEvent(&ev)) {
+                    if (ev.type == SDL_EVENT_QUIT) running = false;
+                    if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
+                        running = false;
+                }
+                int nk = 0;
+                const bool* key = SDL_GetKeyboardState(&nk);
+                float mx = 0, mz = 0;
+                if (key) {
+                    if (key[SDL_SCANCODE_LEFT]  || key[SDL_SCANCODE_A]) mx -= 1;
+                    if (key[SDL_SCANCODE_RIGHT] || key[SDL_SCANCODE_D]) mx += 1;
+                    if (key[SDL_SCANCODE_UP]    || key[SDL_SCANCODE_W]) mz -= 1;
+                    if (key[SDL_SCANCODE_DOWN]  || key[SDL_SCANCODE_S]) mz += 1;
+                }
+                bool moving = (mx != 0 || mz != 0);
+                if (moving) {
+                    float len = std::sqrt(mx * mx + mz * mz);
+                    px += mx / len * kWalk * dt;
+                    pz += mz / len * kWalk * dt;
+                    pdeg = std::atan2(mx, mz);
+                    // Refuse to walk off the collision mesh rather than
+                    // silently floating: revert the step if there is no floor.
+                    float g;
+                    if (have_col && !col.GetFloor(px, pz, ~0u, &g)) {
+                        px -= mx / len * kWalk * dt;
+                        pz -= mz / len * kWalk * dt;
+                    } else if (have_col) {
+                        py = g;
+                    }
+                }
+                t += dt * 30.f;      // motions are keyed in frames at 30fps
+
+                glViewport(0, 0, W, H);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                anim_t = t;
+                drawOne(stage, origin_zero, nullptr);
+                for (const auto& p : placed) drawOne(*p.r, p.pos, p.mo);
+                if (have_hero) {
+                    float hp[3]{px, py, pz};
+                    drawOne(hero, hp, heroMotion(moving ? 1 : 0), pdeg);
+                }
+                ++frames;
+
+                // Capture BEFORE presenting: SDL_GL_SwapWindow may discard the
+                // back buffer, so reading after it returns an undefined (here,
+                // black) image.
+                if (!shot.empty()) {
+                    std::vector<uint8_t> px(size_t(W) * H * 4);
+                    glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                    std::vector<uint8_t> fl(px.size());
+                    for (int y = 0; y < H; ++y)
+                        std::memcpy(&fl[size_t(y) * W * 4],
+                                    &px[size_t(H - 1 - y) * W * 4], size_t(W) * 4);
+                    WritePng(shot, W, H, fl);
+                    lucent::info("host", "wrote {}", shot);
+                    running = false;
+                }
+                SDL_GL_SwapWindow(win);
             }
-            SDL_GL_SwapWindow(win);
+            lucent::info("host", "{} frames", frames);
             SDL_GL_DestroyContext(ctx);
             SDL_DestroyWindow(win);
             SDL_Quit();
