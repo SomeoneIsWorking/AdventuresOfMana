@@ -195,6 +195,7 @@ int main(int argc, char** argv) {
     float spawn_x = 0, spawn_z = 0;
     bool has_spawn = false;
     bool fade_test = false;
+    bool combat_selftest = false;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
@@ -207,6 +208,7 @@ int main(int argc, char** argv) {
         else if (a == "--render-room" && i + 1 < argc) render_room = argv[++i];
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
         else if (a == "--audio-selftest") audio_selftest = true;
+        else if (a == "--combat-selftest") combat_selftest = true;
         else if (a == "--collision-probe" && i + 1 < argc) probe = argv[++i];
         else if (a == "--fade-test") fade_test = true;
         else if (a == "--spawn" && i + 2 < argc) {
@@ -259,6 +261,37 @@ int main(int argc, char** argv) {
                              names[d], dist, why);
             }
             return 0;
+        }
+
+        if (combat_selftest) {
+            // The detector must be run against BOTH classes. A hit test that
+            // never fires and one that always fires look identical in a game
+            // where nothing happens to overlap.
+            struct Case { const char* name; float a[3]; float ar, arc, yaw; float d[3]; float dr; bool want; };
+            const Case cases[] = {
+                {"touching spheres, full circle",   {0,0,0}, 35, 360, 0, {0,0,40}, 15, true},
+                {"just out of reach",               {0,0,0}, 35, 360, 0, {0,0,51}, 15, false},
+                {"exactly at combined radius",      {0,0,0}, 35, 360, 0, {0,0,50}, 15, true},
+                {"180 arc, target in front",        {0,0,0}, 35, 180, 0, {0,0,40}, 15, true},
+                {"180 arc, target behind",          {0,0,0}, 35, 180, 0, {0,0,-40},15, false},
+                {"180 arc, target to the side",     {0,0,0}, 35, 180, 0, {40,0,0}, 15, true},
+                {"60 arc, target to the side",      {0,0,0}, 35,  60, 0, {40,0,0}, 15, false},
+                {"180 arc rotated to face behind",  {0,0,0}, 35, 180, 3.14159f, {0,0,-40}, 15, true},
+                {"vertical separation beyond reach",{0,0,0}, 35, 360, 0, {0,80,0}, 15, false},
+            };
+            int bad = 0;
+            for (const auto& c : cases) {
+                bool got = mcf::HitArcSphere(c.a, c.ar, c.arc, c.yaw, c.d, c.dr);
+                if (got != c.want) {
+                    lucent::error("combat", "SELFTEST FAIL: {} -> {} (want {})",
+                                  c.name, got, c.want);
+                    ++bad;
+                } else {
+                    lucent::info("combat", "  ok: {:<34} -> {}", c.name, got);
+                }
+            }
+            lucent::info("combat", "SELFTEST: {} cases, {} failures", 9, bad);
+            return bad ? 1 : 0;
         }
 
         if (audio_selftest) {
@@ -874,6 +907,43 @@ int main(int argc, char** argv) {
                             lucent::warn("lua", "{}: {}", bx.name, sc.last_error());
                     }
                     bx.inside = in;
+                }
+
+                // Combat: every valid attack volume tested against every valid
+                // damage volume on a different actor. Attack volumes are arcs
+                // (radius + degrees) and damage volumes are spheres, per how the
+                // scripts configure them.
+                for (const auto& atk : world.actors()) {
+                    if (!atk.alive || atk.attack.empty()) continue;
+                    auto an = mcf::ActorModelName(atk.kind, atk.type_id);
+                    auto ait = cache.find(an);
+                    if (ait == cache.end()) continue;
+                    for (const auto& [ai, av] : atk.attack) {
+                        if (!av.valid || av.bone.empty()) continue;
+                        float ap[3];
+                        if (!mcf::BoneLocalPos(ait->second.model, nullptr, t, av.bone, ap))
+                            continue;
+                        for (int k = 0; k < 3; ++k) ap[k] += atk.pos[k] + room_org[k] + av.offset[k];
+
+                        for (const auto& def : world.actors()) {
+                            if (&def == &atk || !def.alive || def.damage.empty()) continue;
+                            auto dn = mcf::ActorModelName(def.kind, def.type_id);
+                            auto dit = cache.find(dn);
+                            if (dit == cache.end()) continue;
+                            for (const auto& [di, dv] : def.damage) {
+                                if (!dv.valid || dv.bone.empty()) continue;
+                                float dp[3];
+                                if (!mcf::BoneLocalPos(dit->second.model, nullptr, t, dv.bone, dp))
+                                    continue;
+                                for (int k = 0; k < 3; ++k)
+                                    dp[k] += def.pos[k] + room_org[k] + dv.offset[k];
+                                if (!mcf::HitArcSphere(ap, av.radius, av.arc_deg,
+                                                       atk.rot_y, dp, dv.radius)) continue;
+                                lucent::info("combat", "{} atk[{}] '{}' hits {} dmg[{}] '{}'",
+                                             atk.handle, ai, av.bone, def.handle, di, dv.bone);
+                            }
+                        }
+                    }
                 }
 
                 if (sc.has_jump) {

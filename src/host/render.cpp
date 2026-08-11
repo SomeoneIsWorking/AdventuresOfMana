@@ -68,6 +68,36 @@ void BuildJointPalette(const Model& m, const Motion* motion, float time,
     }
 }
 
+bool BoneLocalPos(const Model& m, const Motion* motion, float time,
+                  const std::string& bone, float out[3]) {
+    const size_t nb = m.bones.size();
+    std::vector<std::array<float, 16>> world(nb);
+    size_t want = nb;
+    for (size_t i = 0; i < nb; ++i) {
+        const auto& bn = m.bones[i];
+        if (bn.name == bone) want = i;
+        std::array<float, 16> local{};
+        std::memcpy(local.data(), bn.local, 64);
+        if (motion) {
+            for (const auto& tr : motion->tracks) {
+                if (tr.name != bn.name || tr.times.empty()) continue;
+                size_t k = 0;
+                while (k + 1 < tr.times.size() && tr.times[k + 1] <= time) ++k;
+                float t[3]{bn.local[12], bn.local[13], bn.local[14]};
+                if (!tr.trans.empty()) for (int j = 0; j < 3; ++j) t[j] = tr.trans[k][j];
+                if (!tr.rot.empty()) QuatTrans(tr.rot[k].data(), t, local.data());
+                else { local[12] = t[0]; local[13] = t[1]; local[14] = t[2]; }
+                break;
+            }
+        }
+        if (bn.parent < 0) world[i] = local;
+        else MatMul4(world[size_t(bn.parent)].data(), local.data(), world[i].data());
+    }
+    if (want == nb) return false;
+    for (int k = 0; k < 3; ++k) out[k] = world[want][12 + k];
+    return true;
+}
+
 std::string ActorModelName(char kind, int type_id) {
     return std::format("{}{:04d}_00", kind, type_id);
 }

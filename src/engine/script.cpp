@@ -177,6 +177,29 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
     }
     if (n == "WepDel") { w.Remove(S(1)); return true; }
 
+    // Combat volumes. Index is arg 2 throughout; scripts configure a volume with
+    // Set (bone), Size (dimensions), then Valid (enable).
+    if (n.starts_with("ChrAttackBone") || n.starts_with("ChrDamageBone")) {
+        auto* a = w.Find(S(1));
+        if (!a) return true;
+        bool atk = n.starts_with("ChrAttackBone");
+        auto& map = atk ? a->attack : a->damage;
+        auto& v = map[int(N(2))];
+        if (n == "ChrAttackBoneSet" || n == "ChrDamageBoneSet") { v.bone = S(3); return true; }
+        if (n == "ChrAttackBoneSize") { v.radius = N(3); v.arc_deg = N(4); return true; }
+        if (n == "ChrDamageBoneSize") { v.radius = N(3); return true; }
+        if (n == "ChrDamageBoneSubPos") {
+            for (int k = 0; k < 3; ++k) v.offset[k] = N(3 + k);
+            return true;
+        }
+        if (n == "ChrAttackBoneValid" || n == "ChrDamageBoneValid") {
+            v.valid = lua_toboolean(L, 3);
+            return true;
+        }
+        if (n == "ChrAttackBoneAttackRate") { v.rate = N(3); return true; }
+        return true;   // remaining ChrAttackBone* (SE) are accepted, not modelled
+    }
+
     if (n == "SetFade") {               // (kind, milliseconds)
         w.fade.kind = int(N(1));
         w.fade.duration_ms = N(2);

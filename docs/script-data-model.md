@@ -141,3 +141,24 @@ instant. `Fade` is a real timer ticked by the frame delta.
 `MapJump(mapid, mapx, mapy, plx, ply, plz, arrow)` loads
 `M<mapid>_<mapx>_<mapy>`, places the player at room-local `(plx, ply, plz)`
 snapped to the collision floor, and faces them per `eArrow` (UP=0 RI=1 DN=2 LF=3).
+
+## Combat volumes
+
+Both attach to a named bone:
+
+    ChrDamageBoneSet(chr, i, "r_hand"); ChrDamageBoneSize(chr, i, 15)
+      -> a SPHERE of that radius
+
+    ChrAttackBoneSet(chr, i, "c_spine"); ChrAttackBoneSize(chr, i, 35, 180, ...)
+      -> an ARC: radius, then the fan angle in degrees (scripts use 35@180,
+         50@360, 20@60)
+
+`ChrAttackBoneValid` / `ChrDamageBoneValid` enable them; `ChrAttackBoneAttackRate`
+scales damage. 21 scripts configure attack volumes, 18 configure damage volumes.
+
+`HitArcSphere` is the overlap predicate, kept as pure geometry so it can be
+exercised without a running game — `--combat-selftest` runs 9 cases covering
+both a hit and a miss, the exact-radius boundary, arc inclusion and exclusion,
+attacker rotation, and vertical separation. This matters because in the rooms
+tested so far nothing happens to overlap, so a detector that never fires and one
+that always fires would produce identical logs.

@@ -18,6 +18,10 @@ for t in stex smdl smot scol; do
   python3 "tools/asset/$t.py" || fail=1
 done
 if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
+  echo "=== combat self-test ==="
+  ./build/mana --combat-selftest >/dev/null || fail=1
+  echo "  (9 cases, hit and miss)"
+
   echo "=== audio self-test ==="
   SDL_AUDIODRIVER=dummy ./build/mana --audio-selftest || fail=1
 else

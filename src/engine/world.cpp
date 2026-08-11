@@ -1,5 +1,6 @@
 #include "engine/world.h"
 
+#include <cmath>
 #include <format>
 
 namespace mcf {
@@ -30,6 +31,18 @@ bool World::Remove(const std::string& handle) {
     if (it == index_.end()) return false;
     actors_[it->second].alive = false;
     return true;
+}
+
+bool HitArcSphere(const float a[3], float ar, float arc_deg, float yaw,
+                  const float d[3], float dr) {
+    float dx = d[0] - a[0], dy = d[1] - a[1], dz = d[2] - a[2];
+    float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (dist > ar + dr) return false;
+    if (arc_deg >= 359.f) return true;          // full circle: no angular limit
+    float ang = std::atan2(dx, dz) - yaw;
+    while (ang > 3.14159265f) ang -= 6.2831853f;
+    while (ang < -3.14159265f) ang += 6.2831853f;
+    return std::fabs(ang) <= arc_deg * 0.5f * (3.14159265f / 180.f);
 }
 
 EventBox* World::FindBox(const std::string& name) {

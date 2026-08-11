@@ -75,6 +75,20 @@ struct Camera {
     }
 };
 
+// Combat volumes, both attached to a named bone.
+//   ChrDamageBoneSet(chr, i, bone); ChrDamageBoneSize(chr, i, radius)
+//     -> a SPHERE (scripts use radius 15 on r_hand / l_hand)
+//   ChrAttackBoneSet(chr, i, bone); ChrAttackBoneSize(chr, i, radius, degrees, ...)
+//     -> an ARC/fan (scripts use 35 at 180 degrees, 50 at 360)
+struct HitVolume {
+    std::string bone;
+    float radius = 0;
+    float arc_deg = 360;      // attack only; damage volumes are spheres
+    float offset[3]{};
+    bool valid = false;
+    float rate = 1.f;         // ChrAttackBoneAttackRate
+};
+
 struct Actor {
     std::string handle;          // the name scripts address it by
     std::string model;           // e.g. "B0000_00"
@@ -88,6 +102,8 @@ struct Actor {
     bool alive = true;
     bool is_weapon = false;
     std::map<int, float> data;   // sparse: slot -> value
+    std::map<int, HitVolume> attack;   // ChrAttackBone*
+    std::map<int, HitVolume> damage;   // ChrDamageBone*
 
     float Get(int slot, float dflt = 0) const {
         auto it = data.find(slot);
@@ -124,6 +140,12 @@ struct Fade {
         return kind ? p : 1.f - p;
     }
 };
+
+// Attack-arc vs damage-sphere overlap. `yaw` is the attacker's facing.
+// Pure geometry, so it can be tested against both a hit and a miss without a
+// running game -- see --combat-selftest.
+bool HitArcSphere(const float atk_pos[3], float atk_radius, float arc_deg, float yaw,
+                  const float dmg_pos[3], float dmg_radius);
 
 class World {
 public:
