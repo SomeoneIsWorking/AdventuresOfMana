@@ -104,7 +104,7 @@ struct Actor {
     // Combat status. For 'E'/'B' actors these come from sk1/enemydat.bin: the
     // engine's GetStatusMaxHp reads record +0x04 and Damage subtracts record
     // +0x0C, so these are the game's own numbers, not port inventions.
-    int hp = 0, max_hp = 0, defence = 0;
+    int hp = 0, max_hp = 0, defence = 0, attack_power = 0;
     int exp = 0, money = 0;
     // Attack volumes hit every frame they overlap. The engine applies a hit
     // once per swing, so each swing gets an id and a target is only damaged

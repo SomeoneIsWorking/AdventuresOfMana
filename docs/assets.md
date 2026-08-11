@@ -680,6 +680,31 @@ impossible under the refuted filename-number theory.
 (The shadow planes originally drew as opaque black quads. Fixed -- see the
 material blend flag below.)
 
+## Player damage, from the engine
+
+`AppCharacterPlayer::DamageProcess(int)` @ `0x2b5b40` is short and complete:
+
+    if (f32 @ +0x1ff0 > 0) return;              // invulnerability window
+    hp = [oG][+0x174] - damage;
+    hp = hp & ~(hp >> 31);                      // branchless clamp to 0
+    [oG][+0x174] = hp;
+    [this][+0x1ff0] = [this][+0x3aa0];          // reload the i-frame timer
+
+and its caller `AppCharacterPlayer::Damage` floors the amount at 1
+(`csinc w1, w20, wzr, gt`) after randomising with `GameRandom`. The port's
+floor-at-1, which had been labelled a port choice on the enemy side, is
+therefore the engine's own behaviour.
+
+The player's defence comes from `DataTableGetDefence` @ `0x2c3bd8`, which
+indexes `tblHelm` and `tblArmor` (stride 20). A new game is granted helm 201 and
+armor 301 by `GameParameter::Init`, giving **defence 2 + 2 = 4**.
+
+**NOT modelled: the player's HP pool.** `[oG][+0x174]` and `[oG][+0x17c]` are
+only ever READ in the binary -- they are populated from save data, not from a
+table -- so the port applies damage and reports the running total instead of
+inventing a maximum. The i-frame DURATION is likewise a per-character field the
+port cannot source and is a named constant.
+
 ## Material blend flag — section 0 word 9 (+0x24)
 
 Alpha-blended materials set word 9 of the 80-byte material record to 1.
@@ -770,7 +795,7 @@ records are entirely zero.
 |---|---|---|
 | +0x00 | enemy id | `DataTableGetEnemy` compares word 0 against its argument |
 | +0x04 | **max HP** | `AppCharacterEnemy::GetStatusMaxHp` @ `0x2b2318` reads the id at `+0x3a24`, calls `DataTableGetEnemy`, returns `[x0, #0x4]`. `Damage`'s death path also stores it back into the live HP field to reset the enemy |
-| +0x08 | unknown | passed as an argument into the enemy's attack-collision setup; the parameter it lands on is not identified |
+| +0x08 | **attack power** | `SetEnemyId` passes it to `SetCollisionAttackParam`, which stores it at the param's `+0x24`; `AppCharacterPlayer::Damage` loads exactly that field (`ldp s0, s1, [x21, #0x24]`) as the attacker's power |
 | +0x0C | **defence** | the subtrahend in `Damage`'s `sub w22, w28, w27`, with `w27` loaded from `[x20, #0x3a30]` |
 | +0x10 | **EXP reward** | passed to `GameParameter::AddEXP` |
 | +0x14 | **money reward** | passed to `GameParameter::AddRC` |

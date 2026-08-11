@@ -545,7 +545,7 @@ std::vector<EnemyStats> ParseEnemyDat(const std::vector<uint8_t>& file) {
         EnemyStats e;
         e.id = RdS32(file, o + 0x00);
         e.max_hp = RdS32(file, o + 0x04);
-        e.unknown_08 = RdS32(file, o + 0x08);
+        e.attack = RdS32(file, o + 0x08);
         e.defence = RdS32(file, o + 0x0C);
         e.exp = RdS32(file, o + 0x10);
         e.money = RdS32(file, o + 0x14);
@@ -554,10 +554,26 @@ std::vector<EnemyStats> ParseEnemyDat(const std::vector<uint8_t>& file) {
     return out;
 }
 
+int32_t EquipDefence(int32_t id) {
+    struct Row { int32_t id, def; };
+    static const Row kTable[] = {
+#define WEAPON(i, lo, hi)
+#define DEFENCE(i, d) {i, d},
+#include "engine/weapon_table.inc"
+#undef DEFENCE
+#undef WEAPON
+    };
+    for (const auto& r : kTable)
+        if (r.id == id) return r.def;
+    return 0;
+}
+
 const WeaponStats* FindWeapon(int32_t id) {
     static const WeaponStats kTable[] = {
 #define WEAPON(i, lo, hi) {i, lo, hi},
+#define DEFENCE(i, d)
 #include "engine/weapon_table.inc"
+#undef DEFENCE
 #undef WEAPON
     };
     for (const auto& w : kTable)

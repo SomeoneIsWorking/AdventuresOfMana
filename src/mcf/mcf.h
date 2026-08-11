@@ -260,6 +260,7 @@ const char* MapObjectModel(int32_t id);
 // Field offsets below are each pinned to a specific engine read, not guessed:
 //   +0x04  AppCharacterEnemy::GetStatusMaxHp returns it, and Damage's death
 //          path stores it back into the live HP field to reset the enemy
+//   +0x08  the enemy's ATTACK power (see the field comment)
 //   +0x0C  the subtrahend in Damage's `sub w22, w28, w27`
 //   +0x10  passed to GameParameter::AddEXP
 //   +0x14  passed to GameParameter::AddRC
@@ -267,8 +268,10 @@ const char* MapObjectModel(int32_t id);
 struct EnemyStats {
     int32_t id = 0;
     int32_t max_hp = 0;      // +0x04
-    int32_t unknown_08 = 0;  // +0x08 -- fed to the attack-collision setup; the
-                             // parameter it lands on is not identified
+    int32_t attack = 0;      // +0x08 -- SetEnemyId passes it to
+                             // SetCollisionAttackParam, which stores it at the
+                             // param's +0x24, and AppCharacterPlayer::Damage
+                             // loads exactly that field as the attack power
     int32_t defence = 0;     // +0x0C
     int32_t exp = 0;         // +0x10
     int32_t money = 0;       // +0x14
@@ -284,5 +287,12 @@ const WeaponStats* FindWeapon(int32_t id);
 // VERIFIED, not assumed: GameParameter::Init @ 0x2c6d14 grants weapon 101
 // (`mov w1, #0x65` into AddItem with count 1), alongside 201, 301 and 401.
 constexpr int32_t kStartingWeaponId = 101;
+
+// tblHelm / tblArmor defence, indexed by DataTableGetDefence @ 0x2c3bd8.
+// Returns 0 for an id not in either table.
+int32_t EquipDefence(int32_t id);
+// The other two ids GameParameter::Init grants a new game (AddItem 0xc9, 0x12d).
+constexpr int32_t kStartingHelmId = 201;
+constexpr int32_t kStartingArmorId = 301;
 
 }  // namespace mcf

@@ -28,3 +28,32 @@ From the game binary's `.data` at VMA `0x40e8ec` (file offset `0x4068ec`; `.data
 | 121 | 0–0 | 0 | 0 | 6 |
 
 Fields at +0x1C, +0x20 and +0x24 are not identified; +0x24 is 8 in every record.
+
+## `tblHelm` — defence
+
+Stride 20, from `DataTableGetDefence` @ `0x2c3bd8`.
+
+| id | defence |
+|---|---|
+| 201 | 2 |
+| 202 | 3 |
+| 203 | 8 |
+| 204 | 14 |
+| 205 | 19 |
+| 206 | 25 |
+
+## `tblArmor` — defence
+
+Stride 20, from `DataTableGetDefence` @ `0x2c3bd8`.
+
+| id | defence |
+|---|---|
+| 301 | 2 |
+| 302 | 7 |
+| 303 | 10 |
+| 304 | 15 |
+| 305 | 20 |
+| 306 | 28 |
+| 307 | 34 |
+| 308 | 44 |
+| 309 | 18 |

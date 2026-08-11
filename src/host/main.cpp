@@ -864,7 +864,7 @@ int main(int argc, char** argv) {
             // One renderable per distinct model, instanced per actor.
             placed.clear();
 
-            for (const auto& a : world.actors()) {
+            for (auto& a : world.actors_mutable()) {
                 if (!a.alive) continue;
                 auto nm = mcf::ActorModelName(a.kind, a.type_id);
                 if (nm.empty()) continue;   // eNPC.TRANS: invisible by design
@@ -885,6 +885,12 @@ int main(int argc, char** argv) {
                         lucent::info("world", "  {} floor at ({:.1f},{:.1f}) = {:.2f} "
                                      "(script Y was {:.1f})", a.handle, wx, wz, g, a.pos[1]);
                         wy = g;
+                        // Write it BACK. This correction used to live only in
+                        // the `placed` snapshot, so the actor itself kept the
+                        // script's Y -- 30 units above the floor for these
+                        // enemies -- and every consumer of a.pos (the live draw
+                        // loop, and every combat volume) used the wrong height.
+                        a.pos[1] = g - room_org[1];
                     } else {
                         lucent::warn("world", "  {} at ({:.1f},{:.1f}) is over no floor; "
                                      "keeping script Y {:.1f}", a.handle, wx, wz, a.pos[1]);
@@ -1124,6 +1130,19 @@ int main(int argc, char** argv) {
             // save system, so this is the id a new game starts with) and any
             // level-up bonus (tblLevelup is a 4-entry growth cycle, not
             // decoded). So the NUMBER is real; the SELECTION is an assumption.
+            // Player defence from the equipment a new game is granted.
+            const int player_defence = mcf::EquipDefence(mcf::kStartingHelmId) +
+                                       mcf::EquipDefence(mcf::kStartingArmorId);
+            lucent::info("combat", "player defence {} (helm {} + armor {})",
+                         player_defence, mcf::EquipDefence(mcf::kStartingHelmId),
+                         mcf::EquipDefence(mcf::kStartingArmorId));
+            // AppCharacterPlayer::DamageProcess refuses damage while an
+            // invulnerability timer at +0x1ff0 is positive and reloads it from
+            // +0x3aa0 after each hit. The MECHANISM is reversed; the duration
+            // is a per-character field the port cannot source, so it is named.
+            constexpr float kPlayerIFramesStopgap = 30.f;   // frames
+            float player_iframes = 0.f;
+            long player_damage_taken = 0, player_hits = 0;
             int player_attack = 0;
             if (const auto* w = mcf::FindWeapon(mcf::kStartingWeaponId)) {
                 player_attack = w->atk_hi;
@@ -1138,6 +1157,10 @@ int main(int argc, char** argv) {
                     auto& av = pl->attack[0];
                     av.bone = "cog"; av.radius = 45.f; av.arc_deg = 180.f;
                     av.valid = false;
+                    // The player must also be a TARGET, or enemy attack volumes
+                    // have nothing to hit and combat stays one-sided.
+                    auto& pdv = pl->damage[0];
+                    pdv.bone = "y_ang"; pdv.radius = 15.f; pdv.valid = true;
                 }
                 int with_stats = 0, without = 0;
                 for (auto& a : world.actors_mutable()) {
@@ -1146,6 +1169,17 @@ int main(int argc, char** argv) {
                     dv.bone = "y_ang"; dv.radius = 15.f; dv.valid = true;
                     auto it = enemy_stats.find(a.type_id);
                     if (it == enemy_stats.end()) { ++without; continue; }
+                    // Enemies attack too. The volume is always live because
+                    // enemy attack timing is native code that is not reversed;
+                    // the player's i-frame window is what keeps this from
+                    // being a continuous damage stream, and that IS reversed.
+                    // Radius/arc are an ATTESTED script configuration rather
+                    // than a made-up number: ChrAttackBoneSize(my, 1, 20, 360)
+                    // is the most common enemy setup in the shipping scripts.
+                    auto& eav = a.attack[0];
+                    eav.bone = "y_ang"; eav.radius = 20.f; eav.arc_deg = 360.f;
+                    eav.valid = true;
+                    a.attack_power = it->second.attack;
                     a.max_hp = it->second.max_hp;
                     a.hp = a.max_hp;
                     a.defence = it->second.defence;
@@ -1175,6 +1209,8 @@ int main(int argc, char** argv) {
                 long landed = 0;         // hits that counted (one per swing/target)
                 long kills = 0;
                 long atk_no_model = 0, def_no_model = 0, def_no_bone = 0;
+                long pairs_vs_player = 0;   // enemy attack volume vs the player
+                float closest_vs_player = 1e30f, closest_xz = 0, closest_y = 0;
                 float closest = 1e30f;   // nearest volume separation seen
             } cs;
             while (running) {
@@ -1275,6 +1311,7 @@ int main(int argc, char** argv) {
                 // Drive the player's attack volume from the swing, and keep the
                 // world actor in sync so the shared hit test sees it.
                 if (attack_left > 0.f) attack_left -= dt * 30.f;
+                if (player_iframes > 0.f) player_iframes -= dt * 30.f;
                 if (auto* pl = world.Find("MainPlayer")) {
                     pl->pos[0] = px - room_org[0];
                     pl->pos[1] = py - room_org[1];
@@ -1302,7 +1339,15 @@ int main(int argc, char** argv) {
                     float d2 = dx * dx + dz * dz;
                     if (d2 < 1.f || d2 > 200.f * 200.f) continue;
                     float d = std::sqrt(d2);
-                    if (d < 40.f) { a.motion = kMotionWait; continue; }
+                    // Stop inside the enemy's own reach instead of at a magic
+                    // constant. The previous 40 predated enemies being able to
+                    // attack at all and left them permanently 49 units from the
+                    // player -- outside a 20+15 reach, so they closed in and
+                    // then stood there harmlessly.
+                    float reach = 15.f;   // the player's damage sphere
+                    if (auto it = a.attack.find(0); it != a.attack.end())
+                        reach += it->second.radius;
+                    if (d < reach * 0.7f) { a.motion = kMotionWait; continue; }
                     float step = 30.f * dt;
                     a.pos[0] += dx / d * step;
                     a.pos[2] += dz / d * step;
@@ -1371,17 +1416,50 @@ int main(int argc, char** argv) {
                                     ++cs.pairs;
                                     float sx = dp[0] - ap[0], sy = dp[1] - ap[1],
                                           sz = dp[2] - ap[2];
-                                    cs.closest = std::min(cs.closest,
-                                        std::sqrt(sx * sx + sy * sy + sz * sz));
+                                    float sep = std::sqrt(sx * sx + sy * sy + sz * sz);
+                                    cs.closest = std::min(cs.closest, sep);
+                                    if (acts[didx].handle == "MainPlayer") {
+                                        ++cs.pairs_vs_player;
+                                        if (sep < cs.closest_vs_player) {
+                                            cs.closest_vs_player = sep;
+                                            cs.closest_xz = std::sqrt(sx * sx + sz * sz);
+                                            cs.closest_y = std::fabs(sy);
+                                        }
+                                    }
                                     if (!mcf::HitArcSphere(ap, av.radius, av.arc_deg,
                                                            acts[aidx].rot_y, dp, dv.radius))
                                         continue;
                                     ++cs.hits;
 
+                                    auto& atkA = acts[aidx];
+                                    // The player is gated by the engine's OWN
+                                    // rule instead: AppCharacterPlayer::Damage
+                                    // Process refuses while the i-frame timer
+                                    // is positive. The per-swing dedup below is
+                                    // for discrete swings, which enemies do not
+                                    // have here (no attack animation is driven),
+                                    // so applying it to them let each enemy hit
+                                    // the player exactly once, ever.
+                                    if (acts[didx].handle == "MainPlayer") {
+                                        if (player_iframes > 0.f) continue;
+                                        int dmg = std::max(1, atkA.attack_power -
+                                                              player_defence);
+                                        player_damage_taken += dmg;
+                                        ++player_hits;
+                                        ++cs.landed;
+                                        player_iframes = kPlayerIFramesStopgap;
+                                        lucent::info("combat",
+                                            "{} hits MainPlayer for {} ({} atk - {} def); "
+                                            "{} taken over {} hits (no HP pool: the "
+                                            "player's max HP lives in save data)",
+                                            atkA.handle, dmg, atkA.attack_power,
+                                            player_defence, player_damage_taken,
+                                            player_hits);
+                                        continue;
+                                    }
                                     // One hit per swing per target. The volume is
                                     // live for several frames, and without this a
                                     // single swing applied its damage every frame.
-                                    auto& atkA = acts[aidx];
                                     auto key = std::make_pair(atkA.swing_id,
                                                               acts[didx].handle);
                                     if (std::find(atkA.hit_this_swing.begin(),
@@ -1531,6 +1609,14 @@ int main(int argc, char** argv) {
                          cs.hits, cs.landed, cs.kills, cs.pairs, cs.swing_frames,
                          cs.pairs ? std::format("{:.1f}", cs.closest) : "n/a",
                          cs.atk_no_model, cs.def_no_model, cs.def_no_bone);
+            lucent::info("combat",
+                         "player took {} damage over {} hits; {} enemy-vs-player "
+                         "volume pairs tested, closest {}",
+                         player_damage_taken, player_hits, cs.pairs_vs_player,
+                         cs.pairs_vs_player ? std::format("{:.1f} (xz {:.1f}, y {:.1f})",
+                                                          cs.closest_vs_player,
+                                                          cs.closest_xz, cs.closest_y)
+                                            : "n/a");
             SDL_GL_DestroyContext(ctx);
             SDL_DestroyWindow(win);
             SDL_Quit();
