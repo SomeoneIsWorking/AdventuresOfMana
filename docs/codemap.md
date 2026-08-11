@@ -127,11 +127,24 @@ Loads **every** room the way the real path does — mesh, collision, `.odt`
 objects, and the room script against a live actor system — headlessly, and
 reports with denominators. Current state:
 
-    996 rooms: 0 mesh parse failures, 5 without collision, 288 without a
-               script, 0 script failures
+    993 rooms (3 non-room M*.smdl skipped): 0 mesh parse failures,
+        2 without collision, 0 script failures
+    285 rooms have no script (expected)
     165 actors spawned, 0 with no model, 8 intentionally invisible (eNPC.TRANS)
     493 event boxes
     423 rooms have an .odt; 3284 objects, 0 unresolved ids
+
+Both remaining caveats are explained, not outstanding:
+
+- **285 rooms with no script** are overworld tiles, which are entered by walking
+  rather than by a scripted transition. Only 4 script-less rooms are an explicit
+  `mapjump` destination, and 177 of the 285 are in the overworld map `M0000`.
+- **2 rooms with no collision** (`M0006_00_03`, `M0012_01_02`) are orphans: no
+  script, no `.odt`, no `.gdt`, no collision, and unreachable by any `mapjump`.
+
+`M0001`, `M0002` and `M0020` carry no grid suffix and are not rooms at all;
+counting them as rooms inflated the total and made them look like rooms missing
+a collision mesh.
 
 It parses rather than uploads models, so it is fast and headless but **cannot**
 catch GPU upload or render faults — stated because a green census would

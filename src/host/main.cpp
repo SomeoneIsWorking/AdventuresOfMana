@@ -442,12 +442,24 @@ int main(int argc, char** argv) {
             // No GL here: models are parsed, not uploaded, so this runs
             // headless and fast. That means it cannot catch upload/render
             // faults, which is stated rather than left implied.
-            std::vector<std::string> rooms;
+            // Only M####_##_## is a room. Three M*.smdl (M0001, M0002,
+            // M0020) carry no grid suffix and are not rooms at all; counting
+            // them inflated the total and made them look like rooms missing
+            // their collision mesh.
+            auto is_room = [](const std::string& n) {
+                if (n.size() != 11 || n[0] != 'M' || n[5] != '_' || n[8] != '_')
+                    return false;
+                for (size_t i : {1u, 2u, 3u, 4u, 6u, 7u, 9u, 10u})
+                    if (n[i] < '0' || n[i] > '9') return false;
+                return true;
+            };
+            std::vector<std::string> rooms, non_rooms;
             for (const auto& e : ar.entries()) {
                 if (e.name.size() < 10) continue;
                 if (e.name.compare(0, 5, "sk1/M") != 0) continue;
                 if (e.name.compare(e.name.size() - 5, 5, ".smdl") != 0) continue;
-                rooms.push_back(e.name.substr(4, e.name.size() - 9));
+                auto n = e.name.substr(4, e.name.size() - 9);
+                (is_room(n) ? rooms : non_rooms).push_back(n);
             }
             std::sort(rooms.begin(), rooms.end());
             if (rooms.empty()) {
@@ -502,9 +514,14 @@ int main(int argc, char** argv) {
                     }
                 }
             }
-            lucent::info("census", "{} rooms: {} mesh parse failures, {} without "
-                         "collision, {} without a script, {} script failures",
-                         c.rooms, c.mesh_fail, c.no_col, c.no_script, c.script_fail);
+            lucent::info("census", "{} rooms ({} non-room M*.smdl skipped): {} mesh "
+                         "parse failures, {} without collision, {} script failures",
+                         c.rooms, non_rooms.size(), c.mesh_fail, c.no_col, c.script_fail);
+            // Most overworld tiles genuinely have no script -- they are entered
+            // by walking, not by a scripted transition -- so this is reported
+            // as a fact, not as a fault.
+            lucent::info("census", "  {} rooms have no script (expected: overworld "
+                         "tiles are entered by walking)", c.no_script);
             lucent::info("census", "  {} actors spawned, {} with no model ({} distinct), "
                          "{} intentionally invisible (eNPC.TRANS)",
                          c.actors, c.actor_no_model, missing_models.size(), c.invisible);
