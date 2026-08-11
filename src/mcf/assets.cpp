@@ -380,6 +380,58 @@ bool Collision::GetFloor(float x, float z, uint32_t mask, float* out_y) const {
     return hit;
 }
 
+namespace {
+// 2D segment intersection, used for the XZ wall test.
+bool SegHit(float ax, float az, float bx, float bz,
+            float cx, float cz, float dx, float dz) {
+    auto cross = [](float ux, float uz, float vx, float vz) { return ux * vz - uz * vx; };
+    float r1 = cross(bx - ax, bz - az, cx - ax, cz - az);
+    float r2 = cross(bx - ax, bz - az, dx - ax, dz - az);
+    float r3 = cross(dx - cx, dz - cz, ax - cx, az - cz);
+    float r4 = cross(dx - cx, dz - cz, bx - cx, bz - cz);
+    return ((r1 > 0) != (r2 > 0)) && ((r3 > 0) != (r4 > 0));
+}
+}  // namespace
+
+bool Collision::BlockedXZ(float x0, float z0, float x1, float z1, float y,
+                          float height, uint32_t mask) const {
+    std::span<const uint8_t> b(data);
+    auto vec = [&](uint32_t i, float v[3]) {
+        std::memcpy(v, b.data() + vec_off + size_t(i) * 12, 12);
+    };
+    float lox = std::min(x0, x1), hix = std::max(x0, x1);
+    float loz = std::min(z0, z1), hiz = std::max(z0, z1);
+
+    for (uint32_t ci = 0; ci < cell_count; ++ci) {
+        size_t e = cell_off + size_t(ci) * 32;
+        float clo[3], chi[3];
+        vec(RdU32(b, e), clo);
+        vec(RdU32(b, e + 4), chi);
+        if (hix < clo[0] || lox > chi[0] || hiz < clo[2] || loz > chi[2]) continue;
+
+        uint32_t n = RdU32(b, e + 0x0C), list = RdU32(b, e + 0x10);
+        for (uint32_t k = 0; k < n; ++k) {
+            uint32_t ti = RdU32(b, list + size_t(k) * 4);
+            size_t t = tri_off + size_t(ti) * 40;
+            if (!(RdU32(b, t + 0x24) & mask)) continue;
+            float p[3][3];
+            for (int j = 0; j < 3; ++j) vec(RdU32(b, t + size_t(j) * 4), p[j]);
+
+            // Only walls the mover could actually hit at its own height.
+            float tlo = std::min({p[0][1], p[1][1], p[2][1]});
+            float thi = std::max({p[0][1], p[1][1], p[2][1]});
+            if (thi < y || tlo > y + height) continue;
+
+            for (int j = 0; j < 3; ++j) {
+                int m = (j + 1) % 3;
+                if (SegHit(x0, z0, x1, z1, p[j][0], p[j][2], p[m][0], p[m][2]))
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------------------
 // .smot
 // ---------------------------------------------------------------------------

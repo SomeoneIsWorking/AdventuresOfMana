@@ -187,9 +187,21 @@ struct Collision {
     uint32_t vec_count = 0, vec_off = 0;
     float aabb_lo[3]{}, aabb_hi[3]{};
 
-    // Highest floor at (x, z) among triangles whose attribute mask (+0x24)
-    // intersects `mask`. Returns false when the point is over nothing.
+    // Attribute-mask bits at triangle +0x24. Derived two ways that agree:
+    // the engine's own GetFloor call sites pass 3 and 7 (bits 0..2 only), and a
+    // census of 40 rooms shows bits 0/1/2 are near-horizontal (mean |normal.y|
+    // 0.99, 1.00) while bits 3/4 are exactly vertical (0.00).
+    static constexpr uint32_t kFloorMask = 0x7;    // what the engine queries with
+    static constexpr uint32_t kWallMask  = 0x18;   // bits 3|4
+
+    // Highest floor at (x, z) among triangles whose attribute mask intersects
+    // `mask`. Returns false when the point is over nothing.
     bool GetFloor(float x, float z, uint32_t mask, float* out_y) const;
+
+    // True if the XZ segment (x0,z0)->(x1,z1) crosses a triangle matching
+    // `mask` whose vertical span overlaps [y, y + height].
+    bool BlockedXZ(float x0, float z0, float x1, float z1, float y, float height,
+                   uint32_t mask) const;
 };
 
 Collision ParseScol(std::vector<uint8_t> file);

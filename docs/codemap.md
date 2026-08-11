@@ -93,6 +93,15 @@ draws it GPU-skinned. Frames at t=0 and t=20 differ by 22,416 bytes, which is ho
 the animation is confirmed to be applied rather than silently falling back to
 bind pose.
 
+## Collision probe
+
+    ./build/mana --collision-probe M0000_03_06
+
+Walks outward from the room centre in 8 directions and prints how far before a
+wall or floor edge stops it. A wall system that blocks nothing is
+indistinguishable from one that is never called, so this reports distances and
+the reason, not a pass/fail.
+
 ## Audio
 
 Sound effects are `sk1/SE%04d.wav` inside the MPK (ids **1..176, contiguous**).

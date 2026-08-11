@@ -182,6 +182,7 @@ int main(int argc, char** argv) {
     std::string room, render_room;
     std::string bgm_dir = "scratch/raw/assets";
     bool audio_selftest = false;
+    std::string probe;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
@@ -194,6 +195,7 @@ int main(int argc, char** argv) {
         else if (a == "--render-room" && i + 1 < argc) render_room = argv[++i];
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
         else if (a == "--audio-selftest") audio_selftest = true;
+        else if (a == "--collision-probe" && i + 1 < argc) probe = argv[++i];
         else if (a == "--help") {
             std::printf("usage: %s [--archive sk1.mpk] [--model NAME] "
                         "[--screenshot out.png]\n", argv[0]);
@@ -204,6 +206,43 @@ int main(int argc, char** argv) {
     try {
         mcf::Archive ar(archive);
         lucent::info("assets", "opened {} ({} entries)", archive, ar.entries().size());
+
+        if (!probe.empty()) {
+            // Walk outward from the room centre in 8 directions and report how
+            // far before a wall or a floor edge stops us. A wall system that
+            // blocks nothing looks identical to one that is never called, so
+            // this prints distances rather than a pass/fail vibe.
+            auto cs = std::format("sk1/{}.scol", probe);
+            if (!ar.Has(cs)) throw mcf::Error(std::format("no {}", cs));
+            auto col = mcf::ParseScol(ar.Read(cs));
+            float cx = (col.aabb_lo[0] + col.aabb_hi[0]) * .5f;
+            float cz = (col.aabb_lo[2] + col.aabb_hi[2]) * .5f;
+            float cy = 0;
+            col.GetFloor(cx, cz, mcf::Collision::kFloorMask, &cy);
+            lucent::info("probe", "{}: AABB ({:.0f},{:.0f})..({:.0f},{:.0f}), "
+                         "centre floor y={:.1f}", probe, col.aabb_lo[0], col.aabb_lo[2],
+                         col.aabb_hi[0], col.aabb_hi[2], cy);
+            const char* names[8] = {"+X", "+X+Z", "+Z", "-X+Z", "-X", "-X-Z", "-Z", "+X-Z"};
+            for (int d = 0; d < 8; ++d) {
+                float ang = float(d) * 3.14159265f / 4.f;
+                float dx = std::cos(ang), dz = std::sin(ang);
+                float x = cx, z = cz, y = cy, dist = 0;
+                const char* why = "reached 400";
+                for (int step = 0; step < 400; ++step) {
+                    float nx = x + dx, nz = z + dz, g;
+                    if (col.BlockedXZ(x, z, nx, nz, y, 30.f, mcf::Collision::kWallMask)) {
+                        why = "wall"; break;
+                    }
+                    if (!col.GetFloor(nx, nz, mcf::Collision::kFloorMask, &g)) {
+                        why = "no floor"; break;
+                    }
+                    x = nx; z = nz; y = g; dist += 1;
+                }
+                lucent::info("probe", "  {:<5} stopped at {:5.0f} units ({})",
+                             names[d], dist, why);
+            }
+            return 0;
+        }
 
         if (audio_selftest) {
             // A decoder that plays nothing is indistinguishable from one that
@@ -534,7 +573,7 @@ int main(int argc, char** argv) {
                 float wy = a.pos[1] + room_org[1];
                 if (have_col) {
                     float g = 0;
-                    if (col.GetFloor(wx, wz, ~0u, &g)) {
+                    if (col.GetFloor(wx, wz, mcf::Collision::kFloorMask, &g)) {
                         lucent::info("world", "  {} floor at ({:.1f},{:.1f}) = {:.2f} "
                                      "(script Y was {:.1f})", a.handle, wx, wz, g, a.pos[1]);
                         wy = g;
@@ -644,7 +683,7 @@ int main(int argc, char** argv) {
                 return &hero_motions[id];
             };
             float px = ctr[0], pz = ctr[2], py = 0, pdeg = 0;
-            if (have_col && !col.GetFloor(px, pz, ~0u, &py)) py = 0;
+            if (have_col && !col.GetFloor(px, pz, mcf::Collision::kFloorMask, &py)) py = 0;
             world.Spawn("MainPlayer", 0, px, py, pz).kind = 'C';
 
             // Service whatever the room script asked for. BGM lives in the APK
@@ -707,6 +746,7 @@ int main(int argc, char** argv) {
                 }
                 bool moving = (mx != 0 || mz != 0);
                 if (moving) {
+                    float ox = px, oz = pz;
                     float len = std::sqrt(mx * mx + mz * mz);
                     px += mx / len * kWalk * dt;
                     pz += mz / len * kWalk * dt;
@@ -714,12 +754,12 @@ int main(int argc, char** argv) {
                     // Refuse to walk off the collision mesh rather than
                     // silently floating: revert the step if there is no floor.
                     float g;
-                    if (have_col && !col.GetFloor(px, pz, ~0u, &g)) {
-                        px -= mx / len * kWalk * dt;
-                        pz -= mz / len * kWalk * dt;
-                    } else if (have_col) {
-                        py = g;
-                    }
+                    bool blocked = have_col &&
+                        (col.BlockedXZ(ox, oz, px, pz, py, 30.f,
+                                       mcf::Collision::kWallMask) ||
+                         !col.GetFloor(px, pz, mcf::Collision::kFloorMask, &g));
+                    if (blocked) { px = ox; pz = oz; }
+                    else if (have_col) py = g;
                 }
                 t += dt * 30.f;      // motions are keyed in frames at 30fps
                 serviceAudio();

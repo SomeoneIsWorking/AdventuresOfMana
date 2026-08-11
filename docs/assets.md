@@ -302,6 +302,28 @@ field previously marked unknown — is the cell count.
 | 0x08 | u32 | vec3 index, vertex C |
 | 0x24 | u32 | attribute mask, tested against the query's mask argument |
 
+#### Attribute mask bits
+
+Established two independent ways that agree:
+
+- The engine's own `GetFloor` call sites pass masks **3** and **7** — bits 0..2
+  only, never 3 or 4.
+- A census of 40 rooms measured each triangle's normal:
+
+| Bit | Value | Triangles | mean \|normal.y\| | Reading |
+|-----|-------|----------:|-----------------:|---------|
+| 0 | 1 | 2928 | 0.994 | floor |
+| 1 | 2 | 5053 | 0.316 | mixed — applied to both |
+| 2 | 4 | 1830 | 1.000 | floor |
+| 3 | 8 | 625 | 0.000 | **wall** |
+| 4 | 16 | 4 | 0.000 | **wall** |
+
+So `kFloorMask = 0x7` and `kWallMask = 0x18`. This matches `eChrGetData.FLOORTYPE`
+in `sk1.lua`, documented as `0:地面, 1:壁` (ground, wall).
+
+Querying floors with `~0u` — as this port did at first — accepts vertical
+surfaces as floor.
+
 `GetFloor` early-outs on the room AABB (`[0x10]`/`[0x14]`), then per cell whose
 XZ AABB contains the point, walks its index list, skips triangles whose mask
 misses, and does a barycentric XZ point-in-triangle test.
