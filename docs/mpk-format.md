@@ -11,12 +11,10 @@ No code execution involved.
 | 0x04 | u24 (low) | entry count | **9886** | 1 |
 | 0x07 | u8 (high) | version, must be 1 | 1 | 1 |
 | 0x08 | u32 | compressed directory size | 113461 | 35 |
-| 0x0C | u32 | same, rounded up to 512 | 113664 | 512 |
+| 0x0C | u32 | **absolute offset of payload section** = `align512(16 + dirsize)` | 113664 | 512 |
 
 Confirmed: `LibMpkHeadSize()` returns 16; `LibMpkOpenRead_NeedsSize()` returns
 `count * 256 + 16`, so an **uncompressed directory entry is 256 bytes**.
-`0x0C` is `0x08` aligned up to 512 (113461 -> 222*512 = 113664; 35 -> 512),
-i.e. payload data begins at `16 + align512(dirsize)` = **113680** for `sk1.mpk`.
 
 ## Directory
 
@@ -32,12 +30,46 @@ Real implementation chain:
       -> uncompress     (3764 B)  -- THE ACTUAL DECODER, not yet reversed
       -> uncompress_end (88 B)
 
-Working hypothesis: table-driven Huffman + LZ (LZH/LZHUF family, common in
-Japanese engines of this lineage). 32 allocated tables is the tell. Unconfirmed.
+**CONFIRMED: LHA static Huffman + LZ77 (`-lh5-`), 13-bit (8 KB) dictionary.**
+Identified from `uncompress_int`'s allocation fingerprint and verified against
+the real archive; the other four dictionary sizes the engine supports all fail
+to decode it, so the test discriminates.
+
+| Allocation | LHA constant |
+|---|---|
+| `510` x5 | `NC = UCHAR_MAX + MAXMATCH + 2 - THRESHOLD` = 510 |
+| `19` x5 | `NT = CODE_BIT + 3` = 19 |
+| `2038` x10 | `left[]`/`right[]` = `u16[2*NC-1]` |
+| `8192` / `512` | `c_table[4096]` / `pt_table[256]` as u16 |
+| `2048..32768` | five ring buffers, dictionary 11..15 bits |
+
+Implementation: `tools/asset/lha.py`.
+
+## Directory entry -- 256 bytes
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x00 | char[240] | path, NUL-terminated (e.g. `sk1/M0000_00_00.lua`) |
+| 0xF0 | u32 | flags -- always 1 across all 9886 entries |
+| 0xF4 | u32 | offset of stream, relative to the payload section at `hdr[0x0C]` |
+| 0xF8 | u32 | compressed size |
+| 0xFC | u32 | uncompressed size |
+
+Streams are 512-byte aligned and tightly packed (inter-stream gaps 0..511).
+Entries are sorted by name, so offsets are not monotonic.
+
+## Validation
+
+The extractor requires the decoder to consume **exactly** `csize` input bytes.
+Checking only the output length is worthless: the decoder pre-allocates its
+output buffer, so a length check passes by construction. Under that broken test
+700 consecutive candidate base offsets all "passed"; under the consumption test
+exactly one does (113664).
 
 ## Status
 
 - [x] Header layout
-- [x] Directory location, size, entry stride (256 B)
-- [ ] `uncompress` codec  <- **blocking everything downstream**
-- [ ] Directory entry layout (needs the codec first)
+- [x] Directory location, size, entry stride
+- [x] Codec: LHA `-lh5-`, dicbit 13
+- [x] Directory entry layout
+- [x] Full extraction of all 9886 entries

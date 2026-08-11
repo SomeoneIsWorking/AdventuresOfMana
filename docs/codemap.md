@@ -21,13 +21,15 @@ The stock engine only; the 5play `libRMS.so` mod-menu injection is excluded from
 | Subsystem | Status | Where |
 |---|---|---|
 | `cmd` Lua API extraction | **DONE — verified 200/200 names+impls** | `tools/asset/extract_cmd_api.py` -> `docs/cmd-api.md` |
-| MPK archive reader | **IN PROGRESS** — header+directory reversed; codec is custom, not zlib | `docs/mpk-format.md` |
+| MPK archive reader | **DONE — 9886/9886 extracted, validated** | `tools/asset/mpk.py`, `tools/asset/lha.py` |
 | Model / motion / texture formats | NOT STARTED | — |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 | Desktop host (window/GL/audio/input) | NOT STARTED | `src/host/` |
 
 ## Open questions (gate the next step)
 
-- Are the Lua scripts in `sk1.mpk` stored as **source** or **precompiled 5.3 bytecode**?
-  Both `luaL_loadstring` and `luaL_loadbufferx` are imported, so either is possible.
+- ~~Lua source or bytecode?~~ **ANSWERED: plain UTF-8 source**, 715 files, original
+  Japanese developer comments intact. They call Lua-level helpers (`mapjump`,
+  `EvBoxOne`, `CHOCOBO_PUT`, `bgmfield`) layered over the 200 native `cmd`
+  functions, so a Lua prelude exists somewhere in the set.
 - What are the model (`SiModelBase`) and motion (`SiModelMotion`) container formats?
