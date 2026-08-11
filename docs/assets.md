@@ -318,3 +318,53 @@ That was coincidence: bone weights sum to 1. The game's own skinning vertex
 shader in `.rodata` declares exactly `position, texcoord0, color, weight,
 incidence` and no normal, matching the declaration. Lighting comes from the
 `mLight` uniform block, not per-vertex normals.
+
+## `.smdl` sections 0 and 4 — materials and draw ranges
+
+Record sizes fall straight out of the section-offset gaps (sections are laid out
+back to back), and both were confirmed over the whole corpus.
+
+### Section 0 — materials, 80 bytes each
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x10 | u32 | index into the companion `.stex` texture array |
+| 0x14, 0x18 | u32 | `0xFFFFFFFF` — unset secondary texture slots |
+| 0x28 | u32 | material name offset (into the section-8 string table) |
+| 0x2C | u32 | source texture path offset |
+
+The strings are the original Square Enix authoring paths, e.g.
+`m_b0000_00_head` and
+`S:/svn_design/trunk/maya/Character/B0000_00/sourceimages/B0000_00_face.tga`.
+
+### Section 4 — draw ranges, 32 bytes each
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x00 | u32 | material index |
+| 0x04 | u32 | index count |
+| 0x08 | u32 | byte offset into the index buffer |
+
+### Verification
+
+Across **all 1375 models**, the draw ranges tile the index buffer exactly — each
+range starts where the previous ended, and the counts sum to the buffer's index
+count. **0 violations.**
+
+Field 0 is the material index, not a sequence number: it matches the record
+ordinal in simple models, but 16,016 records disagree, repeating values where a
+material is reused (`M0000_02_07` ranges 10–13 read 8, 9, 8, 9).
+
+**20,641 of 20,642** draw-range records reference a material that exists. The one
+exception is a defect in the shipped data, not in this reading: `B0000_00`
+range 2 is a 2-triangle range pointing at material 2 in a model declaring 2
+materials. The host logs it by name and draws it untextured.
+
+### Other sections, for completeness
+
+| k | Record | Contents |
+|---|--------|----------|
+| 1 | 352 B | bone / skeleton record (count = bone count) |
+| 3 | 32 B | mesh record; field 0 = number of draw ranges |
+| 6, 7 | 16 B | vertex / index buffer descriptors (4th word unused) |
+| 11 | — | the raw vertex + index data blob |

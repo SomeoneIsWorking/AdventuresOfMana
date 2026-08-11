@@ -108,12 +108,29 @@ struct VertexAttribute {
     uint32_t offset;
 };
 
+// One material: a name, the original Maya source path, and an index into the
+// companion .stex texture array.
+struct Material {
+    std::string name;
+    std::string source_path;
+    uint32_t texture_index = 0;
+};
+
+// A contiguous run of the index buffer drawn with one material.
+struct DrawRange {
+    uint32_t material = 0;
+    uint32_t index_count = 0;
+    uint32_t byte_offset = 0;   // into the index buffer
+};
+
 struct Model {
     std::vector<uint8_t> data;
     uint32_t bone_count = 0;
     uint32_t vertex_count = 0, vertex_offset = 0, vertex_stride = 0;
     uint32_t index_count = 0, index_offset = 0, index_size = 0;
     std::vector<VertexAttribute> layout;
+    std::vector<Material> materials;
+    std::vector<DrawRange> draws;
 
     std::span<const uint8_t> vertices() const {
         return {data.data() + vertex_offset, size_t(vertex_count) * vertex_stride};

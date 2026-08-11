@@ -150,6 +150,11 @@ int main(int argc, char** argv) {
                          "(map models use .stexinfo/.mtex, not yet supported)", texname);
         }
 
+        for (size_t i = 0; i < mdl.materials.size(); ++i)
+            lucent::info("assets", "  material {} '{}' -> texture {}", i,
+                         mdl.materials[i].name, mdl.materials[i].texture_index);
+        lucent::info("assets", "  {} draw range(s)", mdl.draws.size());
+
         if (shot.empty() && !SDL_getenv("DISPLAY") && !SDL_getenv("WAYLAND_DISPLAY"))
             lucent::warn("host", "no display detected; use --screenshot for headless");
         if (!shot.empty() && !SDL_getenv("DISPLAY") && !SDL_getenv("WAYLAND_DISPLAY"))
@@ -207,15 +212,44 @@ int main(int argc, char** argv) {
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, kWhite);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        if (!tex.textures.empty()) {
-            const auto& t = tex.textures[0];
-            glBindTexture(GL_TEXTURE_2D, gltex);
+        std::vector<GLuint> textures;
+        for (const auto& t : tex.textures) {
+            GLuint id = 0;
+            glGenTextures(1, &id);
+            glBindTexture(GL_TEXTURE_2D, id);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, GLsizei(t.width), GLsizei(t.height),
                          0, GL_RGBA, GL_UNSIGNED_BYTE, t.pixels.data());
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glGenerateMipmap(GL_TEXTURE_2D);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            textures.push_back(id);
+        }
+
+        // Resolve each draw range to a GL texture once, up front, so a bad
+        // reference is reported by name rather than silently drawing the wrong
+        // atlas. B0000_00 ships exactly one such range: 2 triangles pointing at
+        // material 2 when the model declares 2 materials. That is a defect in
+        // the shipped data (1 of 20,642 ranges across all 1375 models), so it
+        // falls back to white rather than aborting the draw.
+        std::vector<GLuint> draw_tex(mdl.draws.size(), gltex);
+        for (size_t i = 0; i < mdl.draws.size(); ++i) {
+            uint32_t mi = mdl.draws[i].material;
+            if (mi >= mdl.materials.size()) {
+                lucent::warn("assets", "draw range {} references material {} but the "
+                             "model declares {}; drawing it untextured",
+                             i, mi, mdl.materials.size());
+                continue;
+            }
+            uint32_t ti = mdl.materials[mi].texture_index;
+            if (ti >= textures.size()) {
+                lucent::warn("assets", "material '{}' references texture {} but the "
+                             ".stex holds {}; drawing it untextured",
+                             mdl.materials[mi].name, ti, textures.size());
+                continue;
+            }
+            draw_tex[i] = textures[ti];
         }
 
         // Frame the model from its own bounds so any model fills the view.
@@ -266,7 +300,6 @@ int main(int argc, char** argv) {
             glUniformMatrix4fv(glGetUniformLocation(prog, "mVP"), 1, GL_FALSE, vp.m);
             glUniform1i(glGetUniformLocation(prog, "texture0"), 0);
             glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, gltex);
 
             glBindBuffer(GL_ARRAY_BUFFER, vbo);
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
@@ -287,9 +320,17 @@ int main(int argc, char** argv) {
                 glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride,
                                       (void*)(uintptr_t)ta->offset);
             }
-            glDrawElements(GL_TRIANGLES, GLsizei(mdl.index_count),
-                           mdl.index_size == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT,
-                           nullptr);
+            GLenum itype = mdl.index_size == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
+            if (mdl.draws.empty()) {
+                glBindTexture(GL_TEXTURE_2D, gltex);
+                glDrawElements(GL_TRIANGLES, GLsizei(mdl.index_count), itype, nullptr);
+            } else {
+                for (size_t i = 0; i < mdl.draws.size(); ++i) {
+                    glBindTexture(GL_TEXTURE_2D, draw_tex[i]);
+                    glDrawElements(GL_TRIANGLES, GLsizei(mdl.draws[i].index_count), itype,
+                                   (void*)(uintptr_t)mdl.draws[i].byte_offset);
+                }
+            }
 
             if (!shot.empty()) {
                 std::vector<uint8_t> px(size_t(W) * H * 4);

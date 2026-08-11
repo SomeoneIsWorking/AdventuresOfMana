@@ -203,6 +203,35 @@ Model ParseSmdl(std::vector<uint8_t> file) {
         throw Error(std::format("index region ends at {} but string table starts at {}",
                                 iend, str_off));
 
+    // Materials (section 0, 80-byte records) and draw ranges (section 4,
+    // 32-byte records). The ranges tile the index buffer with no gaps in all
+    // 1375 shipped models, which is what validates them.
+    auto [mat_n, mat_off] = section(0);
+    for (uint32_t i = 0; i < mat_n; ++i) {
+        size_t d = size_t(mat_off) + size_t(i) * 80;
+        Material mt;
+        mt.texture_index = RdU32(b, d + 0x10);
+        mt.name = RdCStr(b, size_t(str_off) + RdU32(b, d + 0x28));
+        mt.source_path = RdCStr(b, size_t(str_off) + RdU32(b, d + 0x2C));
+        m.materials.push_back(std::move(mt));
+    }
+
+    auto [draw_n, draw_off] = section(4);
+    uint32_t expect = 0, drawn = 0;
+    for (uint32_t i = 0; i < draw_n; ++i) {
+        size_t d = size_t(draw_off) + size_t(i) * 32;
+        DrawRange r{RdU32(b, d), RdU32(b, d + 4), RdU32(b, d + 8)};
+        if (r.byte_offset != expect)
+            throw Error(std::format("draw range {} starts at byte {}, expected {}",
+                                    i, r.byte_offset, expect));
+        expect += r.index_count * m.index_size;
+        drawn += r.index_count;
+        m.draws.push_back(r);
+    }
+    if (draw_n && drawn != m.index_count)
+        throw Error(std::format("draw ranges cover {} indices, buffer holds {}",
+                                drawn, m.index_count));
+
     uint32_t declared_end = 0;
     for (uint32_t i = 0; i < decl_n; ++i) {
         size_t d = size_t(decl_off) + size_t(i) * 32;
