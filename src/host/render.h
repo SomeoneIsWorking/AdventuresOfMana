@@ -42,8 +42,9 @@ bool BoneLocalPos(const Model& m, const Motion* motion, float time,
                   const std::string& bone, float out[3]);
 
 // Resolves a script-level actor type id to a model name. Verified against the
-// enums in sk1.lua: all 74 eENEMY ids have E<id>_00 and all 24 eBOSS ids have
-// B<id>_00.
+// enums in sk1.lua: all 73 positive eENEMY ids have E<id>_00 and all 23
+// positive eBOSS ids have B<id>_00 (counting distinct ids > 0; several names
+// alias the same id).
 //
 // NPCs need two rules, and together they resolve all 35 eNPC ids:
 //   id 0..9   -> C<id>_00   the named party members, id-for-id on the CHARACTER
