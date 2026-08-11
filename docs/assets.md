@@ -92,3 +92,70 @@ failures**. Bytes-per-texel over the full mip chain comes out to exactly **4.0**
 i.e. every shipped texture is format code 0 -> `SiTextureFormat 1` = RGBA8888.
 Mip 0 decodes to a correct image with no swizzle and no row flip — verified by
 rendering `B0000_00_face.tga` (512x512, 9 mips) to PNG and looking at it.
+
+---
+
+# `.smdl` model container (`Smd3`) — REVERSED
+
+Layout derived from `SiModelBase::SetBinary`. Its prologue loads `ldrsw` values
+at 0x0C, 0x14, 0x1C … 0x64 — a table of `(u32 count, s32 offset)` section pairs
+beginning at 0x08 with stride 8. Two sections are forwarded to typed
+constructors, which pin the descriptor shape exactly:
+
+    SiBufferVertex::Create(void const* data, unsigned stride, unsigned count)
+    SiBufferIndex::Create (void const* data, unsigned size,   SiDrawIndicesType)
+
+## Header
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x00 | char[4] | `"Smd3"` (never validated) |
+| 0x04 | u32 | header size, 32 |
+| 0x08 + 8k | u32 | section *k* count |
+| 0x0C + 8k | s32 | section *k* offset |
+
+## Section slots
+
+| k | Contents |
+|---|----------|
+| 1 | skeleton — count is the bone count, and it **cross-checks against `.smot` header 0x08** for the same character |
+| 6 | vertex buffer |
+| 7 | index buffer |
+| 8 | string table (count = length in bytes) |
+
+## Buffer descriptor — shared shape
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x00 | u32 | element count |
+| 0x04 | s32 | offset to data |
+| 0x08 | u32 | element size — vertex stride, or bytes-per-index |
+
+The index loader accepts **only 2 or 4** bytes per index; anything else skips the
+buffer entirely.
+
+## Vertex strides
+
+| Stride | Count | Layout |
+|--------|------:|--------|
+| 24 | 1118 | pos(12) + uv(8) + color(4) — static geometry |
+| 44 | 257 | pos(12) + normal(12) + uv(8) + color(4) + weight(4) + boneidx(4) — skinned |
+
+Matches the skinning vertex shader in `.rodata`, which declares exactly
+`position, texcoord0, color, weight, incidence`.
+
+## Verification
+
+`tools/asset/smdl.py` parses **1375/1375 models, 0 failures.** The format is
+self-validating: data regions tile the file with no gaps, so
+
+    vertex_offset + count*stride == index_offset
+    index_offset  + count*size   == string_table_offset
+
+and for `B0001_02.smdl` the string table ends exactly at EOF. Every index in
+every model is also in range of that model's vertex count.
+
+Structural consistency alone would not prove the positions are really positions,
+so `tools/asset/render_smdl.py` software-rasterizes a model to PNG. `B0000_00`
+(2433 verts, 3476 tris, 43 bones) renders as a coherent, correctly-wound boss
+model — see `scratch/png/B0000_00_model.png`.
