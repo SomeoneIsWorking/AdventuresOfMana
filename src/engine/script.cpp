@@ -9,6 +9,7 @@
 // The binding table is GENERATED from the shipping binary (cmd_api.inc, via
 // tools/gen_cmd_api.py), so it cannot drift from the real engine's Lua surface.
 #include "engine/script.h"
+#include "engine/world.h"
 
 #include <algorithm>
 #include <cstring>
@@ -45,6 +46,9 @@ Script* FromState(lua_State* L) {
     return s;
 }
 
+// Returns true if handled, having pushed its own results.
+bool Dispatch(lua_State* L, const CmdDef* def, World& w);
+
 // One generic trampoline for all 200 bindings; the definition arrives as an
 // upvalue so there is no generated code per function to keep in sync.
 int CmdStub(lua_State* L) {
@@ -65,6 +69,13 @@ int CmdStub(lua_State* L) {
         }
         ++rec.count;
     }
+    // Dispatch the measured-hot character and weapon calls to the actor system.
+    // Everything else still records only; see docs/lua-census.md for the order.
+    if (self && self->world) {
+        int before = lua_gettop(L);
+        if (Dispatch(L, def, *self->world)) return lua_gettop(L) - before;
+    }
+
     // Return a value of the type the real wrapper pushes, so scripts that
     // branch on a result keep running rather than erroring on nil.
     switch (def->ret) {
@@ -73,6 +84,91 @@ int CmdStub(lua_State* L) {
         case 's': lua_pushstring(L, ""); return 1;
         default: return 0;
     }
+}
+
+// The character/weapon accessors, ordered by the census. Handles are strings;
+// AddNPC/AddEnemy create them, everything else addresses them by name.
+bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
+    std::string_view n = def->name;
+    auto S = [&](int i) { return lua_isstring(L, i) ? lua_tostring(L, i) : ""; };
+    auto N = [&](int i) { return float(luaL_optnumber(L, i, 0)); };
+
+    if (n == "AddNPC") {                    // (name, id, x, y, z, deg)
+        auto& a = w.Spawn(S(1), int(N(2)), N(3), N(4), N(5));
+        a.rot_y = N(6);
+        return true;
+    }
+    if (n == "AddNPCSubType") {             // (name, id, sub, x, y, z, deg)
+        auto& a = w.Spawn(S(1), int(N(2)), N(4), N(5), N(6));
+        a.rot_y = N(7);
+        return true;
+    }
+    if (n == "AddEnemy" || n == "AddBoss" || n == "AddParty") {
+        // (id, x, y, z). Unlike AddNPC these carry no handle -- the engine
+        // assigns one. The handle MUST be unique per spawn, not per type: a
+        // room placing three of the same enemy is three actors, and keying on
+        // the type id silently collapsed them into one.
+        int id = int(N(1));
+        const char* kind = n == "AddBoss" ? "boss" : (n == "AddParty" ? "party" : "enemy");
+        w.Spawn(std::format("{}{}_{}", kind, id, w.NextSpawnSerial()), id,
+                N(2), N(3), N(4));
+        return true;
+    }
+    if (n == "DelNPC" || n == "DeadEnemy") { w.Remove(S(1)); return true; }
+
+    if (n == "ChrSetData") {                // (name, slot, value)
+        if (auto* a = w.Find(S(1))) a->data[int(N(2))] = N(3);
+        return true;
+    }
+    if (n == "ChrGetData") {
+        auto* a = w.Find(S(1));
+        lua_pushnumber(L, a ? a->Get(int(N(2))) : 0);
+        return true;
+    }
+    if (n == "ChrSetPos") {
+        if (auto* a = w.Find(S(1))) { a->pos[0] = N(2); a->pos[1] = N(3); a->pos[2] = N(4); }
+        return true;
+    }
+    if (n == "ChrGetLocalPosX" || n == "ChrGetLocalPosY" || n == "ChrGetLocalPosZ") {
+        auto* a = w.Find(S(1));
+        int k = n == "ChrGetLocalPosX" ? 0 : (n == "ChrGetLocalPosY" ? 1 : 2);
+        lua_pushnumber(L, a ? a->pos[k] : 0);
+        return true;
+    }
+    if (n == "ChrMoveTo") {                 // (name, x, y, z) -- instant for now
+        if (auto* a = w.Find(S(1))) { a->pos[0] = N(2); a->pos[1] = N(3); a->pos[2] = N(4); }
+        return true;
+    }
+    if (n == "ChrMotion" || n == "ChrMotionForce") {
+        if (auto* a = w.Find(S(1))) a->motion = int(N(2));
+        return true;
+    }
+    if (n == "ChrMotionGetID") {
+        auto* a = w.Find(S(1));
+        lua_pushnumber(L, a ? a->motion : 0);
+        return true;
+    }
+    if (n == "ChrIsAlive") {
+        auto* a = w.Find(S(1));
+        lua_pushboolean(L, a && a->alive);
+        return true;
+    }
+    if (n == "WepSetData") {
+        if (auto* a = w.Find(S(1))) a->data[int(N(2))] = N(3);
+        return true;
+    }
+    if (n == "WepGetData") {
+        auto* a = w.Find(S(1));
+        lua_pushnumber(L, a ? a->Get(int(N(2))) : 0);
+        return true;
+    }
+    if (n == "WepIsAlive") {
+        auto* a = w.Find(S(1));
+        lua_pushboolean(L, a && a->alive);
+        return true;
+    }
+    if (n == "WepDel") { w.Remove(S(1)); return true; }
+    return false;
 }
 
 }  // namespace

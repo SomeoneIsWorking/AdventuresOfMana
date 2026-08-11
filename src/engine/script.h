@@ -8,7 +8,10 @@
 
 struct lua_State;
 
+
 namespace mcf {
+
+class World;
 
 // A Lua 5.3 state with the game's own 200-function `cmd` API bound into globals.
 // See src/engine/script.cpp for why the bindings currently record rather than act.
@@ -29,6 +32,7 @@ public:
     static size_t api_size();
     static std::string ShiftJisToUtf8(std::span<const uint8_t> in);
 
+    World* world = nullptr;   // optional; when set, hot cmd calls act
     std::map<std::string, CallRecord> calls;
     bool trace_first = false;
 

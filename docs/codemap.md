@@ -34,6 +34,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | C++ asset layer | **DONE for MPK/.stex/.smdl** — port of the verified Python | `src/mcf/` |
 | Desktop host (window + GLES2) | **Textured characters + rooms; GPU skinning + .smot playback** | `src/host/main.cpp` |
 | Lua bridge | **Lua 5.3 + all 200 `cmd` bindings; 714/715 scripts run** (stubs record calls) | `src/engine/script.cpp` |
+| Actor system | **Live actors driven by scripts** — spawn, data slots, motion, position | `src/engine/world.{h,cpp}` |
 | Audio / input / game loop | NOT STARTED | — |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 

@@ -19,6 +19,7 @@
 #include <lucent/log.h>
 
 #include "engine/script.h"
+#include "engine/world.h"
 #include "mcf/mcf.h"
 
 namespace {
@@ -155,6 +156,7 @@ int main(int argc, char** argv) {
     std::string shot, anim;
     float anim_t = 0.f;
     bool census = false;
+    std::string room;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
@@ -163,6 +165,7 @@ int main(int argc, char** argv) {
         else if (a == "--anim" && i + 1 < argc) anim = argv[++i];
         else if (a == "--time" && i + 1 < argc) anim_t = std::stof(argv[++i]);
         else if (a == "--script-census") census = true;
+        else if (a == "--run-room" && i + 1 < argc) room = argv[++i];
         else if (a == "--help") {
             std::printf("usage: %s [--archive sk1.mpk] [--model NAME] "
                         "[--screenshot out.png]\n", argv[0]);
@@ -173,6 +176,42 @@ int main(int argc, char** argv) {
     try {
         mcf::Archive ar(archive);
         lucent::info("assets", "opened {} ({} entries)", archive, ar.entries().size());
+
+        if (!room.empty()) {
+            // Run one room's script against a live actor system and report what
+            // it populated. This is the smallest end-to-end proof that scripts
+            // are driving engine state rather than just executing.
+            mcf::World world;
+            mcf::Script sc;
+            sc.world = &world;
+            if (!sc.Run("sk1.lua", ar.Read("sk1/sk1.lua")))
+                throw mcf::Error(std::format("prelude: {}", sc.last_error()));
+            if (!sc.CallFunction("SystemInit"))
+                throw mcf::Error(std::format("SystemInit: {}", sc.last_error()));
+            // Snapshot BEFORE the room script so its own handlers are the diff.
+            auto before = sc.Globals();
+            auto script = std::format("sk1/{}.lua", room);
+            if (!sc.Run(script, ar.Read(script)))
+                throw mcf::Error(std::format("{}: {}", script, sc.last_error()));
+            lucent::info("lua", "ran {}", script);
+            size_t fired = 0, errs = 0;
+            for (const auto& g : sc.Globals()) {
+                if (std::binary_search(before.begin(), before.end(), g)) continue;
+                ++fired;
+                if (!sc.CallFunction(g)) ++errs;
+            }
+            lucent::info("lua", "fired {} handlers ({} errored)", fired, errs);
+            lucent::info("world", "--- {} actors ---", world.actors().size());
+            for (const auto& a : world.actors()) {
+                std::string slots;
+                for (const auto& [k, v] : a.data)
+                    slots += std::format(" [{}]={:g}", k, v);
+                lucent::info("world", "  {:<16} id={:<4} pos=({:.1f},{:.1f},{:.1f}) "
+                             "motion={} alive={}{}", a.handle, a.type_id, a.pos[0],
+                             a.pos[1], a.pos[2], a.motion, a.alive, slots);
+            }
+            return 0;
+        }
 
         if (census) {
             // Run every shipping script against the recording bindings. This
