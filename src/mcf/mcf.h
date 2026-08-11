@@ -170,6 +170,26 @@ struct Model {
 Model ParseSmdl(std::vector<uint8_t> file);
 
 // ---------------------------------------------------------------------------
+// .scol collision mesh (magic "SCol")
+// ---------------------------------------------------------------------------
+// Layout reversed from SiCollisionMesh::GetFloor. Two levels: a coarse cell
+// array, each cell carrying an XZ AABB and a list of triangle indices, over a
+// flat array of 40-byte triangles that index a shared vec3 pool.
+struct Collision {
+    std::vector<uint8_t> data;
+    uint32_t tri_count = 0, tri_off = 0;
+    uint32_t cell_count = 0, cell_off = 0;
+    uint32_t vec_count = 0, vec_off = 0;
+    float aabb_lo[3]{}, aabb_hi[3]{};
+
+    // Highest floor at (x, z) among triangles whose attribute mask (+0x24)
+    // intersects `mask`. Returns false when the point is over nothing.
+    bool GetFloor(float x, float z, uint32_t mask, float* out_y) const;
+};
+
+Collision ParseScol(std::vector<uint8_t> file);
+
+// ---------------------------------------------------------------------------
 // .smot skeletal animation (magic "Smot")
 // ---------------------------------------------------------------------------
 struct MotionTrack {

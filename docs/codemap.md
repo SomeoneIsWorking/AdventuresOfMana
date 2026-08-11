@@ -30,7 +30,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Texture format (`.stex`/`SMDI`) | **DONE — 1319/1319 descriptors parse, image verified** | `tools/asset/stex.py` |
 | Model format (`.smdl`/`Smd3`) | **DONE — 1375/1375 parse, geometry rendered** | `tools/asset/smdl.py`, `render_smdl.py` |
 | Motion format (`.smot`/`Smot`) | **DONE — 1721/1721 parse; quaternions verified. 98 of 60,803 time arrays unexplained** | `tools/asset/smot.py` |
-| Collision format (`.scol`/`SCol`) | **DONE at loader level — 992/992 parse. 40-byte node internals not reversed** | `tools/asset/scol.py` |
+| Collision format (`.scol`/`SCol`) | **DONE — cells + triangles reversed; floor queries work** | `tools/asset/scol.py`, `Collision::GetFloor` |
 | C++ asset layer | **DONE for MPK/.stex/.smdl** — port of the verified Python | `src/mcf/` |
 | Desktop host (window + GLES2) | **Textured characters + rooms; GPU skinning + .smot playback** | `src/host/main.cpp` |
 | Lua bridge | **Lua 5.3 + all 200 `cmd` bindings; 714/715 scripts run** (stubs record calls) | `src/engine/script.cpp` |
@@ -48,8 +48,8 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 - ~~`Smd3` model layout?~~ **ANSWERED** — see `docs/assets.md`.
 - ~~`Smot` motion layout?~~ **ANSWERED** — see `docs/assets.md`.
 - ~~`SCol` collision layout?~~ **ANSWERED at loader level** — see `docs/assets.md`.
-- The `.scol` 40-byte node record internals. `SetBinary` never reads them, so the
-  loader constrains nothing; needs the `CollisionBase` query methods instead.
+- ~~`.scol` 40-byte node internals?~~ **ANSWERED** via `SiCollisionMesh::GetFloor`
+  — they are collision triangles. See `docs/assets.md`.
 - **OPEN:** 98/60,803 motion time arrays are non-monotonic (9 files). Meaning
   unknown; not per-channel sub-arrays. See `docs/assets.md`.
 - ~~`.smdl` slot 5?~~ **ANSWERED: vertex declaration** — see `docs/assets.md`.

@@ -276,13 +276,46 @@ both AABB indices are in range and that min <= max componentwise — a semantic
 check the structure alone would not give. Largest room span seen is
 1200 x 1260 x 480.
 
-## NOT reversed
+## The full structure — from `SiCollisionMesh::GetFloor`
 
-The **40-byte node record's internals**. `SetBinary` never reads them — they are
-consumed by the collision *query* code, not the loader — so nothing here
-constrains their layout, and guessing would be inventing. Reversing them means
-following `CollisionBase` / `SiCollisionMesh` query methods, which is a separate
-job and only needed once the port does actual collision.
+The loader never reads the 40-byte records, but the **query** does, and it pins
+them completely. `GetFloor` is a two-level spatial lookup:
+
+### Cell array — `[0x18]` entries of 32 bytes at `[0x1C]`
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x00 | u32 | vec3 index — cell AABB **min** |
+| 0x04 | u32 | vec3 index — cell AABB **max** |
+| 0x0C | u32 | triangle count in this cell |
+| 0x10 | u32 | byte offset of this cell's triangle-index list (u32 each) |
+
+`[0x1C]` is 80 in every file (the 52-byte header, padded), and `[0x18]` — the
+field previously marked unknown — is the cell count.
+
+### Triangle array — `[0x08]` entries of 40 bytes at `[0x0C]`
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x00 | u32 | vec3 index, vertex A |
+| 0x04 | u32 | vec3 index, vertex B |
+| 0x08 | u32 | vec3 index, vertex C |
+| 0x24 | u32 | attribute mask, tested against the query's mask argument |
+
+`GetFloor` early-outs on the room AABB (`[0x10]`/`[0x14]`), then per cell whose
+XZ AABB contains the point, walks its index list, skips triangles whose mask
+misses, and does a barycentric XZ point-in-triangle test.
+
+### Verification
+
+All **992/992** files satisfy the complete layout: cells precede triangles,
+triangles abut the vec3 pool, the pool runs to EOF, and **every cell's
+triangle-index list lies inside the gap between the cell array and the triangle
+array with every index in range**.
+
+Implemented as `Collision::GetFloor` and used for actor placement — for
+`M0000_03_06` it returns y = 0.00 at all four enemy spawns, i.e. the grass, where
+the scripts' own Y argument of 30 would have floated them at wall height.
 
 ## `.smdl` section 5 — vertex declaration
 

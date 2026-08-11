@@ -295,6 +295,84 @@ Model ParseSmdl(std::vector<uint8_t> file) {
 }
 
 // ---------------------------------------------------------------------------
+// .scol
+// ---------------------------------------------------------------------------
+Collision ParseScol(std::vector<uint8_t> file) {
+    Collision c;
+    c.data = std::move(file);
+    std::span<const uint8_t> b(c.data);
+    if (b.size() < 0x34 || RdU32(b, 0) != 0x6C6F4353 /* "SCol" */)
+        throw Error("not an SCol collision mesh");
+
+    c.tri_count  = RdU32(b, 0x08);
+    c.tri_off    = uint32_t(RdS32(b, 0x0C));
+    uint32_t lo_i = RdU32(b, 0x10), hi_i = RdU32(b, 0x14);
+    c.cell_count = RdU32(b, 0x18);
+    c.cell_off   = uint32_t(RdS32(b, 0x1C));
+    uint32_t total = RdU32(b, 0x24);
+    c.vec_count  = RdU32(b, 0x28);
+    c.vec_off    = uint32_t(RdS32(b, 0x2C));
+
+    if (total != b.size())
+        throw Error(std::format("collision header size {} != file size {}", total, b.size()));
+    if (c.tri_off + c.tri_count * 40 != c.vec_off)
+        throw Error("triangle array does not abut the vec3 pool");
+    if (c.vec_off + c.vec_count * 12 != b.size())
+        throw Error("vec3 pool does not run to end of file");
+    if (c.cell_off + c.cell_count * 32 > c.tri_off)
+        throw Error("cell array overruns the triangle array");
+    if (lo_i >= c.vec_count || hi_i >= c.vec_count)
+        throw Error("AABB index out of range");
+
+    std::memcpy(c.aabb_lo, b.data() + c.vec_off + size_t(lo_i) * 12, 12);
+    std::memcpy(c.aabb_hi, b.data() + c.vec_off + size_t(hi_i) * 12, 12);
+    return c;
+}
+
+bool Collision::GetFloor(float x, float z, uint32_t mask, float* out_y) const {
+    std::span<const uint8_t> b(data);
+    auto vec = [&](uint32_t i, float v[3]) {
+        std::memcpy(v, b.data() + vec_off + size_t(i) * 12, 12);
+    };
+    if (x < aabb_lo[0] || x > aabb_hi[0] || z < aabb_lo[2] || z > aabb_hi[2])
+        return false;
+
+    bool hit = false;
+    float best = -1e30f;
+    for (uint32_t ci = 0; ci < cell_count; ++ci) {
+        size_t e = cell_off + size_t(ci) * 32;
+        float clo[3], chi[3];
+        vec(RdU32(b, e), clo);
+        vec(RdU32(b, e + 4), chi);
+        if (x < clo[0] || x > chi[0] || z < clo[2] || z > chi[2]) continue;
+
+        uint32_t n = RdU32(b, e + 0x0C), list = RdU32(b, e + 0x10);
+        for (uint32_t k = 0; k < n; ++k) {
+            uint32_t ti = RdU32(b, list + size_t(k) * 4);
+            size_t t = tri_off + size_t(ti) * 40;
+            if (!(RdU32(b, t + 0x24) & mask)) continue;
+            float p[3][3];
+            for (int j = 0; j < 3; ++j) vec(RdU32(b, t + size_t(j) * 4), p[j]);
+
+            // Barycentric point-in-triangle in XZ, then interpolate Y.
+            float d = (p[1][2] - p[2][2]) * (p[0][0] - p[2][0]) +
+                      (p[2][0] - p[1][0]) * (p[0][2] - p[2][2]);
+            if (d == 0) continue;
+            float w0 = ((p[1][2] - p[2][2]) * (x - p[2][0]) +
+                        (p[2][0] - p[1][0]) * (z - p[2][2])) / d;
+            float w1 = ((p[2][2] - p[0][2]) * (x - p[2][0]) +
+                        (p[0][0] - p[2][0]) * (z - p[2][2])) / d;
+            float w2 = 1.f - w0 - w1;
+            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+            float y = w0 * p[0][1] + w1 * p[1][1] + w2 * p[2][1];
+            if (!hit || y > best) { best = y; hit = true; }
+        }
+    }
+    if (hit) *out_y = best;
+    return hit;
+}
+
+// ---------------------------------------------------------------------------
 // .smot
 // ---------------------------------------------------------------------------
 Motion ParseSmot(std::vector<uint8_t> file) {

@@ -455,6 +455,18 @@ int main(int argc, char** argv) {
                 }
             }
 
+            // Ground height comes from the room's collision mesh. The scripts'
+            // Y argument is not a world offset -- placing actors at
+            // room_origin.y + script_y put them at wall height -- so the floor
+            // is queried at the actor's XZ instead.
+            mcf::Collision col;
+            bool have_col = false;
+            {
+                auto cs = std::format("sk1/{}.scol", render_room);
+                if (ar.Has(cs)) { col = mcf::ParseScol(ar.Read(cs)); have_col = true; }
+                else lucent::warn("world", "no {}; actors keep their script Y", cs);
+            }
+
             // One renderable per distinct model, instanced per actor.
             std::map<std::string, mcf::Renderable> cache;
             struct Placed { const mcf::Renderable* r; float pos[3]; };
@@ -471,9 +483,20 @@ int main(int argc, char** argv) {
                     }
                     cache[nm] = std::move(r);
                 }
-                placed.push_back({&cache[nm], {a.pos[0] + room_org[0],
-                                               a.pos[1] + room_org[1],
-                                               a.pos[2] + room_org[2]}});
+                float wx = a.pos[0] + room_org[0], wz = a.pos[2] + room_org[2];
+                float wy = a.pos[1] + room_org[1];
+                if (have_col) {
+                    float g = 0;
+                    if (col.GetFloor(wx, wz, ~0u, &g)) {
+                        lucent::info("world", "  {} floor at ({:.1f},{:.1f}) = {:.2f} "
+                                     "(script Y was {:.1f})", a.handle, wx, wz, g, a.pos[1]);
+                        wy = g;
+                    } else {
+                        lucent::warn("world", "  {} at ({:.1f},{:.1f}) is over no floor; "
+                                     "keeping script Y {:.1f}", a.handle, wx, wz, a.pos[1]);
+                    }
+                }
+                placed.push_back({&cache[nm], {wx, wy, wz}});
             }
             lucent::info("world", "{} actors, {} placed, {} distinct models",
                          world.actors().size(), placed.size(), cache.size());

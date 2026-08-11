@@ -66,10 +66,11 @@ dominant collision box is 330x270, i.e. a uniform 15-unit margin around the
 300x240 room. Either measurement would have produced a plausible-looking
 per-room offset that was actually geometry noise.
 
-### Known-wrong
+### Actor Y comes from collision, not from the script
 
-Actor **Y** placement is not yet right — spawned enemies sit at wall height
-rather than on the floor. Scripts pass a Y (e.g. `AddEnemy(id, x, 30, z)`) that
-is evidently not a straight world offset from the room origin; ground height
-probably comes from the collision mesh (`GetGroundAttribute` exists in the API).
-Recorded rather than nudged with a constant.
+The scripts' Y argument (e.g. `AddEnemy(id, x, 30, z)`) is **not** a world
+offset — using it directly floated actors at wall height. Ground height is
+queried from the room's `.scol` via `Collision::GetFloor`, which is what the
+engine does (`GetGroundAttribute` -> `ModeGame::GetGroundAttribute` ->
+`SiCollisionMesh::GetFloor`). For `M0000_03_06` that returns 0.00 at all four
+spawns — the grass — against a script Y of 30.
