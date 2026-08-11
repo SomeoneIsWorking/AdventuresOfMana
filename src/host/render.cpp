@@ -107,12 +107,14 @@ std::string ActorModelName(char kind, int type_id) {
     // The old id==model rule was worse than a missing model: for ids where an
     // N<id>_00 happened to exist it silently drew the WRONG character.
     //
-    // Ids 1..9 are the named party members (HEROINE, WATTS, BOGARD, ...) and do
-    // not follow this rule; they have no N#### model at all, so they resolve to
-    // a name that is simply absent and are reported as missing rather than
-    // being mapped to something plausible.
+    // Ids 0..9 are the named party members and use the CHARACTER prefix
+    // id-for-id: 0 is the hero (the enum literally reads "NONE = 0, -- none
+    // (hero)"), and C0001..C0009 all exist. Confirmed by rendering the two most
+    // distinctive: eNPC 5 is CHOCOBO and C0005_00 is a chocobo, eNPC 6 is
+    // CHOCOBOT and C0006_00 is the same bird in armour. That is a semantic
+    // check, not just "a file with that name exists".
     if (kind == 'N') {
-        if (type_id < 10) return std::format("N{:04d}_00", type_id);
+        if (type_id < 10) return std::format("C{:04d}_00", type_id);
         return std::format("N{:04d}_00", type_id - 10);
     }
     return std::format("{}{:04d}_00", kind, type_id);

@@ -75,10 +75,14 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
   `docs/assets.md`. Likely in the OBB this repack omits, or hashed. Blocks all
   UI/dialogue work. **NEW LEAD, not yet followed:** `DataTableGetName` and
   `DataTableGetHelpString` index `sk1/enemydat.bin`, which IS present.
-- ~~19 of 53 NPC ids have no model?~~ **ANSWERED: the mapping was wrong.** eNPC
-  ids are offset by 10 (id 10 -> `N0000`), documented in sk1.lua's own enum
-  comments; 25/25 annotated entries agree, 0/25 match id-for-id. Every id >= 10
-  now resolves. Ids 1..9 are named party members with no `N####` model.
+- ~~19 of 53 NPC ids have no model?~~ **ANSWERED: the mapping was wrong, and
+  all 35 eNPC ids now resolve** (was 24/36). Two rules: ids 0..9 are the named
+  party members and use `C<id>_00` id-for-id; ids >= 10 use `N<id-10>_00`. The
+  offset is documented in sk1.lua's own enum comments (25/25 annotated entries
+  agree, 0/25 match id-for-id), and the `C` rule was confirmed semantically by
+  rendering eNPC 5 (CHOCOBO -> a chocobo) and 6 (CHOCOBOT -> the same bird in
+  armour). Enemies and bosses were checked for the same bug and are id-for-id
+  (73/73 and 23/23), so the fix is correctly scoped to NPCs.
 - **OPEN:** `AddNPC`'s 6th parameter (`npc_rand`'s `size`) is unreversed, so
   script-spawned NPCs sit at the room-local origin the script literally passes
   rather than being distributed.

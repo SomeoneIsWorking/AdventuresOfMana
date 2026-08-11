@@ -45,10 +45,12 @@ bool BoneLocalPos(const Model& m, const Motion* motion, float time,
 // enums in sk1.lua: all 74 eENEMY ids have E<id>_00 and all 24 eBOSS ids have
 // B<id>_00.
 //
-// NPCs are NOT id-for-id: eNPC id 10 is N0000, 11 is N0001, and so on. The
-// developers annotated the enum with the model for each id and all 25 annotated
-// entries say id-10, none say id. Under that rule every eNPC id >= 10 resolves;
-// ids 1..9 are named party members with no N#### model.
+// NPCs need two rules, and together they resolve all 35 eNPC ids:
+//   id 0..9   -> C<id>_00   the named party members, id-for-id on the CHARACTER
+//                           prefix (0 is the hero)
+//   id >= 10  -> N<id-10>_00
+// The offset is the developers' own: they annotated the enum with the model for
+// each id, and all 25 annotated entries say id-10, none say id.
 std::string ActorModelName(char kind_prefix, int type_id);
 
 }  // namespace mcf
