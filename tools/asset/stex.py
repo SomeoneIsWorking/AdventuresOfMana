@@ -49,9 +49,11 @@ def parse(buf):
 
 if __name__ == '__main__':
     import glob, collections
-    files = sys.argv[1:]
+    files = sys.argv[1:] or sorted(glob.glob('scratch/dump/sk1/*.stex'))
     if not files:
-        sys.exit("usage: stex.py <file.stex ...>")
+        sys.exit("no .stex files given and none found under scratch/dump/sk1/ -- "
+                 "run tools/asset/mpk.py first; refusing to report success on an "
+                 "empty corpus")
     bpp = collections.defaultdict(collections.Counter)
     ok = bad = 0
     errs = []

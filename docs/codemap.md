@@ -16,6 +16,11 @@ The stock engine only; the 5play `libRMS.so` mod-menu injection is excluded from
 | Gamepad path already ships (Android TV / LEANBACK) | manifest + `SiController` |
 | Assets: one `sk1.mpk`, magic `mcfa`, 9886 entries, custom codec (NOT zlib), no AES | `docs/mpk-format.md` |
 
+## Verification
+
+`./tools/verify.sh` runs every asset parser over the full 9886-file corpus. It
+refuses to run — rather than reporting a vacuous pass — if the corpus is missing.
+
 ## Subsystems
 
 | Subsystem | Status | Where |
@@ -49,3 +54,15 @@ The stock engine only; the 5play `libRMS.so` mod-menu injection is excluded from
 - NOTE: container magics are written but **never checked** by the engine, so
   magic-based dispatch is not an option — `Resource::LoadFromFile` switches on a
   `ResourceKind` enum derived from the caller, not the file.
+
+## Where the port stands
+
+The **asset pipeline is complete**: every shipped format opens, and each parser
+was accepted on evidence (a decoded image, rendered geometry, unit quaternions,
+exact byte tilings) rather than on "it didn't crash".
+
+The blocker is no longer *what is in the data*. It is now engine code. The next
+dependency is `.smdl` section slots 0/3/4/5 — meshes, materials, draw ranges —
+which nothing has needed yet but which per-submesh texture binding requires.
+Those should be reversed when the renderer needs them, from the draw path
+(`SiDrawServer`, `SiShaderBind`), not blind.
