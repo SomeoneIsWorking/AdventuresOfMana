@@ -801,10 +801,23 @@ The port applies that formula with the real defence and a real weapon attack
 - **Which weapon is equipped.** There is no inventory or save system, so the
   port uses `kStartingWeaponId` = 101, what a new game begins with. The NUMBER
   is the game's; the SELECTION is an assumption.
-- **Any level-up bonus.** `tblLevelup` is only 4 records of 16 bytes -- a stat
-  growth CYCLE, not a per-level table -- and how it feeds attack is unfollowed.
-  `AppCharacterPlayer::SetCollisionAttackParam` is dispatched virtually, so its
-  caller was not located.
+- **The charge meter, which is the bigger of the two gaps.** The caller HAS now
+  been located -- `AppCharacterPlayer::Update` and `ModeGame::UseInventory` both
+  reach it through vtable slot `+0x4b8` -- and the float it passes as the attack
+  power is **not a static stat**. It is `[oG][+0x1b8]`, an accumulator that
+  `ModeGame::Process` charges every frame:
+
+      f32 @ +0x1b8  +=  (i32 @ +0x1a4 * k * 100 / 1000.0f) * rate
+
+  That is the series' charge-attack meter: the player winds up and damage scales
+  with how full the meter is. **The port models a flat attack per swing, which
+  is structurally the wrong shape**, not merely a wrong constant. The weapon
+  record's `+0x24` (8 in every record) is passed alongside as a separate int
+  argument, so it is not the attack value either.
+- **The base stat behind the charge**, `[oG][+0x1a4]`, is written by the
+  save/level system rather than by a plain store, and following it requires the
+  save format. `tblLevelup` is only 4 records of 16 bytes -- a stat growth
+  CYCLE, not a per-level table.
 - **The floor at 1 damage** is a port choice, so a tough enemy is slow rather
   than immortal. Whether the engine clamps is not established.
 
