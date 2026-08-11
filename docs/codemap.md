@@ -22,7 +22,8 @@ The stock engine only; the 5play `libRMS.so` mod-menu injection is excluded from
 |---|---|---|
 | `cmd` Lua API extraction | **DONE — verified 200/200 names+impls** | `tools/asset/extract_cmd_api.py` -> `docs/cmd-api.md` |
 | MPK archive reader | **DONE — 9886/9886 extracted, validated** | `tools/asset/mpk.py`, `tools/asset/lha.py` |
-| Model / motion / texture formats | magics identified, layouts NOT reversed | `docs/assets.md` |
+| Texture format (`.stex`/`SMDI`) | **DONE — 1319/1319 descriptors parse, image verified** | `tools/asset/stex.py` |
+| Model/motion/collision formats | NOT STARTED — parsers located, layouts not reversed | `SiModelBase::SetBinary`, `SiModelMotion::SetBinary`, `SiCollisionMesh::SetBinary` |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 | Desktop host (window/GL/audio/input) | NOT STARTED | `src/host/` |
 
@@ -32,5 +33,10 @@ The stock engine only; the 5play `libRMS.so` mod-menu injection is excluded from
   lines, Japanese developer comments intact. `sk1.lua` is the prelude (138
   helpers over the 200 native `cmd` functions). NOTE: `sk1.lua` is Shift-JIS,
   map scripts are UTF-8 — see `docs/assets.md`.
-- What are the `Smd3` (model), `Smot` (motion), `SCol` (collision) and `SMDI`
-  (texture) container layouts? Magics known, internals not yet reversed.
+- ~~`SMDI` texture layout?~~ **ANSWERED** — see `docs/assets.md`.
+- `Smd3` (model), `Smot` (motion), `SCol` (collision) layouts. Parsers are
+  `SiModelBase::SetBinary`, `SiModelMotion::SetBinary`,
+  `SiCollisionMesh::SetBinary`; same method as `.stex` applies.
+- NOTE: container magics are written but **never checked** by the engine, so
+  magic-based dispatch is not an option — `Resource::LoadFromFile` switches on a
+  `ResourceKind` enum derived from the caller, not the file.

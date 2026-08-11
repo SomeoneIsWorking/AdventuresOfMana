@@ -49,3 +49,46 @@ returns no matches without `-a`, which made "where is `mapjump` defined?" answer
 "nowhere" — a false negative that looked like a real result. Any tool that walks
 these scripts must handle both encodings explicitly and must not treat a failed
 decode as an empty file.
+
+---
+
+# `.stex` texture container (`SMDI`) — REVERSED
+
+Layout derived from `SiSurfaceTextureArray::SetBinary`. Its loop reads 32-byte
+descriptors and forwards them to `SiSurfaceTexture::Create(int w, int h, int
+mips, SiTextureFormat, void const* pixels, unsigned size, SiTextureRepeat,
+SiTextureRepeat, SiTextureFilter, SiDrawMemoryArea, char const* name)` — the 11
+call arguments pin every field unambiguously.
+
+## Header
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x00 | char[4] | `"SMDI"` (written, **never validated** — the engine dispatches on `ResourceKind`, not magic) |
+| 0x04 | u32 | unused by the loader |
+| 0x08 | u32 | offset of descriptor table |
+| 0x0C | u32 | texture count (loader returns early if < 1) |
+
+## Descriptor — 32 bytes
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x00 | u32 | unused by the loader |
+| 0x04 | u32 | format code |
+| 0x08 | u32 | width |
+| 0x0C | u32 | height |
+| 0x10 | u32 | mip levels |
+| 0x14 | u32 | offset to pixel data |
+| 0x18 | u32 | pixel data size |
+| 0x1C | u32 | offset to NUL-terminated name |
+
+Format code maps through a table at `.rodata:0x9dda0` to `SiTextureFormat`:
+`2->3, 3->2, 4->4, 5->5`, anything else `->1`.
+
+## Verification
+
+`tools/asset/stex.py` parses **1319 descriptors across all 750 files, 0
+failures**. Bytes-per-texel over the full mip chain comes out to exactly **4.0**,
+i.e. every shipped texture is format code 0 -> `SiTextureFormat 1` = RGBA8888.
+Mip 0 decodes to a correct image with no swizzle and no row flip — verified by
+rendering `B0000_00_face.tga` (512x512, 9 mips) to PNG and looking at it.
