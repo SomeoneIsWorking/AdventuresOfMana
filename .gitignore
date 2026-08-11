@@ -1,0 +1,6 @@
+scratch/
+build/
+*.apk
+*.mpk
+*.so
+assets/
