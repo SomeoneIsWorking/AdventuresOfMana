@@ -283,3 +283,38 @@ consumed by the collision *query* code, not the loader — so nothing here
 constrains their layout, and guessing would be inventing. Reversing them means
 following `CollisionBase` / `SiCollisionMesh` query methods, which is a separate
 job and only needed once the port does actual collision.
+
+## `.smdl` section 5 — vertex declaration
+
+`SiModelBase::SetBinary` reads an array of 32-byte records from **section slot 5**
+and remaps each into a 16-byte `SiVertexDeclarationParam` before handing them to
+`SiVertexStream::Initialize`. The file therefore *states* its own vertex layout —
+no inference required.
+
+Record: `{u32 usage, u32 type, u32 offset, u32 stream, …}` (remaining 16 bytes are
+zero in every shipped model).
+
+| Usage | Meaning | | Type | Meaning | Size |
+|-------|---------|---|------|---------|------|
+| 0 | position | | 1 | float2 | 8 |
+| 1 | weight | | 2 | float3 | 12 |
+| 2 | incidence (bone index) | | 3 | float4 | 16 |
+| 5 | color | | 4 | ubyte4 | 4 |
+| 7 | texcoord0 | | 5 | ubyte4 | 4 |
+
+Exactly two layouts exist across all 1375 models, and `max(offset+size) == stride`
+holds for every one:
+
+| Stride | Models | Layout |
+|--------|-------:|--------|
+| 24 | 1118 | `+0 position float3`, `+12 color ubyte4`, `+16 texcoord0 float2` |
+| 44 | 257 | above, plus `+24 incidence ubyte4`, `+28 weight float4` |
+
+### Correction
+
+There is **no normal** in either layout. An earlier guess placed one at +12
+(stride 44) and appeared to be supported — 69% of those vectors were unit length.
+That was coincidence: bone weights sum to 1. The game's own skinning vertex
+shader in `.rodata` declares exactly `position, texcoord0, color, weight,
+incidence` and no normal, matching the declaration. Lighting comes from the
+`mLight` uniform block, not per-vertex normals.

@@ -48,9 +48,9 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
   loader constrains nothing; needs the `CollisionBase` query methods instead.
 - **OPEN:** 98/60,803 motion time arrays are non-monotonic (9 files). Meaning
   unknown; not per-channel sub-arrays. See `docs/assets.md`.
-- `.smdl` section slots 0, 3, 4, 5 (meshes / materials / draw ranges) are not
-  yet identified — slot 6/7/8 were enough for geometry, but per-mesh material
-  and texture binding still needs them.
+- ~~`.smdl` slot 5?~~ **ANSWERED: vertex declaration** — see `docs/assets.md`.
+- `.smdl` slots 0, 3, 4 (meshes / materials / draw ranges) remain unidentified;
+  per-submesh texture binding needs them.
 - NOTE: container magics are written but **never checked** by the engine, so
   magic-based dispatch is not an option — `Resource::LoadFromFile` switches on a
   `ResourceKind` enum derived from the caller, not the file.
