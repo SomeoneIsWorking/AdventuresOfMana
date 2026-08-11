@@ -635,27 +635,30 @@ count with a divide-by-7-words (`umull` by `0x24924925`, `lsr #32`).
 a single byte `0x61`; the engine's own size check discards them, so they are
 empty tables and are read as such rather than counted as failures.
 
-### OPEN: 303 objects sit outside their own room cell
+### RESOLVED: rooms are not all one grid cell
 
-Under the verified 300×240 world cell, **2981 of 3284** `.odt` objects land
-inside the cell their filename names. The other 303 do not, and the split is by
-map, not random: maps M0000–M0011 (overworld) are perfect, 16 dungeon maps are
-not. Median overshoot is 105 units and the worst is 1755, so this is **not**
-benign edge overhang like the wall meshes.
+An earlier version of this document listed "303 of 3284 objects sit outside
+their own room cell" as an open question, with a per-map origin as the likely
+cause. **That was the test being wrong, not the data.**
 
-Ruled out by measurement, not by argument:
-- **Room-local coordinates** — would put every object in `[0,300]×[0,240]`.
-  Actual counts are near zero for the dungeon maps (e.g. M0014: 0 of 69).
-- **A different per-map cell size** — no candidate from a 9×9 sweep of plausible
-  widths and heights fits all objects for any of the failing maps. The overworld
-  by contrast is fit **uniquely** by (300, 240) across 2331 objects.
-- **A different per-room cell size from `.gdt`** — the two grid sizes are mixed
-  inside single maps and correspond to 300×240 plus optional margin, so they do
-  not supply a per-map origin.
+Checked against the thing that actually defines a room's extent -- its own mesh
+-- **3284 of 3284 objects are inside their own room's XZ bounds. Zero outside.**
 
-Most likely a per-map origin or room-index remap that has not been reversed.
-Nothing in the port depends on this yet; `roomdata.py` reports the count with
-its denominator so the number cannot quietly drift.
+The bad assumption was that every room occupies exactly one 300x240 cell. It
+does not: measuring all 993 room meshes, 853 span one cell but **140 span
+several** (43 are 2x2, 42 are 2x1, 16 are 1x2, and the rest up to 4x2 and 3x4).
+Dungeon maps are where the large rooms live, which is why the failures looked
+map-correlated and invited a per-map origin theory.
+
+The tell was in the data before the mesh check: the spill was **only ever in +x
+and +z, never negative**, in offsets of one or two cells. A wrong origin would
+scatter in both directions; a room bigger than its anchor cell can only spill
+forward. The 300x240 cell is still correct as the room ANCHOR, which is what the
+port uses, and is still pinned uniquely by the overworld's 2331 objects.
+
+`roomdata.py` now checks against mesh bounds and carries a self-test: it
+displaces a real object outside its room and requires a reject, because a check
+that passes 3284 of 3284 is exactly the kind that might be measuring nothing.
 
 ### The `.odt` object id is NOT the `O####_##.smdl` number
 

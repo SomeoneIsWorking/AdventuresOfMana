@@ -32,6 +32,9 @@ import re
 import struct
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import smdl  # noqa: E402  -- sibling module, for room mesh bounds
+
 ODT_HEADER = 0x40
 ODT_STRIDE = 0xC0
 ODT_VERSION = 2
@@ -139,33 +142,63 @@ def main(argv):
         if errs:
             rc = 1
 
-    # Placement check with a stated blind spot. The overworld maps pin the world
-    # cell to 300x240 uniquely; several dungeon maps put objects well outside
-    # their own cell and that is NOT explained -- see docs/assets.md.
-    inside = outside = 0
+    # Placement check, against the ROOM MESH rather than a 300x240 cell. An
+    # earlier version tested the cell and flagged 303 objects across 16 dungeon
+    # maps; that was the test being wrong, not the data -- 140 of 993 room
+    # meshes span more than one cell. See docs/assets.md.
+    inside = outside = no_mesh = 0
     bad_maps = {}
     for f in found["odt"]:
-        m = re.match(r"M(\d{4})_(\d{2})_(\d{2})\.odt$", os.path.basename(f))
-        if not m:
-            continue
-        mp, gx, gy = m.group(1), int(m.group(2)), int(m.group(3))
-        ox, oz = gx * 300.0, gy * 240.0
+        base = os.path.basename(f)[:-4]
+        mesh = os.path.join(os.path.dirname(f), base + ".smdl")
         try:
             recs = parse_odt(open(f, "rb").read())
         except (FormatError, struct.error):
             continue
+        try:
+            buf = open(mesh, "rb").read()
+            pos = smdl.positions(buf, smdl.parse(buf))
+        except Exception:
+            no_mesh += 1
+            continue
+        if not pos:
+            no_mesh += 1
+            continue
+        xs = [p[0] for p in pos]
+        zs = [p[2] for p in pos]
+        lo_x, hi_x, lo_z, hi_z = min(xs), max(xs), min(zs), max(zs)
         for r in recs:
             x, _, z = r["pos"]
-            if ox <= x <= ox + 300 and oz <= z <= oz + 240:
+            if lo_x <= x <= hi_x and lo_z <= z <= hi_z:
                 inside += 1
             else:
                 outside += 1
-                bad_maps[mp] = bad_maps.get(mp, 0) + 1
-    if inside or outside:
+                bad_maps[base] = bad_maps.get(base, 0) + 1
+    if inside or outside or no_mesh:
         print(f"  placement: {inside} of {inside + outside} objects inside their "
-              f"own 300x240 room cell; {outside} outside across "
-              f"{len(bad_maps)} map(s): {','.join('M' + k for k in sorted(bad_maps))}")
-        print("  (the outside ones are a KNOWN OPEN question, not a parse failure)")
+              f"own room MESH bounds; {outside} outside"
+              + (f" ({', '.join(sorted(bad_maps))})" if bad_maps else "")
+              + (f"; {no_mesh} rooms had no readable mesh" if no_mesh else ""))
+        print("  (checked against the mesh, NOT a 300x240 cell -- 140 of 993 room")
+        print("   meshes span several cells, which is what a cell test mis-flags)")
+        # This check now passes everything, which is exactly when a check is
+        # most likely to be measuring nothing. Prove it can still say "no":
+        # displace one real object far outside its room and require a reject.
+        probe = found["odt"][0]
+        buf = open(probe, "rb").read()
+        mesh = os.path.join(os.path.dirname(probe),
+                            os.path.basename(probe)[:-4] + ".smdl")
+        mbuf = open(mesh, "rb").read()
+        mpos = smdl.positions(mbuf, smdl.parse(mbuf))
+        lo_x, hi_x = min(p[0] for p in mpos), max(p[0] for p in mpos)
+        moved = parse_odt(buf)[0]["pos"][0] + (hi_x - lo_x) + 1000.0
+        if lo_x <= moved <= hi_x:
+            print("  SELFTEST FAILED: a deliberately displaced object was still "
+                  "accepted -- the placement check proves nothing")
+            rc = 1
+        else:
+            print(f"  selftest: an object displaced to x={moved:.0f} IS rejected "
+                  f"(room spans x {lo_x:.0f}..{hi_x:.0f}), so the check can fail")
     return rc
 
 
