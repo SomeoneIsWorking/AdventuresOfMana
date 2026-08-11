@@ -531,4 +531,27 @@ const char* MapObjectModel(int32_t id) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// sk1/enemydat.bin. Stride 0x198 is the engine's own: DataTableGetEnemy walks
+// records with `add x0, x0, #0x198` and derives the count by dividing the
+// stored file size by 408.
+// ---------------------------------------------------------------------------
+std::vector<EnemyStats> ParseEnemyDat(const std::vector<uint8_t>& file) {
+    std::vector<EnemyStats> out;
+    constexpr size_t kStride = 0x198;
+    if (file.empty() || file.size() % kStride) return out;
+    out.reserve(file.size() / kStride);
+    for (size_t o = 0; o + kStride <= file.size(); o += kStride) {
+        EnemyStats e;
+        e.id = RdS32(file, o + 0x00);
+        e.max_hp = RdS32(file, o + 0x04);
+        e.unknown_08 = RdS32(file, o + 0x08);
+        e.defence = RdS32(file, o + 0x0C);
+        e.exp = RdS32(file, o + 0x10);
+        e.money = RdS32(file, o + 0x14);
+        out.push_back(e);
+    }
+    return out;
+}
+
 }  // namespace mcf

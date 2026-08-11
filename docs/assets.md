@@ -761,8 +761,45 @@ record field at a known offset. Those functions read exactly ten:
 | +0x058, +0x05C, +0x060, +0x068 | f32 |
 | +0x064, +0x06C, +0x078, +0x07C | i32 |
 
-**Which field is HP is NOT established**, and no combat damage is applied in the
-port on a guess. Ids are sparse (0..209 across 107 records), not sequential.
+Ids are sparse (0..209 across 107 records), not sequential; the last three
+records are entirely zero.
+
+### Fields identified, each pinned to an engine read
+
+| Offset | Meaning | How it is pinned |
+|---|---|---|
+| +0x00 | enemy id | `DataTableGetEnemy` compares word 0 against its argument |
+| +0x04 | **max HP** | `AppCharacterEnemy::GetStatusMaxHp` @ `0x2b2318` reads the id at `+0x3a24`, calls `DataTableGetEnemy`, returns `[x0, #0x4]`. `Damage`'s death path also stores it back into the live HP field to reset the enemy |
+| +0x08 | unknown | passed as an argument into the enemy's attack-collision setup; the parameter it lands on is not identified |
+| +0x0C | **defence** | the subtrahend in `Damage`'s `sub w22, w28, w27`, with `w27` loaded from `[x20, #0x3a30]` |
+| +0x10 | **EXP reward** | passed to `GameParameter::AddEXP` |
+| +0x14 | **money reward** | passed to `GameParameter::AddRC` |
+
+Current HP is not a separate field: `SetEnemyId` memcpy's the whole record into
+the character at `+0x3a24`, and `GetStatusHp` @ `0x2b2310` returns the character's
+own mutable copy of `+0x04` while `GetStatusMaxHp` re-reads the pristine table.
+`GetStatusMp`/`GetStatusMaxMp` return a literal 0 -- enemies have no MP.
+
+The values corroborate the offsets independently: id 0 is 4 HP / 1 defence /
+1 EXP, id 26 (the werewolf) is 60 / 15 / 48, and the table tops out at 4480 HP.
+That is a clean difficulty progression by id, which a wrong offset would not
+produce.
+
+### The damage formula, and the one number that is invented
+
+`AppCharacterEnemy::Damage` @ `0x2b2b00` computes **attack - defence** (there is
+a branch that first quarters the defence, and a later scale by a rate parameter
+at `[x21, #0x2c]`).
+
+The port applies that formula with the real defence, but **the player's attack
+power is NOT reversed** -- it is set through
+`AppCharacterPlayer::SetCollisionAttackParam`, which is dispatched virtually and
+whose caller derives the value from the weapon and level-up tables
+(`DataTableGetWeapon`, `DataTableGetLevelUp`, both unfollowed). The port uses a
+single named constant `kPlayerAttackStopgap` so the invented input cannot be
+mistaken for data. It is deliberately visible: at 12 against a median defence of
+15, most enemies take the floor of 1 damage per hit, which is wrong and looks
+wrong. Combat balance is not faithful until that table is reversed.
 
 `DataTableGetName` and `DataTableGetHelpString` are a live lead on the missing
 text problem recorded above and have not been followed yet.

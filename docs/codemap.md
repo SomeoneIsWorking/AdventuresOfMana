@@ -40,10 +40,10 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Camera | **Script-driven follow camera** (`eCamGetData` slots) | `src/engine/world.h` |
 | Fade | **Timed fades with the game's own shader**, verified to darken the frame | `src/host/main.cpp` |
 | Combat volumes | **Attack arcs + damage spheres on bones; overlap predicate self-tested; fires in-game** (481 hits / 744 pairs on a real room; 0 hits at range, explained) | `src/engine/world.cpp`, `src/host/main.cpp` |
-| Enemy behaviour | PLACEHOLDER — closes on the player, stops at 40 units, no mutual separation (they stack). Real AI is unreversed native code. No damage is applied yet | `src/host/main.cpp` |
+| Enemy behaviour | PARTIAL — real HP/defence/rewards from `enemydat.bin`; damage, death and drops work. Movement is a placeholder (closes on the player, no mutual separation). **Player attack power is a named stopgap constant**, so balance is not faithful | `src/host/main.cpp` |
 | Event boxes + transitions | **Edge-triggered boxes run handlers as coroutines; `mapjump` loads the destination room** | `src/engine/script.cpp`, `src/host/main.cpp` |
 | Audio | **BGM + SE play, driven by scripts** | `src/engine/audio.cpp` |
-| Game data tables (`enemydat.bin`) | PARTIAL — file identified via `DataTableInit`; enemy table is 107 records of 408 bytes (exact division) and the 10 fields the engine reads are located. **Which field is HP is NOT established** | `docs/assets.md` |
+| Game data tables (`enemydat.bin`) | **Enemy table live in-game** — 107 records; max HP, defence, EXP and money each pinned to an engine read | `src/mcf/assets.cpp`, `docs/assets.md` |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 
 ## Open questions (gate the next step)

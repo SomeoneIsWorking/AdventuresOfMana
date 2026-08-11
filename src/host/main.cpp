@@ -602,6 +602,27 @@ int main(int argc, char** argv) {
             if (!sc.CallFunction("SystemInit"))
                 throw mcf::Error(std::format("SystemInit: {}", sc.last_error()));
 
+            // The game's enemy stat table, keyed by the id AddEnemy/AddBoss pass.
+            std::map<int, mcf::EnemyStats> enemy_stats;
+            {
+                const char* kEnemyDat = "sk1/enemydat.bin";
+                auto rows = ar.Has(kEnemyDat)
+                                ? mcf::ParseEnemyDat(ar.Read(kEnemyDat))
+                                : std::vector<mcf::EnemyStats>{};
+                for (const auto& e : rows) enemy_stats[e.id] = e;
+                // Say what was loaded AND what was not: silence here would look
+                // identical to a table that failed to parse.
+                if (rows.empty())
+                    lucent::warn("combat", "{}: {} -- enemies will have no stats",
+                                 kEnemyDat,
+                                 ar.Has(kEnemyDat) ? "did not parse" : "not in archive");
+                else
+                    lucent::info("combat", "{}: {} enemy records", kEnemyDat, rows.size());
+            }
+            // Re-seeded on every room load, because world.Reset() drops the
+            // actors a previous room's stats were attached to.
+            std::function<void()> seedCombat = [] {};
+
             std::string room_name = render_room;
             auto loadRoom = [&](const std::string& name) -> bool {
                 room_name = name;
@@ -888,15 +909,37 @@ int main(int argc, char** argv) {
             constexpr int kMotionWait = 0, kMotionWalk = 1, kMotionAttack = 23;
             constexpr float kAttackFrames = 24.f;   // ~0.8 s at 30 fps
             float attack_left = 0.f;
-            if (auto* pl = world.Find("MainPlayer")) {
-                auto& av = pl->attack[0];
-                av.bone = "cog"; av.radius = 45.f; av.arc_deg = 180.f; av.valid = false;
-            }
-            for (auto& a : world.actors_mutable())
-                if (a.kind == 'E' || a.kind == 'B') {
+            // STOPGAP: the player's attack power comes from the weapon and
+            // level-up tables (DataTableGetWeapon / DataTableGetLevelUp), which
+            // are NOT reversed. The damage FORMULA below is the engine's
+            // (attack - defence, floored at 1); only this input is invented, and
+            // it is a single named constant so it cannot be mistaken for data.
+            constexpr int kPlayerAttackStopgap = 12;
+            seedCombat = [&] {
+                if (auto* pl = world.Find("MainPlayer")) {
+                    auto& av = pl->attack[0];
+                    av.bone = "cog"; av.radius = 45.f; av.arc_deg = 180.f;
+                    av.valid = false;
+                }
+                int with_stats = 0, without = 0;
+                for (auto& a : world.actors_mutable()) {
+                    if (a.kind != 'E' && a.kind != 'B') continue;
                     auto& dv = a.damage[0];
                     dv.bone = "y_ang"; dv.radius = 15.f; dv.valid = true;
+                    auto it = enemy_stats.find(a.type_id);
+                    if (it == enemy_stats.end()) { ++without; continue; }
+                    a.max_hp = it->second.max_hp;
+                    a.hp = a.max_hp;
+                    a.defence = it->second.defence;
+                    a.exp = it->second.exp;
+                    a.money = it->second.money;
+                    ++with_stats;
                 }
+                if (with_stats || without)
+                    lucent::info("combat", "enemy stats: {} from enemydat.bin, "
+                                 "{} with no table entry", with_stats, without);
+            };
+            seedCombat();
 
             float eye_cur[3]{};
             bool cam_init = false;
@@ -910,7 +953,9 @@ int main(int argc, char** argv) {
             struct CombatStats {
                 long swing_frames = 0;   // frames an attack volume was live
                 long pairs = 0;          // attack/damage volume pairs tested
-                long hits = 0;
+                long hits = 0;           // per-frame overlaps
+                long landed = 0;         // hits that counted (one per swing/target)
+                long kills = 0;
                 long atk_no_model = 0, def_no_model = 0, def_no_bone = 0;
                 float closest = 1e30f;   // nearest volume separation seen
             } cs;
@@ -1013,9 +1058,13 @@ int main(int argc, char** argv) {
                     // Only the middle of the swing connects, so a held key does
                     // not produce a continuous damage beam.
                     auto it = pl->attack.find(0);
-                    if (it != pl->attack.end())
+                    if (it != pl->attack.end()) {
+                        bool was = it->second.valid;
                         it->second.valid = attack_left > kAttackFrames * 0.25f &&
                                            attack_left < kAttackFrames * 0.75f;
+                        // A new swing starts the moment the volume goes live.
+                        if (it->second.valid && !was) ++pl->swing_id;
+                    }
                 }
 
                 // Enemies close on the player. Deliberately minimal -- the real
@@ -1059,41 +1108,93 @@ int main(int argc, char** argv) {
                 // damage volume on a different actor. Attack volumes are arcs
                 // (radius + degrees) and damage volumes are spheres, per how the
                 // scripts configure them.
-                for (const auto& atk : world.actors()) {
-                    if (!atk.alive || atk.attack.empty()) continue;
-                    auto an = mcf::ActorModelName(atk.kind, atk.type_id);
-                    auto ait = cache.find(an);
-                    if (ait == cache.end()) { ++cs.atk_no_model; continue; }
-                    for (const auto& [ai, av] : atk.attack) {
-                        if (!av.valid || av.bone.empty()) continue;
-                        ++cs.swing_frames;
-                        float ap[3];
-                        if (!mcf::BoneLocalPos(ait->second.model, nullptr, t, av.bone, ap))
-                            continue;
-                        for (int k = 0; k < 3; ++k) ap[k] += atk.pos[k] + room_org[k] + av.offset[k];
+                //
+                // Indices, not references: a hit mutates the defender's HP, and
+                // that cannot be done through the const actor list.
+                {
+                    auto& acts = world.actors_mutable();
+                    for (size_t aidx = 0; aidx < acts.size(); ++aidx) {
+                        if (!acts[aidx].alive || acts[aidx].attack.empty()) continue;
+                        auto an = mcf::ActorModelName(acts[aidx].kind, acts[aidx].type_id);
+                        auto ait = cache.find(an);
+                        if (ait == cache.end()) { ++cs.atk_no_model; continue; }
+                        for (const auto& [ai, av] : acts[aidx].attack) {
+                            if (!av.valid || av.bone.empty()) continue;
+                            ++cs.swing_frames;
+                            float ap[3];
+                            if (!mcf::BoneLocalPos(ait->second.model, nullptr, t, av.bone, ap))
+                                continue;
+                            for (int k = 0; k < 3; ++k)
+                                ap[k] += acts[aidx].pos[k] + room_org[k] + av.offset[k];
 
-                        for (const auto& def : world.actors()) {
-                            if (&def == &atk || !def.alive || def.damage.empty()) continue;
-                            auto dn = mcf::ActorModelName(def.kind, def.type_id);
-                            auto dit = cache.find(dn);
-                            if (dit == cache.end()) { ++cs.def_no_model; continue; }
-                            for (const auto& [di, dv] : def.damage) {
-                                if (!dv.valid || dv.bone.empty()) continue;
-                                float dp[3];
-                                if (!mcf::BoneLocalPos(dit->second.model, nullptr, t, dv.bone, dp))
-                                    { ++cs.def_no_bone; continue; }
-                                for (int k = 0; k < 3; ++k)
-                                    dp[k] += def.pos[k] + room_org[k] + dv.offset[k];
-                                ++cs.pairs;
-                                float sx = dp[0] - ap[0], sz = dp[2] - ap[2],
-                                      sy = dp[1] - ap[1];
-                                cs.closest = std::min(cs.closest,
-                                    std::sqrt(sx * sx + sy * sy + sz * sz));
-                                if (!mcf::HitArcSphere(ap, av.radius, av.arc_deg,
-                                                       atk.rot_y, dp, dv.radius)) continue;
-                                ++cs.hits;
-                                lucent::info("combat", "{} atk[{}] '{}' hits {} dmg[{}] '{}'",
-                                             atk.handle, ai, av.bone, def.handle, di, dv.bone);
+                            for (size_t didx = 0; didx < acts.size(); ++didx) {
+                                if (didx == aidx || !acts[didx].alive ||
+                                    acts[didx].damage.empty()) continue;
+                                auto dn = mcf::ActorModelName(acts[didx].kind,
+                                                              acts[didx].type_id);
+                                auto dit = cache.find(dn);
+                                if (dit == cache.end()) { ++cs.def_no_model; continue; }
+                                for (const auto& [di, dv] : acts[didx].damage) {
+                                    if (!dv.valid || dv.bone.empty()) continue;
+                                    float dp[3];
+                                    if (!mcf::BoneLocalPos(dit->second.model, nullptr, t,
+                                                           dv.bone, dp))
+                                        { ++cs.def_no_bone; continue; }
+                                    for (int k = 0; k < 3; ++k)
+                                        dp[k] += acts[didx].pos[k] + room_org[k] + dv.offset[k];
+                                    ++cs.pairs;
+                                    float sx = dp[0] - ap[0], sy = dp[1] - ap[1],
+                                          sz = dp[2] - ap[2];
+                                    cs.closest = std::min(cs.closest,
+                                        std::sqrt(sx * sx + sy * sy + sz * sz));
+                                    if (!mcf::HitArcSphere(ap, av.radius, av.arc_deg,
+                                                           acts[aidx].rot_y, dp, dv.radius))
+                                        continue;
+                                    ++cs.hits;
+
+                                    // One hit per swing per target. The volume is
+                                    // live for several frames, and without this a
+                                    // single swing applied its damage every frame.
+                                    auto& atkA = acts[aidx];
+                                    auto key = std::make_pair(atkA.swing_id,
+                                                              acts[didx].handle);
+                                    if (std::find(atkA.hit_this_swing.begin(),
+                                                  atkA.hit_this_swing.end(), key) !=
+                                        atkA.hit_this_swing.end())
+                                        continue;
+                                    atkA.hit_this_swing.push_back(key);
+                                    ++cs.landed;
+
+                                    auto& d = acts[didx];
+                                    if (d.max_hp <= 0) {
+                                        // No table entry: log the contact but do
+                                        // NOT invent a health pool for it.
+                                        lucent::info("combat",
+                                            "{} hits {} (no stats; no damage applied)",
+                                            atkA.handle, d.handle);
+                                        continue;
+                                    }
+                                    // The engine's formula: attack - defence.
+                                    // AppCharacterEnemy::Damage does
+                                    // `sub w22, w28, w27` with w27 read from the
+                                    // record's +0x0C. Floored at 1 so a tough
+                                    // enemy is slow, not immortal.
+                                    int dmg = std::max(1, kPlayerAttackStopgap - d.defence);
+                                    d.hp -= dmg;
+                                    if (d.hp > 0) {
+                                        lucent::info("combat",
+                                            "{} hits {} for {} ({} - {} def) -> {}/{} HP",
+                                            atkA.handle, d.handle, dmg,
+                                            kPlayerAttackStopgap, d.defence, d.hp, d.max_hp);
+                                    } else {
+                                        d.hp = 0;
+                                        d.alive = false;
+                                        ++cs.kills;
+                                        lucent::info("combat",
+                                            "{} killed {} (+{} EXP, +{} money)",
+                                            atkA.handle, d.handle, d.exp, d.money);
+                                    }
+                                }
                             }
                         }
                     }
@@ -1106,6 +1207,7 @@ int main(int argc, char** argv) {
                     lucent::info("world", "mapjump -> {} at ({:.0f},{:.0f},{:.0f}) arrow {}",
                                  dest, j.x, j.y, j.z, j.arrow);
                     if (loadRoom(dest)) {
+                        seedCombat();
                         px = j.x + room_org[0];
                         pz = j.z + room_org[2];
                         py = j.y + room_org[1];
@@ -1195,10 +1297,11 @@ int main(int argc, char** argv) {
                          frames, audio.stat.decoded_sounds, audio.stat.decoded_frames,
                          audio.bgm_id());
             lucent::info("combat",
-                         "{} hits from {} volume pairs over {} live-swing frames; "
+                         "{} frame-overlaps -> {} landed hits -> {} kills; "
+                         "{} volume pairs over {} live-swing frames; "
                          "closest approach {} units; skipped {} attackers / {} "
                          "defenders with no loaded model, {} with no such bone",
-                         cs.hits, cs.pairs, cs.swing_frames,
+                         cs.hits, cs.landed, cs.kills, cs.pairs, cs.swing_frames,
                          cs.pairs ? std::format("{:.1f}", cs.closest) : "n/a",
                          cs.atk_no_model, cs.def_no_model, cs.def_no_bone);
             SDL_GL_DestroyContext(ctx);

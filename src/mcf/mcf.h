@@ -252,4 +252,30 @@ std::vector<MapObject> ParseOdt(const std::vector<uint8_t>& file);
 // Returns nullptr for an id not in the table.
 const char* MapObjectModel(int32_t id);
 
+// ---------------------------------------------------------------------------
+// sk1/enemydat.bin -- the game's data tables. DataTableInit() @ 0x2c36bc reads
+// this one file; DataTableGetEnemy() @ 0x2c3d4c walks it with a 0x198 stride
+// comparing word 0 against the id. 43656 / 408 = 107 records exactly.
+//
+// Field offsets below are each pinned to a specific engine read, not guessed:
+//   +0x04  AppCharacterEnemy::GetStatusMaxHp returns it, and Damage's death
+//          path stores it back into the live HP field to reset the enemy
+//   +0x0C  the subtrahend in Damage's `sub w22, w28, w27`
+//   +0x10  passed to GameParameter::AddEXP
+//   +0x14  passed to GameParameter::AddRC
+// ---------------------------------------------------------------------------
+struct EnemyStats {
+    int32_t id = 0;
+    int32_t max_hp = 0;      // +0x04
+    int32_t unknown_08 = 0;  // +0x08 -- fed to the attack-collision setup; the
+                             // parameter it lands on is not identified
+    int32_t defence = 0;     // +0x0C
+    int32_t exp = 0;         // +0x10
+    int32_t money = 0;       // +0x14
+};
+
+// Parses the whole file. Returns empty if the size is not a multiple of 408,
+// which is the same size check the engine's own division implies.
+std::vector<EnemyStats> ParseEnemyDat(const std::vector<uint8_t>& file);
+
 }  // namespace mcf

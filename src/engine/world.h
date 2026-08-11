@@ -13,6 +13,7 @@
 #include <map>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace mcf {
@@ -100,6 +101,16 @@ struct Actor {
     float rot_y = 0;
     int motion = 0;              // eMOTION index; also the .smot numeric prefix
     bool alive = true;
+    // Combat status. For 'E'/'B' actors these come from sk1/enemydat.bin: the
+    // engine's GetStatusMaxHp reads record +0x04 and Damage subtracts record
+    // +0x0C, so these are the game's own numbers, not port inventions.
+    int hp = 0, max_hp = 0, defence = 0;
+    int exp = 0, money = 0;
+    // Attack volumes hit every frame they overlap. The engine applies a hit
+    // once per swing, so each swing gets an id and a target is only damaged
+    // once per id. Without this a 24-frame swing dealt damage 24 times.
+    uint32_t swing_id = 0;
+    std::vector<std::pair<uint32_t, std::string>> hit_this_swing;
     bool is_weapon = false;
     std::map<int, float> data;   // sparse: slot -> value
     std::map<int, HitVolume> attack;   // ChrAttackBone*
