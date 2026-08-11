@@ -53,6 +53,15 @@ constexpr const char* kVSkin =
     "vPosition.xyz += SkinningPosition( position , int( incidence.y ) * 3 ) * (1.0 - weight[0]); "
     "texcoordVarying = texcoord0; colorVarying = color; gl_Position = mVP * vPosition; }";
 
+// The game's own fade shader pair, verbatim from .rodata: a clip-space quad in
+// a flat colour.
+constexpr const char* kVFade =
+    "attribute vec4 position; uniform vec4 vColor; varying vec4 colorVarying; "
+    "void main() { gl_Position = position; colorVarying = vColor; }";
+constexpr const char* kFFade =
+    "precision highp float; varying vec4 colorVarying; void main() "
+    "{ gl_FragColor = colorVarying; }";
+
 constexpr const char* kFS =
     "precision highp float; uniform sampler2D texture0; varying vec4 colorVarying; "
     "varying vec2 texcoordVarying; void main() { vec4 color = texture2D( texture0 , "
@@ -185,6 +194,7 @@ int main(int argc, char** argv) {
     std::string probe;
     float spawn_x = 0, spawn_z = 0;
     bool has_spawn = false;
+    bool fade_test = false;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
@@ -198,6 +208,7 @@ int main(int argc, char** argv) {
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
         else if (a == "--audio-selftest") audio_selftest = true;
         else if (a == "--collision-probe" && i + 1 < argc) probe = argv[++i];
+        else if (a == "--fade-test") fade_test = true;
         else if (a == "--spawn" && i + 2 < argc) {
             spawn_x = std::stof(argv[++i]); spawn_z = std::stof(argv[++i]);
             has_spawn = true;
@@ -509,6 +520,14 @@ int main(int argc, char** argv) {
         if (!render_room.empty()) {
             GLuint progFlat = LinkProgram(kVS, kFS);
             GLuint progSkin = LinkProgram(kVSkin, kFS);
+            GLuint progFade = LinkProgram(kVFade, kFFade);
+            GLuint fadeVbo = 0;
+            glGenBuffers(1, &fadeVbo);
+            {
+                const float quad[] = {-1,-1, 3,-1, -1,3};   // one oversized triangle
+                glBindBuffer(GL_ARRAY_BUFFER, fadeVbo);
+                glBufferData(GL_ARRAY_BUFFER, sizeof quad, quad, GL_STATIC_DRAW);
+            }
             GLuint white = 0;
             glGenTextures(1, &white);
             glBindTexture(GL_TEXTURE_2D, white);
@@ -754,6 +773,12 @@ int main(int argc, char** argv) {
             };
             serviceAudio();
 
+            if (fade_test) {   // half-covered black fade, to prove the overlay draws
+                world.fade.kind = 1;
+                world.fade.duration_ms = 1000;
+                world.fade.remaining_ms = 500;
+                world.fade.colour[0] = world.fade.colour[1] = world.fade.colour[2] = 0;
+            }
             float eye_cur[3]{};
             bool cam_init = false;
             bool running = true;
@@ -832,7 +857,7 @@ int main(int argc, char** argv) {
                      LookAt(eye_cur, look, up);
 
                 t += dt * 30.f;      // motions are keyed in frames at 30fps
-                world.fade.Tick(dt * 1000.f);
+                if (!fade_test) world.fade.Tick(dt * 1000.f);
                 sc.ResumeCoroutines();
                 serviceAudio();
                 audio.Update();
@@ -884,6 +909,28 @@ int main(int argc, char** argv) {
                     drawOne(hero, hp, heroMotion(moving ? 1 : 0), pdeg);
                 }
                 ++frames;
+
+                // Fade overlay, drawn last so it covers everything.
+                if (world.fade.Coverage() > 0.001f) {
+                    glUseProgram(progFade);
+                    glDisable(GL_DEPTH_TEST);
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    const auto& fc = world.fade.colour;
+                    glUniform4f(glGetUniformLocation(progFade, "vColor"),
+                                fc[0] / 255.f, fc[1] / 255.f, fc[2] / 255.f,
+                                world.fade.Coverage());
+                    glBindBuffer(GL_ARRAY_BUFFER, fadeVbo);
+                    glEnableVertexAttribArray(0);
+                    glDisableVertexAttribArray(1);
+                    glDisableVertexAttribArray(2);
+                    glDisableVertexAttribArray(3);
+                    glDisableVertexAttribArray(4);
+                    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+                    glDrawArrays(GL_TRIANGLES, 0, 3);
+                    glDisable(GL_BLEND);
+                    glEnable(GL_DEPTH_TEST);
+                }
 
                 // Capture BEFORE presenting: SDL_GL_SwapWindow may discard the
                 // back buffer, so reading after it returns an undefined (here,

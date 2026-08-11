@@ -37,6 +37,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Actor system | **Live actors driven by scripts**, rendered and animated in their rooms | `src/engine/world.{h,cpp}`, `src/host/render.cpp` |
 | Game loop + player | **Real-time loop, WASD/arrow movement, floor + wall collision, WAIT/WALK** | `src/host/main.cpp` |
 | Camera | **Script-driven follow camera** (`eCamGetData` slots) | `src/engine/world.h` |
+| Fade | **Timed fades with the game's own shader**, verified to darken the frame | `src/host/main.cpp` |
 | Event boxes + transitions | **Edge-triggered boxes run handlers as coroutines; `mapjump` loads the destination room** | `src/engine/script.cpp`, `src/host/main.cpp` |
 | Audio | **BGM + SE play, driven by scripts** | `src/engine/audio.cpp` |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
@@ -66,6 +67,9 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 - `room_field.mtex` (240x240, the only NPOT texture) has 58 bytes of mip padding
   the exact-sum rule does not predict.
 - `.stexinfo` record +0x80 (a small u32) is unidentified.
+- **Dialogue text is missing from the extracted data entirely** — see
+  `docs/assets.md`. Likely in the OBB this repack omits, or hashed. Blocks all
+  UI/dialogue work.
 - NOTE: container magics are written but **never checked** by the engine, so
   magic-based dispatch is not an option — `Resource::LoadFromFile` switches on a
   `ResourceKind` enum derived from the caller, not the file.

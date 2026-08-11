@@ -529,3 +529,38 @@ would scramble the model.
 
 Animation then plays correctly: `B0000_00_002_DASH` at frame 12 produces a
 coherent crouched dash pose. Rotation quaternions are stored **xyzw**.
+
+---
+
+# `.txb` is a TEXTURE bank, not a text bank
+
+Corrects an assumption made from the extension alone. The 8 `.txb` files hold UI
+sprite-atlas entries — `button_system_base`, `button_system_press`,
+`cursor_select`, `help_wnd`, `icon_system_dustbox` — not strings.
+
+# OPEN: where is the dialogue text?
+
+`GetIDString(char const*)` is called 181 times by the shipping scripts with ids
+like `SYS_COMMON_STATUS_LABEL_6` and `SYS_SHOP_TITLE`. **That text is not in
+anything extracted so far**, and this was checked rather than assumed:
+
+- Not as plain text in any of the 9886 MPK entries; the only file containing
+  `SYS_COMMON_STATUS_LABEL` is the Lua script that *calls* it.
+- Not in the APK's `resources.arsc` (checked as both UTF-8 and UTF-16).
+- Not in `sk1patch.mpk`, which contains exactly one entry: `sk1/dummy`.
+- No asset file contains a meaningful run of CJK text — a scan for UTF-8 CJK
+  sequences returns only textures and PNGs matching the byte pattern by chance.
+
+Two candidate explanations, neither confirmed:
+
+1. **It is in the OBB expansion file.** The manifest declares
+   `net.gorry.expansion.downloader.ObbDownloaderService`, so the retail game
+   downloads an expansion. This repack fused `sk1.mpk` and the BGM into
+   `assets/`, and may simply not include the rest of the OBB.
+2. `GetIDString` resolves through a **hashed** table inside one of the
+   undecoded binary formats (`.dat`, `.gdt`, `.odt`, `.edt`), in which case the
+   ids would never appear as literal strings.
+
+Distinguishing them means reversing `GetIDString` ->
+`ModeGame`/`GameParameter`. Until then dialogue cannot be displayed, and no
+amount of UI work changes that.
