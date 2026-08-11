@@ -99,6 +99,22 @@ bool BoneLocalPos(const Model& m, const Motion* motion, float time,
 }
 
 std::string ActorModelName(char kind, int type_id) {
+    // NPCs are offset by 10: eNPC id 10 is N0000, 11 is N0001, and so on. This
+    // is not inferred -- the original developers annotated the enum in sk1.lua
+    // with the model for each id ("MAN = 13, -- 13 N0003 00 villager(man)"),
+    // and all 25 annotated entries say id-10, none say id.
+    //
+    // The old id==model rule was worse than a missing model: for ids where an
+    // N<id>_00 happened to exist it silently drew the WRONG character.
+    //
+    // Ids 1..9 are the named party members (HEROINE, WATTS, BOGARD, ...) and do
+    // not follow this rule; they have no N#### model at all, so they resolve to
+    // a name that is simply absent and are reported as missing rather than
+    // being mapped to something plausible.
+    if (kind == 'N') {
+        if (type_id < 10) return std::format("N{:04d}_00", type_id);
+        return std::format("N{:04d}_00", type_id - 10);
+    }
     return std::format("{}{:04d}_00", kind, type_id);
 }
 

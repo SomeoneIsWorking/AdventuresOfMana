@@ -75,6 +75,13 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
   `docs/assets.md`. Likely in the OBB this repack omits, or hashed. Blocks all
   UI/dialogue work. **NEW LEAD, not yet followed:** `DataTableGetName` and
   `DataTableGetHelpString` index `sk1/enemydat.bin`, which IS present.
+- ~~19 of 53 NPC ids have no model?~~ **ANSWERED: the mapping was wrong.** eNPC
+  ids are offset by 10 (id 10 -> `N0000`), documented in sk1.lua's own enum
+  comments; 25/25 annotated entries agree, 0/25 match id-for-id. Every id >= 10
+  now resolves. Ids 1..9 are named party members with no `N####` model.
+- **OPEN:** `AddNPC`'s 6th parameter (`npc_rand`'s `size`) is unreversed, so
+  script-spawned NPCs sit at the room-local origin the script literally passes
+  rather than being distributed.
 - NOTE: container magics are written but **never checked** by the engine, so
   magic-based dispatch is not an option — `Resource::LoadFromFile` switches on a
   `ResourceKind` enum derived from the caller, not the file.
