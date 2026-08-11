@@ -305,6 +305,14 @@ int main(int argc, char** argv) {
                 if (!sc.CallFunction(g)) ++errs;
             }
             lucent::info("lua", "fired {} handlers ({} errored)", fired, errs);
+            const auto& cm = world.camera;
+            lucent::info("world", "camera: angle={:g} distance={:g} rotY={:g} speed={:g} "
+                         "target='{}' ({} slots set)",
+                         cm.Get(mcf::cam_data::kAngle, 20.f),
+                         cm.Get(mcf::cam_data::kDistance, 450.f),
+                         cm.Get(mcf::cam_data::kRotateY, 0.f),
+                         cm.Get(mcf::cam_data::kSpeed, 0.3f),
+                         cm.target_chr, cm.data.size());
             lucent::info("world", "--- {} actors ---", world.actors().size());
             for (const auto& a : world.actors()) {
                 std::string slots;
@@ -603,17 +611,12 @@ int main(int argc, char** argv) {
             lucent::info("world", "{} actors, {} placed, {} distinct models",
                          world.actors().size(), placed.size(), cache.size());
 
-            // Frame the ROOM; actors sit inside it.
             float ctr[3], radius = 0;
             for (int k = 0; k < 3; ++k) {
                 ctr[k] = (stage.lo[k] + stage.hi[k]) * .5f;
                 radius = std::max(radius, stage.hi[k] - stage.lo[k]);
             }
-            float d = radius * 1.25f;
-            float eye[3]{ctr[0] + d * 0.75f, ctr[1] + radius * 0.55f, ctr[2] + d * 0.75f};
-            float up[3]{0, 1, 0};
-            Mat4 vp = Perspective(45.f * float(std::numbers::pi) / 180.f, float(W) / H,
-                                  radius * 0.02f, radius * 8.f) * LookAt(eye, ctr, up);
+            Mat4 vp;   // rebuilt each frame from the camera slots
 
             glEnable(GL_DEPTH_TEST);
             glClearColor(0.10f, 0.11f, 0.14f, 1.f);
@@ -718,6 +721,8 @@ int main(int argc, char** argv) {
             };
             serviceAudio();
 
+            float eye_cur[3]{};
+            bool cam_init = false;
             bool running = true;
             uint64_t prev = SDL_GetTicks();
             float t = anim_t;
@@ -761,6 +766,38 @@ int main(int argc, char** argv) {
                     if (blocked) { px = ox; pz = oz; }
                     else if (have_col) py = g;
                 }
+                // Camera from the game's own slots. Defaults are sk1.lua's where
+                // it states them (NEAR 40, FAR 5000, SPEED 0.3) and the values
+                // the scripts most often set otherwise (ANGLE 20, DISTANCE 450).
+                const auto& cam = world.camera;
+                float look[3]{px, py + 20.f, pz};
+                if (!cam.target_chr.empty())
+                    if (const auto* ta = world.Find(cam.target_chr))
+                        { look[0] = ta->pos[0] + room_org[0];
+                          look[1] = ta->pos[1] + 20.f;
+                          look[2] = ta->pos[2] + room_org[2]; }
+                float fov  = cam.Get(mcf::cam_data::kAngle, 20.f);
+                float dist = cam.Get(mcf::cam_data::kDistance, 450.f);
+                float yaw  = cam.Get(mcf::cam_data::kRotateY, 0.f);
+                float pit  = cam.Get(mcf::cam_data::kRotateX, cam.pitch_default);
+                float zn   = cam.Get(mcf::cam_data::kNear, 40.f);
+                float zf   = cam.Get(mcf::cam_data::kFar, 5000.f);
+                float speed = cam.Get(mcf::cam_data::kSpeed, 0.3f);
+
+                const float kDeg = float(std::numbers::pi) / 180.f;
+                float want[3]{
+                    look[0] + std::sin(yaw * kDeg) * std::cos(pit * kDeg) * dist,
+                    look[1] + std::sin(pit * kDeg) * dist,
+                    look[2] + std::cos(yaw * kDeg) * std::cos(pit * kDeg) * dist};
+                if (!cam_init) { for (int k = 0; k < 3; ++k) eye_cur[k] = want[k]; cam_init = true; }
+                // SPEED is a per-frame lerp in the original; scale by dt so the
+                // result does not depend on our (uncapped) frame rate.
+                float a = 1.f - std::pow(1.f - std::min(speed, 0.99f), dt * 30.f);
+                for (int k = 0; k < 3; ++k) eye_cur[k] += (want[k] - eye_cur[k]) * a;
+                float up[3]{0, 1, 0};
+                vp = Perspective(fov * 2.f * kDeg, float(W) / H, zn, zf) *
+                     LookAt(eye_cur, look, up);
+
                 t += dt * 30.f;      // motions are keyed in frames at 30fps
                 serviceAudio();
                 audio.Update();

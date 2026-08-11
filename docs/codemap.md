@@ -35,7 +35,8 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Desktop host (window + GLES2) | **Textured characters + rooms; GPU skinning + .smot playback** | `src/host/main.cpp` |
 | Lua bridge | **Lua 5.3 + all 200 `cmd` bindings; 714/715 scripts run** (stubs record calls) | `src/engine/script.cpp` |
 | Actor system | **Live actors driven by scripts**, rendered and animated in their rooms | `src/engine/world.{h,cpp}`, `src/host/render.cpp` |
-| Game loop + player | **Real-time loop, WASD/arrow movement, floor-following, WAIT/WALK** | `src/host/main.cpp` |
+| Game loop + player | **Real-time loop, WASD/arrow movement, floor + wall collision, WAIT/WALK** | `src/host/main.cpp` |
+| Camera | **Script-driven follow camera** (`eCamGetData` slots) | `src/engine/world.h` |
 | Audio | **BGM + SE play, driven by scripts** | `src/engine/audio.cpp` |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 

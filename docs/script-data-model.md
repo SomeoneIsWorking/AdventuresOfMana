@@ -74,3 +74,29 @@ queried from the room's `.scol` via `Collision::GetFloor`, which is what the
 engine does (`GetGroundAttribute` -> `ModeGame::GetGroundAttribute` ->
 `SiCollisionMesh::GetFloor`). For `M0000_03_06` that returns 0.00 at all four
 spawns — the grass — against a script Y of 30.
+
+## Camera
+
+`eCamGetData` slots are driven directly by the map scripts. Values actually used:
+
+| Slot | Values seen | Notes |
+|------|-------------|-------|
+| `ANGLE` (3) | 20 (x55), 15 (x13) | field of view, degrees |
+| `DISTANCE` (4) | 450 (x32), 300 (x16), 380 (x9) | |
+| `ROTATE_Y` (1) | -10, -40, -30, -20, 10, -50 | yaw |
+| `ROTATE_X` (0) | 0 (x11) | |
+| `SPEED` (8) | 0.1 | lerp rate; sk1.lua documents the default as 0.3 |
+| `NEAR`/`FAR` (13/14) | — | sk1.lua documents defaults 40.0 / 5000.0 |
+
+`M0012_01_01` sets three of them (angle 20.27, distance 168.9, rotY -60) and the
+port's camera follows suit, which is how the wiring is verified.
+
+### One value is a port choice, not reversed
+
+The default **pitch**. `sk1.lua` states defaults for `NEAR`, `FAR` and `SPEED`
+but not `ROTATE_X`, and scripts only ever set it to 0. The engine's own default
+must live in `AppCameraGame`, which is not reversed. The port uses 38 degrees
+because it looks right — flagged here so it is not mistaken for a measured value.
+
+`SPEED` is a per-frame lerp in the original; the port scales it by delta time so
+the result does not depend on frame rate.

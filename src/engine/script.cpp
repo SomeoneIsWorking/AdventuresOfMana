@@ -175,6 +175,18 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         return true;
     }
     if (n == "WepDel") { w.Remove(S(1)); return true; }
+
+    // Camera. Scripts set these constantly (ANGLE, DISTANCE, ROTATE_Y, SPEED);
+    // see docs/script-data-model.md.
+    if (n == "CamSetData")  { w.camera.data[int(N(1))] = N(2); return true; }
+    if (n == "CamGetData")  { lua_pushnumber(L, w.camera.Get(int(N(1)), 0)); return true; }
+    if (n == "CamSetTargetChr") { w.camera.target_chr = S(1); return true; }
+    if (n == "CamSetPos") {
+        w.camera.target_pos[0] = N(1); w.camera.target_pos[1] = N(2);
+        w.camera.target_pos[2] = N(3); w.camera.has_target_pos = true;
+        return true;
+    }
+    if (n == "CamReset") { w.camera.Reset(); return true; }
     return false;
 }
 
