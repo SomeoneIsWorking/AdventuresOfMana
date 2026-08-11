@@ -31,5 +31,14 @@ fi
 echo "=== cmd API ==="
 python3 tools/asset/extract_cmd_api.py >/dev/null || fail=1
 
+# Regenerates docs/object-table.md and src/engine/object_table.inc, and checks
+# every .odt id still resolves. Needs the game binary, which is not in the repo.
+if [ -f scratch/raw/libmcfandroid.so ]; then
+  echo "=== map-object table ==="
+  python3 tools/asset/object_table.py || fail=1
+else
+  echo "=== map-object table SKIPPED (scratch/raw/libmcfandroid.so missing) ==="
+fi
+
 [ "$fail" -eq 0 ] && echo "ALL PARSERS PASSED" || echo "FAILURES ABOVE"
 exit "$fail"

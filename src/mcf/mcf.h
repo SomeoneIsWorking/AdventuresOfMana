@@ -226,4 +226,23 @@ struct Motion {
 
 Motion ParseSmot(std::vector<uint8_t> file);
 
+// ---------------------------------------------------------------------------
+// .odt map objects -- see docs/assets.md. Layout is ModeGame::ObjFileLoad's:
+// u32 version (must be 2), i32 count, then `count` records of 0xC0 bytes from
+// offset 0x40. Positions are WORLD coordinates, not room-local.
+// ---------------------------------------------------------------------------
+struct MapObject {
+    int32_t kind = 0;        // 1 in all 3284 shipping records
+    int32_t id = 0;          // resolved through src/engine/object_table.inc
+    float pos[3]{};
+};
+
+// Returns an empty list (never throws) for a file the engine itself would
+// reject, so a room with a malformed table still loads.
+std::vector<MapObject> ParseOdt(const std::vector<uint8_t>& file);
+
+// .odt object id -> model name, from the table in the game binary.
+// Returns nullptr for an id not in the table.
+const char* MapObjectModel(int32_t id);
+
 }  // namespace mcf

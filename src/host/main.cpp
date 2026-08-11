@@ -586,6 +586,8 @@ int main(int argc, char** argv) {
             float room_org[3]{0, 0, 0};
             struct Placed { const mcf::Renderable* r; float pos[3]; const mcf::Motion* mo; };
             std::vector<Placed> placed;
+            struct PlacedObj { const mcf::Renderable* r; float pos[3]; };
+            std::vector<PlacedObj> objects;
             std::map<std::string, mcf::Renderable> cache;   // survives transitions
             std::map<std::string, mcf::Motion> motions;     // survives transitions
 
@@ -698,6 +700,40 @@ int main(int argc, char** argv) {
                 }
                 placed.push_back({&cache[nm], {wx, wy, wz}, mo});
             }
+            // Map objects from the room's .odt. Positions there are already
+            // world-space, so room_org is NOT added; the id resolves through
+            // the table lifted out of ModeGame::LoadMapObject, not through the
+            // number in the O####_##.smdl filename (that mapping was refuted --
+            // see docs/object-table.md).
+            objects.clear();
+            {
+                auto op = std::format("sk1/{}.odt", room_name);
+                int missing_model = 0, missing_id = 0;
+                auto objs = ar.Has(op) ? mcf::ParseOdt(ar.Read(op))
+                                       : std::vector<mcf::MapObject>{};
+                for (const auto& o : objs) {
+                    const char* nm = mcf::MapObjectModel(o.id);
+                    if (!nm) { ++missing_id; continue; }
+                    if (!cache.count(nm)) {
+                        mcf::Renderable r;
+                        if (!mcf::LoadRenderable(ar, nm, white, &r)) {
+                            ++missing_model;
+                            continue;
+                        }
+                        cache[nm] = std::move(r);
+                    }
+                    objects.push_back({&cache[nm], {o.pos[0], o.pos[1], o.pos[2]}});
+                }
+                // Report the denominator: "0 objects" from a room that has no
+                // .odt and from a room whose table failed to parse would
+                // otherwise look identical.
+                lucent::info("world",
+                             "{}: {} placements -> {} drawn ({} unknown id, "
+                             "{} id known but model missing)",
+                             ar.Has(op) ? op : op + " (absent)",
+                             objs.size(), objects.size(), missing_id, missing_model);
+            }
+
             lucent::info("world", "{} actors, {} placed, {} distinct models",
                          world.actors().size(), placed.size(), cache.size());
 
@@ -1072,6 +1108,7 @@ int main(int argc, char** argv) {
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
                 anim_t = t;
                 drawOne(stage, origin_zero, nullptr);
+                for (const auto& o : objects) drawOne(*o.r, o.pos, nullptr);
                 // Draw from LIVE actor state: `placed` was a load-time snapshot,
                 // so enemies that move would have rendered at their spawn point.
                 for (const auto& a : world.actors()) {

@@ -494,4 +494,40 @@ Motion ParseSmot(std::vector<uint8_t> file) {
     return mo;
 }
 
+// ---------------------------------------------------------------------------
+// .odt map objects. Header and stride are ModeGame::ObjFileLoad's own: it gates
+// on `cmp w8, #0x2` for the version, skips the file unless the count is >= 1,
+// and walks records with `add x8, x27, #0xc0` from offset 0x40.
+// ---------------------------------------------------------------------------
+std::vector<MapObject> ParseOdt(const std::vector<uint8_t>& file) {
+    std::vector<MapObject> out;
+    if (file.size() < 8) return out;
+    uint32_t version = RdU32(file, 0);
+    int32_t count = RdS32(file, 4);
+    if (version != 2 || count < 1) return out;
+    if (size_t(0x40) + size_t(count) * 0xC0 != file.size()) return out;
+    out.reserve(size_t(count));
+    for (int32_t i = 0; i < count; ++i) {
+        size_t o = 0x40 + size_t(i) * 0xC0;
+        MapObject m;
+        m.kind = RdS32(file, o);
+        m.id = RdS32(file, o + 4);
+        for (int k = 0; k < 3; ++k) {
+            uint32_t bits = RdU32(file, o + 8 + size_t(k) * 4);
+            std::memcpy(&m.pos[k], &bits, 4);
+        }
+        out.push_back(m);
+    }
+    return out;
+}
+
+const char* MapObjectModel(int32_t id) {
+    switch (id) {
+#define OBJ(n, name) case n: return name;
+#include "engine/object_table.inc"
+#undef OBJ
+        default: return nullptr;
+    }
+}
+
 }  // namespace mcf

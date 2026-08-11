@@ -656,3 +656,24 @@ Ruled out by measurement, not by argument:
 Most likely a per-map origin or room-index remap that has not been reversed.
 Nothing in the port depends on this yet; `roomdata.py` reports the count with
 its denominator so the number cannot quietly drift.
+
+### The `.odt` object id is NOT the `O####_##.smdl` number
+
+Tested and **refuted**: only 15 of the 97 distinct ids have a model whose
+filename number matches, and that overlap is explained by both being small
+integers. The real mapping is a table the engine carries in `.rodata`:
+
+`ModeGame::LoadMapObject()` @ `0x2e10b8` memcpy's `0xC570` bytes from `0xa625c`
+and loops `w23 = 162` times. `0xC570 == 162 * 0x138`, so it is 162 entries of
+312 bytes. `ModeGame::CreateMapObject` @ `0x2e7460` then linear-searches the
+table comparing entry word 0 against the object id, and formats the entry's
+`+0x84` string through `"sk1/%s"` to build the model path.
+
+Extractor: `tools/asset/object_table.py` -> `docs/object-table.md` and
+`src/engine/object_table.inc`. **All 162 names exist as shipping models and all
+3284 placements across 424 rooms resolve** — a result that would have been
+impossible under the refuted filename-number theory.
+
+**KNOWN DEFECT:** object shadow planes currently draw as opaque black quads.
+The 80-byte material record's blend/alpha field is not reversed, so nothing is
+blended rather than something being blended on a guess.
