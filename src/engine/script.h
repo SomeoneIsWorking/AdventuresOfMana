@@ -13,6 +13,7 @@ namespace mcf {
 
 class World;
 class Audio;
+class StringTable;
 
 // A Lua 5.3 state with the game's own 200-function `cmd` API bound into globals.
 // See src/engine/script.cpp for why the bindings currently record rather than act.
@@ -42,6 +43,13 @@ public:
     static std::string ShiftJisToUtf8(std::span<const uint8_t> in);
 
     World* world = nullptr;   // optional; when set, hot cmd calls act
+    // The game's string table. When set, GetIDString returns real text instead
+    // of echoing the id back.
+    const StringTable* strings = nullptr;
+    // The last line SetMessageWnd was handed, so dialogue is observable before
+    // there is any UI to draw it in.
+    std::string last_message;
+    long messages_shown = 0, message_ids_missing = 0;
     Audio* audio = nullptr;   // optional; when set, BgmPlay/SePlay sound
     // Audio the scripts asked for; the host services these because it owns the
     // archive. -1 means "no request".

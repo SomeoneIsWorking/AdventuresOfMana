@@ -288,6 +288,23 @@ const WeaponStats* FindWeapon(int32_t id);
 // (`mov w1, #0x65` into AddItem with count 1), alongside 201, 301 and 401.
 constexpr int32_t kStartingWeaponId = 101;
 
+// ---------------------------------------------------------------------------
+// sk1/str_en.bin and sk1/str_ja.bin -- the game's string table. See
+// docs/assets.md and tools/asset/strings.py.
+// ---------------------------------------------------------------------------
+class StringTable {
+public:
+    // Returns false and leaves the table empty if the file is malformed.
+    bool Load(const std::vector<uint8_t>& file);
+    // nullptr when the id is not in the table, so a missing string is visible
+    // rather than silently becoming "".
+    const std::string* Find(const std::string& id) const;
+    size_t size() const { return by_id_.size(); }
+
+private:
+    std::unordered_map<std::string, std::string> by_id_;
+};
+
 // tblHelm / tblArmor defence, indexed by DataTableGetDefence @ 0x2c3bd8.
 // Returns 0 for an id not in either table.
 int32_t EquipDefence(int32_t id);

@@ -892,3 +892,47 @@ It is a tight bound on the collision geometry, not the room's extent. It scored
 perfectly only because floors are broad enough to absorb a 15-unit error, which
 is exactly the way a test passes without measuring what it claims to. The fixed
 rule is kept, with its cost stated, until the per-room size table is reversed.
+
+## `str_en.bin` / `str_ja.bin` — the string table (dialogue IS present)
+
+This document previously stated that dialogue text was absent from the extracted
+data and that it probably lived in an OBB this repack omits. **That was wrong.**
+The text is in the archive, in two files whose names do not say "text":
+
+| | |
+|---|---|
+| `sk1/str_en.bin` | 1906 strings, English |
+| `sk1/str_ja.bin` | 1906 strings, UTF-8 Japanese, ids byte-identical to `en` |
+
+The earlier search failed because it looked for CJK byte runs and inside the
+per-room assets. The lead came from `NN_minimap_lst.bin`, which holds string
+IDs (`AREA_NAME_1`, ...); grepping the corpus for one of those ids found these
+two files immediately.
+
+    +0x00  u32  version, 1
+    +0x04  u32  count (1906)
+    +0x08  u32  44
+    +0x0C  u32  offset of the text block
+    +0x10  u32[count]   permutation of 0..count-1 (the ids in sorted order,
+                        i.e. the index GetIDString binary-searches)
+    ...    count records of 48 bytes, each a NUL-padded ASCII id
+    text   count NUL-terminated UTF-8 strings, in record order
+
+### Why the id/text pairing is proven, not assumed
+
+The original developers left the dialogue as comments beside the calls that show
+it in `sk1.lua`. Those comments are an independent source for the same strings:
+
+| id | `sk1.lua` comment | decoded `str_ja.bin` |
+|---|---|---|
+| `SYS_PARTYMSG_1_1` | `お怪我は　大丈夫ですか？` | identical |
+| `SYS_PARTYMSG_2_1` | `洞くつには　マトックや\nモーニングスターで　こわせる壁が\nあるという` | identical |
+
+`tools/asset/strings.py` re-runs both cross-checks, and refuses a truncated
+table rather than returning a partial one.
+
+`sk1.lua`'s `msgId(id)` is `SetMessageWnd(GetIDString(id))`, so those two calls
+are the whole dialogue path at the data level. Both are implemented: an id that
+is not in the table echoes back and is counted, so a miss is visible instead of
+becoming an empty line. **There is no on-screen message window yet** -- the text
+is resolved and logged, not drawn.

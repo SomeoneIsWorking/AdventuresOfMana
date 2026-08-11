@@ -194,6 +194,7 @@ int main(int argc, char** argv) {
     float anim_t = 0.f;
     bool census = false;
     bool room_census = false;
+    std::string string_id;
     std::string room, render_room;
     std::string bgm_dir = "scratch/raw/assets";
     bool audio_selftest = false;
@@ -207,6 +208,7 @@ int main(int argc, char** argv) {
     bool fixed_step = false;
     bool combat_demo = false;
     bool explicit_model = false;
+    std::string lang = "en";
     bool walk_to = false;
     float walk_x = 0, walk_z = 0;
     for (int i = 1; i < argc; ++i) {
@@ -218,6 +220,7 @@ int main(int argc, char** argv) {
         else if (a == "--time" && i + 1 < argc) anim_t = std::stof(argv[++i]);
         else if (a == "--script-census") census = true;
         else if (a == "--room-census") room_census = true;
+        else if (a == "--string" && i + 1 < argc) string_id = argv[++i];
         else if (a == "--run-room" && i + 1 < argc) room = argv[++i];
         else if (a == "--render-room" && i + 1 < argc) render_room = argv[++i];
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
@@ -236,6 +239,7 @@ int main(int argc, char** argv) {
             has_spawn = true;
         }
         else if (a == "--room" && i + 1 < argc) render_room = argv[++i];
+        else if (a == "--lang" && i + 1 < argc) lang = argv[++i];
         else if (a == "--walk-to" && i + 2 < argc) {
             walk_x = std::stof(argv[++i]); walk_z = std::stof(argv[++i]);
             walk_to = true;
@@ -248,6 +252,7 @@ int main(int argc, char** argv) {
                 "  --room NAME         start in this room (default %s)\n"
                 "  --archive PATH      sk1.mpk (default %s)\n"
                 "  --bgm-dir PATH      directory holding bgmNNN*.ogg\n"
+                "  --lang en|ja        dialogue language (default en)\n"
                 "  --spawn X Z         start at these room-local coordinates\n"
                 "\nControls: WASD / arrows to move, Space or Z to attack, Esc to quit.\n"
                 "\nTools:\n"
@@ -257,6 +262,7 @@ int main(int argc, char** argv) {
                 "  --collision-probe ROOM                  walk outward, report walls\n"
                 "  --script-census     run every shipping script and tally cmd calls\n"
                 "  --room-census       load every room headlessly, report what is missing\n"
+                "  --string ID         resolve a dialogue id in every language\n"
                 "  --combat-selftest / --audio-selftest    self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n",
@@ -274,7 +280,8 @@ int main(int argc, char** argv) {
     // mode wins; `explicit_model` is tracked separately because `model` carries
     // a default value and so cannot be tested for emptiness.
     if (render_room.empty() && room.empty() && probe.empty() && !census &&
-        !audio_selftest && !combat_selftest && !explicit_model && !room_census)
+        !audio_selftest && !combat_selftest && !explicit_model && !room_census &&
+        string_id.empty())
         render_room = kDefaultRoom;
 
     try {
@@ -393,6 +400,22 @@ int main(int argc, char** argv) {
             mcf::Script sc;
             sc.world = &world;
             sc.audio = &audio;
+            // The game's string table. Both languages ship; en is the default
+            // and --lang ja selects the original Japanese.
+            mcf::StringTable strings;
+            {
+                auto sp = std::format("sk1/str_{}.bin", lang);
+                if (!ar.Has(sp)) {
+                    lucent::warn("text", "{} not in the archive; dialogue ids will "
+                                 "echo instead of resolving", sp);
+                } else if (!strings.Load(ar.Read(sp))) {
+                    lucent::error("text", "{} failed to parse; dialogue ids will "
+                                  "echo instead of resolving", sp);
+                } else {
+                    lucent::info("text", "{}: {} strings", sp, strings.size());
+                    sc.strings = &strings;
+                }
+            }
             if (!sc.Run("sk1.lua", ar.Read("sk1/sk1.lua")))
                 throw mcf::Error(std::format("prelude: {}", sc.last_error()));
             if (!sc.CallFunction("SystemInit"))
@@ -431,6 +454,32 @@ int main(int argc, char** argv) {
                              a.pos[1], a.pos[2], a.motion, a.alive, slots);
             }
             return 0;
+        }
+
+        if (!string_id.empty()) {
+            // Resolve one id in every shipping language. Also the quickest way
+            // to confirm the table is wired to the same code the game uses.
+            int found = 0;
+            for (const char* l : {"en", "ja"}) {
+                auto sp = std::format("sk1/str_{}.bin", l);
+                mcf::StringTable t;
+                if (!ar.Has(sp) || !t.Load(ar.Read(sp))) {
+                    lucent::error("text", "{} missing or malformed", sp);
+                    continue;
+                }
+                const std::string* v = t.Find(string_id);
+                if (v) {
+                    ++found;
+                    // Escape newlines: the game's lines are multi-line and a raw
+                    // dump silently shows only the first line.
+                    std::string shown;
+                    for (char c : *v) { if (c == '\n') shown += "\\n"; else shown += c; }
+                    lucent::info("text", "{} [{}] = \"{}\"", string_id, l, shown);
+                }
+                else lucent::warn("text", "{} [{}] is not in the table ({} ids)",
+                                  string_id, l, t.size());
+            }
+            return found ? 0 : 1;
         }
 
         if (room_census) {
@@ -786,6 +835,22 @@ int main(int argc, char** argv) {
             mcf::Script sc;
             sc.world = &world;
             sc.audio = &audio;
+            // The game's string table. Both languages ship; en is the default
+            // and --lang ja selects the original Japanese.
+            mcf::StringTable strings;
+            {
+                auto sp = std::format("sk1/str_{}.bin", lang);
+                if (!ar.Has(sp)) {
+                    lucent::warn("text", "{} not in the archive; dialogue ids will "
+                                 "echo instead of resolving", sp);
+                } else if (!strings.Load(ar.Read(sp))) {
+                    lucent::error("text", "{} failed to parse; dialogue ids will "
+                                  "echo instead of resolving", sp);
+                } else {
+                    lucent::info("text", "{}: {} strings", sp, strings.size());
+                    sc.strings = &strings;
+                }
+            }
             if (!sc.Run("sk1.lua", ar.Read("sk1/sk1.lua")))
                 throw mcf::Error(std::format("prelude: {}", sc.last_error()));
             if (!sc.CallFunction("SystemInit"))

@@ -554,6 +554,45 @@ std::vector<EnemyStats> ParseEnemyDat(const std::vector<uint8_t>& file) {
     return out;
 }
 
+bool StringTable::Load(const std::vector<uint8_t>& file) {
+    by_id_.clear();
+    if (file.size() < 16) return false;
+    uint32_t version = RdU32(file, 0);
+    uint32_t count = RdU32(file, 4);
+    uint32_t text_off = RdU32(file, 12);
+    if (version != 1 || count == 0) return false;
+    size_t ids_off = 16 + size_t(count) * 4;
+    // The id block is `count` fixed 48-byte records; anything else means the
+    // layout is not what this code expects, so refuse rather than half-load.
+    if (text_off <= ids_off || text_off > file.size()) return false;
+    if (text_off - ids_off != size_t(count) * 48) return false;
+
+    std::vector<std::string> texts;
+    texts.reserve(count);
+    size_t p = text_off;
+    while (p < file.size() && texts.size() < count) {
+        size_t e = p;
+        while (e < file.size() && file[e]) ++e;
+        texts.emplace_back(reinterpret_cast<const char*>(file.data()) + p, e - p);
+        p = e + 1;
+    }
+    if (texts.size() != count) return false;
+
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint8_t* rec = file.data() + ids_off + size_t(i) * 48;
+        size_t n = 0;
+        while (n < 48 && rec[n]) ++n;
+        by_id_.emplace(std::string(reinterpret_cast<const char*>(rec), n),
+                       std::move(texts[i]));
+    }
+    return true;
+}
+
+const std::string* StringTable::Find(const std::string& id) const {
+    auto it = by_id_.find(id);
+    return it == by_id_.end() ? nullptr : &it->second;
+}
+
 int32_t EquipDefence(int32_t id) {
     struct Row { int32_t id, def; };
     static const Row kTable[] = {

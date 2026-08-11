@@ -11,6 +11,7 @@
 #include "engine/script.h"
 #include "engine/audio.h"
 #include "engine/world.h"
+#include "mcf/mcf.h"
 
 #include <algorithm>
 #include <cmath>
@@ -262,6 +263,29 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
 bool DispatchAudio(lua_State* L, const CmdDef* def, Script& s) {
     std::string_view n = def->name;
     auto N = [&](int i) { return int(luaL_optnumber(L, i, 0)); };
+    // Text. sk1.lua's msgId(id) is SetMessageWnd(GetIDString(id)), so these two
+    // are the whole dialogue path at the data level.
+    if (n == "GetIDString" || n == "GetIDStringCtrl") {
+        const char* id = lua_isstring(L, 1) ? lua_tostring(L, 1) : "";
+        const std::string* t = s.strings ? s.strings->Find(id) : nullptr;
+        if (t) {
+            lua_pushlstring(L, t->data(), t->size());
+        } else {
+            // Echo the id rather than "" so a miss is visible on screen and in
+            // the log instead of silently becoming an empty line.
+            ++s.message_ids_missing;
+            lua_pushstring(L, id);
+        }
+        return true;
+    }
+    if (n == "SetMessageWnd") {
+        s.last_message = lua_isstring(L, 1) ? lua_tostring(L, 1) : "";
+        ++s.messages_shown;
+        std::string shown;
+        for (char c : s.last_message) { if (c == '\n') shown += "\\n"; else shown += c; }
+        lucent::info("text", "message: \"{}\"", shown);
+        return true;
+    }
     if (n == "MapJump") {
         s.jump = {N(1), N(2), N(3), N(7),
                   float(luaL_optnumber(L, 4, 0)), float(luaL_optnumber(L, 5, 0)),

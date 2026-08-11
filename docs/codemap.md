@@ -43,6 +43,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Enemy behaviour | PARTIAL — **combat is two-sided**: enemies attack with their real `enemydat.bin` attack power against the player's real equipment defence, gated by the engine's reversed i-frame rule. real HP/defence/rewards from `enemydat.bin`; damage, death and drops work. Movement is a placeholder (closes on the player, no mutual separation). Player attack uses a real `tblWeapon` value but the game scales damage by a CHARGE METER (`[oG]+0x1b8`), so the port's flat-attack model is the wrong shape, not just a wrong number | `src/host/main.cpp` |
 | Event boxes + transitions | **Edge-triggered boxes run handlers as coroutines; `mapjump` loads the destination room** | `src/engine/script.cpp`, `src/host/main.cpp` |
 | Audio | **BGM + SE play, driven by scripts** | `src/engine/audio.cpp` |
+| Text / dialogue | **DONE at the data level** — 1906 strings in en and ja; `GetIDString` resolves, `SetMessageWnd` is logged. No on-screen message window yet | `tools/asset/strings.py`, `src/mcf/assets.cpp` |
 | Game data tables | **Enemy table live in-game** (`enemydat.bin`, 107 records: max HP, defence, EXP, money each pinned to an engine read) and **`tblWeapon` extracted** (18 records). `tblItem`/`tblHelm`/`tblArmor`/`tblLevelup` located, not decoded | `src/mcf/assets.cpp`, `docs/assets.md`, `docs/weapon-table.md` |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 
@@ -71,10 +72,12 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 - `room_field.mtex` (240x240, the only NPOT texture) has 58 bytes of mip padding
   the exact-sum rule does not predict.
 - `.stexinfo` record +0x80 (a small u32) is unidentified.
-- **Dialogue text is missing from the extracted data entirely** — see
-  `docs/assets.md`. Likely in the OBB this repack omits, or hashed. Blocks all
-  UI/dialogue work. **NEW LEAD, not yet followed:** `DataTableGetName` and
-  `DataTableGetHelpString` index `sk1/enemydat.bin`, which IS present.
+- ~~Dialogue text is missing from the extracted data entirely?~~ **WRONG, and
+  now RESOLVED.** The text ships in `sk1/str_en.bin` and `sk1/str_ja.bin`:
+  1906 ids, English and UTF-8 Japanese. The earlier search looked for CJK byte
+  runs and inside the per-room assets, and never opened the two files whose
+  names do not say "text". `GetIDString` resolves for real —
+  `./build/mana --string SYS_PARTYMSG_2_1`.
 - ~~19 of 53 NPC ids have no model?~~ **ANSWERED: the mapping was wrong, and
   all 35 eNPC ids now resolve** (was 24/36). Two rules: ids 0..9 are the named
   party members and use `C<id>_00` id-for-id; ids >= 10 use `N<id-10>_00`. The
