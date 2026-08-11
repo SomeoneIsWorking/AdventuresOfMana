@@ -111,6 +111,10 @@ struct Actor {
     // once per id. Without this a 24-frame swing dealt damage 24 times.
     uint32_t swing_id = 0;
     std::vector<std::pair<uint32_t, std::string>> hit_this_swing;
+    // Set when a script spawned this NPC at exactly (0,0) -- the engine's
+    // signal to choose the position itself (see Dispatch's AddNPC).
+    bool random_place = false;
+    float place_extent = 0.f;
     bool is_weapon = false;
     std::map<int, float> data;   // sparse: slot -> value
     std::map<int, HitVolume> attack;   // ChrAttackBone*

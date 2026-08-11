@@ -100,16 +100,26 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
     auto S = [&](int i) { return lua_isstring(L, i) ? lua_tostring(L, i) : ""; };
     auto N = [&](int i) { return float(luaL_optnumber(L, i, 0)); };
 
-    if (n == "AddNPC") {                    // (name, id, x, y, z, deg)
-        auto& a = w.Spawn(S(1), int(N(2)), N(3), N(4), N(5));
-        a.rot_y = N(6); a.kind = 'N';
+    // AddNPC(char*, int, float, float, float, float) -- the trailing float is
+    // NOT a heading, which is what this used to assume. In the engine it is the
+    // extent handed to ModeGame::AddCharacterRandomPos, and the engine decides
+    // to use it by testing the POSITION: AddNPC @ 0x2c8a10 computes a flag that
+    // is set only when x and z are both exactly 0, and passes that through.
+    // sk1.lua's own helper is named `npc_rand` and calls AddNPC(name,type,0,0,0,size).
+    // Treating (0,0) as a literal origin parked every script-spawned NPC in the
+    // room's corner, and treating the extent as degrees span them as well.
+    auto addNpc = [&](const char* who, int id, float x, float y, float z, float extent) {
+        auto& a = w.Spawn(who, id, x, y, z);
+        a.kind = 'N';
+        a.rot_y = 0.f;
+        a.random_place = (x == 0.f && z == 0.f);
+        a.place_extent = extent;
         return true;
-    }
-    if (n == "AddNPCSubType") {             // (name, id, sub, x, y, z, deg)
-        auto& a = w.Spawn(S(1), int(N(2)), N(4), N(5), N(6));
-        a.rot_y = N(7); a.kind = 'N';
-        return true;
-    }
+    };
+    if (n == "AddNPC")                      // (name, id, x, y, z, extent)
+        return addNpc(S(1), int(N(2)), N(3), N(4), N(5), N(6));
+    if (n == "AddNPCSubType")               // (name, id, sub, x, y, z, extent)
+        return addNpc(S(1), int(N(2)), N(4), N(5), N(6), N(7));
     if (n == "AddEnemy" || n == "AddBoss" || n == "AddParty") {
         // (id, x, y, z). Unlike AddNPC these carry no handle -- the engine
         // assigns one. The handle MUST be unique per spawn, not per type: a

@@ -716,10 +716,51 @@ int main(int argc, char** argv) {
                 else lucent::warn("world", "no {}; actors keep their script Y", cs);
             }
 
+            // Engine-chosen NPC placement. The TRIGGER is reversed: AddNPC
+            // sets a flag when the script's x and z are both 0, and
+            // ModeGame::AddCharacterRandomPos then scans the room's per-chip
+            // attribute array for chips passing a mask (and not bit 4) and
+            // picks one. A "chip" is 30 units -- confirmed independently, since
+            // sk1.lua's EvBoxOneY("in_01",3,3.4,2) produces exactly the box
+            // (90,102)..(120,132) this port reads back, i.e. 3*30..4*30.
+            //
+            // PORT CHOICE: the chip attribute array and the engine's RNG are
+            // not reversed, so the actual pick is ours -- a deterministic scan
+            // of chip centres for one with walkable floor, nearest the room
+            // centre. What is faithful is that the engine places these, not the
+            // script; parking them at the literal origin was simply wrong.
+            for (auto& a : world.actors_mutable()) {
+                if (!a.random_place || !have_col) continue;
+                constexpr float kChip = 30.f;
+                float best[2]{0, 0};
+                float best_d = 1e30f;
+                bool found = false;
+                float cx = room_org[0] + 150.f, cz = room_org[2] + 120.f;
+                for (int gz = 0; gz < 8; ++gz) {
+                    for (int gx = 0; gx < 10; ++gx) {
+                        float wx = room_org[0] + (float(gx) + 0.5f) * kChip;
+                        float wz = room_org[2] + (float(gz) + 0.5f) * kChip;
+                        float g;
+                        if (!col.GetFloor(wx, wz, mcf::Collision::kFloorMask, &g)) continue;
+                        float d = (wx - cx) * (wx - cx) + (wz - cz) * (wz - cz);
+                        if (d < best_d) { best_d = d; best[0] = wx; best[1] = wz; found = true; }
+                    }
+                }
+                if (found) {
+                    a.pos[0] = best[0] - room_org[0];
+                    a.pos[2] = best[1] - room_org[2];
+                    lucent::info("world", "{}: engine-placed (script gave 0,0, extent {:.0f}) "
+                                 "-> room-local ({:.0f},{:.0f})",
+                                 a.handle, a.place_extent, a.pos[0], a.pos[2]);
+                } else {
+                    lucent::warn("world", "{}: engine-placed, but no walkable chip found "
+                                 "in the 10x8 grid; leaving it at the origin", a.handle);
+                }
+            }
+
             // One renderable per distinct model, instanced per actor.
             placed.clear();
-            
-            
+
             for (const auto& a : world.actors()) {
                 if (!a.alive) continue;
                 auto nm = mcf::ActorModelName(a.kind, a.type_id);

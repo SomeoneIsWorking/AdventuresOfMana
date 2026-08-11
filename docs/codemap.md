@@ -83,9 +83,13 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
   rendering eNPC 5 (CHOCOBO -> a chocobo) and 6 (CHOCOBOT -> the same bird in
   armour). Enemies and bosses were checked for the same bug and are id-for-id
   (73/73 and 23/23), so the fix is correctly scoped to NPCs.
-- **OPEN:** `AddNPC`'s 6th parameter (`npc_rand`'s `size`) is unreversed, so
-  script-spawned NPCs sit at the room-local origin the script literally passes
-  rather than being distributed.
+- ~~`AddNPC`'s 6th parameter?~~ **ANSWERED: it is a placement extent, not a
+  heading.** `AddNPC` @ `0x2c8a10` sets a flag when the script's x and z are
+  both 0 and hands the float to `ModeGame::AddCharacterRandomPos`, which scans
+  the room's per-chip attribute array. The port reproduces the TRIGGER; the
+  chip array and RNG are not reversed, so the actual pick is a documented port
+  choice. A "chip" is **30 units**, confirmed independently against the event
+  box `EvBoxOneY("in_01",3,3.4,2)` -> `(90,102)..(120,132)`.
 - NOTE: container magics are written but **never checked** by the engine, so
   magic-based dispatch is not an option — `Resource::LoadFromFile` switches on a
   `ResourceKind` enum derived from the caller, not the file.
