@@ -17,6 +17,13 @@ for t in stex smdl smot scol; do
   echo "=== $t ==="
   python3 "tools/asset/$t.py" || fail=1
 done
+if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
+  echo "=== audio self-test ==="
+  SDL_AUDIODRIVER=dummy ./build/mana --audio-selftest || fail=1
+else
+  echo "=== audio self-test SKIPPED (build/mana or scratch/raw/assets missing) ==="
+fi
+
 echo "=== cmd API ==="
 python3 tools/asset/extract_cmd_api.py >/dev/null || fail=1
 

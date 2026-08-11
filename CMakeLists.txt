@@ -8,6 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(SDL3 REQUIRED CONFIG)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GLESV2 REQUIRED IMPORTED_TARGET glesv2)
+pkg_check_modules(VORBISFILE REQUIRED IMPORTED_TARGET vorbisfile)
 
 include(FetchContent)
 # Lua 5.3: the engine imports lua_rotate and luaopen_utf8, which are 5.3+, and
@@ -33,9 +34,9 @@ add_library(mcf STATIC
 target_include_directories(mcf PUBLIC src)
 target_link_libraries(mcf PUBLIC lucent::lucent)
 
-add_library(engine STATIC src/engine/script.cpp src/engine/world.cpp)
+add_library(engine STATIC src/engine/script.cpp src/engine/world.cpp src/engine/audio.cpp)
 target_include_directories(engine PUBLIC src)
-target_link_libraries(engine PUBLIC lua lucent::lucent)
+target_link_libraries(engine PUBLIC lua lucent::lucent SDL3::SDL3 PkgConfig::VORBISFILE)
 
 add_executable(mana src/host/main.cpp src/host/render.cpp)
 target_link_libraries(mana PRIVATE mcf engine SDL3::SDL3 PkgConfig::GLESV2)

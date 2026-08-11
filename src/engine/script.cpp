@@ -9,6 +9,7 @@
 // The binding table is GENERATED from the shipping binary (cmd_api.inc, via
 // tools/gen_cmd_api.py), so it cannot drift from the real engine's Lua surface.
 #include "engine/script.h"
+#include "engine/audio.h"
 #include "engine/world.h"
 
 #include <algorithm>
@@ -48,6 +49,7 @@ Script* FromState(lua_State* L) {
 
 // Returns true if handled, having pushed its own results.
 bool Dispatch(lua_State* L, const CmdDef* def, World& w);
+bool DispatchAudio(lua_State* L, const CmdDef* def, Script& s);
 
 // One generic trampoline for all 200 bindings; the definition arrives as an
 // upvalue so there is no generated code per function to keep in sync.
@@ -74,6 +76,10 @@ int CmdStub(lua_State* L) {
     if (self && self->world) {
         int before = lua_gettop(L);
         if (Dispatch(L, def, *self->world)) return lua_gettop(L) - before;
+    }
+    if (self && self->audio) {
+        int before = lua_gettop(L);
+        if (DispatchAudio(L, def, *self)) return lua_gettop(L) - before;
     }
 
     // Return a value of the type the real wrapper pushes, so scripts that
@@ -169,6 +175,21 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         return true;
     }
     if (n == "WepDel") { w.Remove(S(1)); return true; }
+    return false;
+}
+
+// Audio requests recorded by the script layer and serviced by the host, which
+// owns the archive the sounds live in. The script layer must not reach into
+// asset storage itself.
+bool DispatchAudio(lua_State* L, const CmdDef* def, Script& s) {
+    std::string_view n = def->name;
+    auto N = [&](int i) { return int(luaL_optnumber(L, i, 0)); };
+    if (n == "BgmPlay")      { s.pending_bgm = N(1); return true; }
+    if (n == "GetBgmID")     { lua_pushnumber(L, s.current_bgm); return true; }
+    if (n == "SePlay")       { s.pending_se.push_back({N(1), false}); return true; }
+    if (n == "SePlayLoop")   { s.pending_se.push_back({N(1), true});  return true; }
+    if (n == "SeStop")       { s.pending_se_stop.push_back(N(1)); return true; }
+    if (n == "SeStopAll")    { s.stop_all_se = true; return true; }
     return false;
 }
 

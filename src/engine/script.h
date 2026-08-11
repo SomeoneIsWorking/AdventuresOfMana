@@ -12,6 +12,7 @@ struct lua_State;
 namespace mcf {
 
 class World;
+class Audio;
 
 // A Lua 5.3 state with the game's own 200-function `cmd` API bound into globals.
 // See src/engine/script.cpp for why the bindings currently record rather than act.
@@ -33,6 +34,16 @@ public:
     static std::string ShiftJisToUtf8(std::span<const uint8_t> in);
 
     World* world = nullptr;   // optional; when set, hot cmd calls act
+    Audio* audio = nullptr;   // optional; when set, BgmPlay/SePlay sound
+    // Audio the scripts asked for; the host services these because it owns the
+    // archive. -1 means "no request".
+    struct SeReq { int id; bool loop; };
+    int pending_bgm = -1;
+    int current_bgm = 0;
+    std::vector<SeReq> pending_se;
+    std::vector<int> pending_se_stop;
+    bool stop_all_se = false;
+
     std::map<std::string, CallRecord> calls;
     bool trace_first = false;
 

@@ -36,7 +36,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Lua bridge | **Lua 5.3 + all 200 `cmd` bindings; 714/715 scripts run** (stubs record calls) | `src/engine/script.cpp` |
 | Actor system | **Live actors driven by scripts**, rendered and animated in their rooms | `src/engine/world.{h,cpp}`, `src/host/render.cpp` |
 | Game loop + player | **Real-time loop, WASD/arrow movement, floor-following, WAIT/WALK** | `src/host/main.cpp` |
-| Audio | NOT STARTED — 176 .wav + 60 .ogg extracted, untouched | — |
+| Audio | **BGM + SE play, driven by scripts** | `src/engine/audio.cpp` |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 
 ## Open questions (gate the next step)
@@ -92,6 +92,17 @@ it on the floor via a collision query, resolves its motion by numeric prefix, an
 draws it GPU-skinned. Frames at t=0 and t=20 differ by 22,416 bytes, which is how
 the animation is confirmed to be applied rather than silently falling back to
 bind pose.
+
+## Audio
+
+Sound effects are `sk1/SE%04d.wav` inside the MPK (ids **1..176, contiguous**).
+Music is `assets/bgm%03d*.ogg` from the **APK, not the MPK**, in two banks:
+**1..30 and 101..130** — the original and arranged soundtracks. Pass the
+directory holding them with `--bgm-dir` (default `scratch/raw/assets`).
+
+`./build/mana --audio-selftest` decodes a fixed set of SE and BGM from both banks
+and fails non-zero if any produces no PCM. A decoder that plays nothing is
+indistinguishable from one that is never called, so this runs in `verify.sh`.
 
 ## Running it
 

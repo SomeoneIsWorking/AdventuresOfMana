@@ -11,6 +11,7 @@
 #include <cstring>
 #include <format>
 #include <numbers>
+#include <filesystem>
 #include <map>
 #include <string>
 #include <vector>
@@ -19,6 +20,7 @@
 #include <lucent/log.h>
 
 #include "engine/script.h"
+#include "engine/audio.h"
 #include "engine/world.h"
 #include "host/render.h"
 #include "mcf/mcf.h"
@@ -178,6 +180,8 @@ int main(int argc, char** argv) {
     float anim_t = 0.f;
     bool census = false;
     std::string room, render_room;
+    std::string bgm_dir = "scratch/raw/assets";
+    bool audio_selftest = false;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
@@ -188,6 +192,8 @@ int main(int argc, char** argv) {
         else if (a == "--script-census") census = true;
         else if (a == "--run-room" && i + 1 < argc) room = argv[++i];
         else if (a == "--render-room" && i + 1 < argc) render_room = argv[++i];
+        else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
+        else if (a == "--audio-selftest") audio_selftest = true;
         else if (a == "--help") {
             std::printf("usage: %s [--archive sk1.mpk] [--model NAME] "
                         "[--screenshot out.png]\n", argv[0]);
@@ -199,13 +205,50 @@ int main(int argc, char** argv) {
         mcf::Archive ar(archive);
         lucent::info("assets", "opened {} ({} entries)", archive, ar.entries().size());
 
+        if (audio_selftest) {
+            // A decoder that plays nothing is indistinguishable from one that
+            // was never called, so this feeds cases that MUST decode and fails
+            // loudly if they do not.
+            mcf::Audio au;
+            if (!au.Init()) { lucent::error("audio", "no device; cannot self-test"); return 1; }
+            int bad = 0;
+            for (int id : {1, 2, 88, 176}) {
+                auto nm = std::format("sk1/SE{:04d}.wav", id);
+                if (!ar.Has(nm) || !au.PlaySe(id, ar.Read(nm), false)) {
+                    lucent::error("audio", "SELFTEST FAIL: {} did not decode", nm);
+                    ++bad;
+                }
+            }
+            for (int id : {1, 30, 101, 130}) {
+                std::string path;
+                for (const auto& e : std::filesystem::directory_iterator(bgm_dir)) {
+                    auto f = e.path().filename().string();
+                    if (f.rfind(std::format("bgm{:03d}", id), 0) == 0) { path = e.path().string(); break; }
+                }
+                if (path.empty() || !au.PlayBgm(id, path, false)) {
+                    lucent::error("audio", "SELFTEST FAIL: bgm {} did not decode", id);
+                    ++bad;
+                }
+            }
+            lucent::info("audio", "SELFTEST: {} sounds, {} PCM frames, {} failures",
+                         au.stat.decoded_sounds, au.stat.decoded_frames, bad);
+            if (au.stat.decoded_frames == 0) {
+                lucent::error("audio", "SELFTEST FAIL: zero PCM decoded overall");
+                return 1;
+            }
+            return bad ? 1 : 0;
+        }
+
         if (!room.empty()) {
             // Run one room's script against a live actor system and report what
             // it populated. This is the smallest end-to-end proof that scripts
             // are driving engine state rather than just executing.
             mcf::World world;
+            mcf::Audio audio;
+            audio.Init();          // logs and disables itself if there is no device
             mcf::Script sc;
             sc.world = &world;
+            sc.audio = &audio;
             if (!sc.Run("sk1.lua", ar.Read("sk1/sk1.lua")))
                 throw mcf::Error(std::format("prelude: {}", sc.last_error()));
             if (!sc.CallFunction("SystemInit"))
@@ -423,8 +466,11 @@ int main(int argc, char** argv) {
                 throw mcf::Error(std::format("no model for room {}", render_room));
 
             mcf::World world;
+            mcf::Audio audio;
+            audio.Init();          // logs and disables itself if there is no device
             mcf::Script sc;
             sc.world = &world;
+            sc.audio = &audio;
             if (!sc.Run("sk1.lua", ar.Read("sk1/sk1.lua")))
                 throw mcf::Error(std::format("prelude: {}", sc.last_error()));
             if (!sc.CallFunction("SystemInit"))
@@ -601,6 +647,38 @@ int main(int argc, char** argv) {
             if (have_col && !col.GetFloor(px, pz, ~0u, &py)) py = 0;
             world.Spawn("MainPlayer", 0, px, py, pz).kind = 'C';
 
+            // Service whatever the room script asked for. BGM lives in the APK
+            // assets, not the MPK, so it is loaded from a directory on disk.
+            auto serviceAudio = [&]() {
+                if (sc.stop_all_se) { audio.StopAllSe(); sc.stop_all_se = false; }
+                for (int id : sc.pending_se_stop) audio.StopSe(id);
+                sc.pending_se_stop.clear();
+                for (auto& r : sc.pending_se) {
+                    auto nm = std::format("sk1/SE{:04d}.wav", r.id);
+                    if (!ar.Has(nm)) { lucent::warn("audio", "no {}", nm); continue; }
+                    audio.PlaySe(r.id, ar.Read(nm), r.loop);
+                }
+                sc.pending_se.clear();
+                if (sc.pending_bgm >= 0) {
+                    int id = sc.pending_bgm;
+                    sc.pending_bgm = -1;
+                    std::string path;
+                    for (const auto& e : std::filesystem::directory_iterator(bgm_dir)) {
+                        auto f = e.path().filename().string();
+                        if (f.rfind(std::format("bgm{:03d}", id), 0) == 0 &&
+                            f.size() > 4 && f.compare(f.size() - 4, 4, ".ogg") == 0) {
+                            path = e.path().string();
+                            break;
+                        }
+                    }
+                    if (path.empty())
+                        lucent::warn("audio", "no bgm{:03d}*.ogg under {}", id, bgm_dir);
+                    else if (audio.PlayBgm(id, path, true))
+                        sc.current_bgm = id;
+                }
+            };
+            serviceAudio();
+
             bool running = true;
             uint64_t prev = SDL_GetTicks();
             float t = anim_t;
@@ -644,6 +722,8 @@ int main(int argc, char** argv) {
                     }
                 }
                 t += dt * 30.f;      // motions are keyed in frames at 30fps
+                serviceAudio();
+                audio.Update();
 
                 glViewport(0, 0, W, H);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -672,7 +752,9 @@ int main(int argc, char** argv) {
                 }
                 SDL_GL_SwapWindow(win);
             }
-            lucent::info("host", "{} frames", frames);
+            lucent::info("host", "{} frames; audio decoded {} sounds / {} frames, bgm={}",
+                         frames, audio.stat.decoded_sounds, audio.stat.decoded_frames,
+                         audio.bgm_id());
             SDL_GL_DestroyContext(ctx);
             SDL_DestroyWindow(win);
             SDL_Quit();
