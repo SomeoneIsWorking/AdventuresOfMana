@@ -132,6 +132,13 @@ struct Material {
     std::string name;
     std::string source_path;
     uint32_t texture_index = 0;
+    // Word 9 (+0x24). NOT confirmed against the engine's GL calls -- the
+    // material -> SiVertexStream hop that feeds _SetBlendingInfo is not
+    // reversed. What IS measured, across all 6145 shipping materials: every
+    // one of the 377 named "*shadow*" sets it, with ZERO exceptions, and of the
+    // 425 others that set it, all are wave/sea/water surfaces. Both classes
+    // were checked, not just the positive one. See docs/assets.md.
+    bool blend = false;
 };
 
 // A contiguous run of the index buffer drawn with one material.

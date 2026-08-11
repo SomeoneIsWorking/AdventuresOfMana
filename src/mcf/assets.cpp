@@ -255,6 +255,7 @@ Model ParseSmdl(std::vector<uint8_t> file) {
         mt.texture_index = RdU32(b, d + 0x10);
         mt.name = RdCStr(b, size_t(str_off) + RdU32(b, d + 0x28));
         mt.source_path = RdCStr(b, size_t(str_off) + RdU32(b, d + 0x2C));
+        mt.blend = RdU32(b, d + 0x24) == 1;
         m.materials.push_back(std::move(mt));
     }
 

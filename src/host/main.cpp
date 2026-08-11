@@ -795,10 +795,28 @@ int main(int argc, char** argv) {
                     glDisableVertexAttribArray(4);
                 }
                 GLenum it = r.model.index_size == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
-                for (size_t i = 0; i < r.model.draws.size(); ++i) {
-                    glBindTexture(GL_TEXTURE_2D, r.draw_tex[i]);
-                    glDrawElements(GL_TRIANGLES, GLsizei(r.model.draws[i].index_count), it,
-                                   (void*)(uintptr_t)r.model.draws[i].byte_offset);
+                // Two passes: opaque ranges first, then the blended ones, so a
+                // shadow plane composites over the ground it lies on instead of
+                // depth-fighting it. Blended geometry still tests depth but does
+                // not write it, which is the standard ordering-independent
+                // treatment for flat decals like these.
+                auto blended = [&](size_t i) {
+                    uint32_t mi = r.model.draws[i].material;
+                    return mi < r.model.materials.size() && r.model.materials[mi].blend;
+                };
+                for (int pass = 0; pass < 2; ++pass) {
+                    if (pass == 1) {
+                        glEnable(GL_BLEND);
+                        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                        glDepthMask(GL_FALSE);
+                    }
+                    for (size_t i = 0; i < r.model.draws.size(); ++i) {
+                        if (blended(i) != (pass == 1)) continue;
+                        glBindTexture(GL_TEXTURE_2D, r.draw_tex[i]);
+                        glDrawElements(GL_TRIANGLES, GLsizei(r.model.draws[i].index_count), it,
+                                       (void*)(uintptr_t)r.model.draws[i].byte_offset);
+                    }
+                    if (pass == 1) { glDepthMask(GL_TRUE); glDisable(GL_BLEND); }
                 }
             };
 

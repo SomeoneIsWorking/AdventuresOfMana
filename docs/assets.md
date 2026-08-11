@@ -674,6 +674,51 @@ Extractor: `tools/asset/object_table.py` -> `docs/object-table.md` and
 3284 placements across 424 rooms resolve** — a result that would have been
 impossible under the refuted filename-number theory.
 
-**KNOWN DEFECT:** object shadow planes currently draw as opaque black quads.
-The 80-byte material record's blend/alpha field is not reversed, so nothing is
-blended rather than something being blended on a guess.
+(The shadow planes originally drew as opaque black quads. Fixed -- see the
+material blend flag below.)
+
+## Material blend flag — section 0 word 9 (+0x24)
+
+Alpha-blended materials set word 9 of the 80-byte material record to 1.
+
+**Status: strongly evidenced, NOT confirmed from the engine's GL calls.**
+`SiVertexStream::_SetBlendingInfo` @ `0x35f63c` is where blending is actually
+programmed — it gates `glEnable(GL_BLEND)` on its own `+0x6c`, takes the
+equation from `+0x54/+0x58` and the four `glBlendFuncSeparate` factors from
+`+0x5c..+0x68` through lookup tables at `0x1e0e64` and `0x1e0e70`. The hop that
+copies a material's fields into that object is **not** reversed, so the port
+does not claim to reproduce the game's exact blend equation; it uses ordinary
+`SRC_ALPHA / ONE_MINUS_SRC_ALPHA` with depth-write off.
+
+What is measured, over all **6145** shipping materials, checking both classes
+rather than only the positive one:
+
+| | word9 == 1 | word9 != 1 |
+|---|---|---|
+| name contains "shadow" | **377** | **0** |
+| does not | 425 | 5343 |
+
+Zero false negatives. The 425 others are not noise: every one is a `wave_*`,
+`sea_*` or `water` surface, i.e. independently the other thing a blend flag
+should catch. Three rival candidate words were run through the same test and
+all failed badly (word13: 282 false negatives; word4: 312; word12: 4006 false
+positives).
+
+### Verified by what it changes on screen
+
+Enabling blending on this flag was checked against pixels, not by eye:
+
+- **Object shadows.** 15,766 pixels in the play area changed, and every one of
+  them was the flat `(50, 50, 50)` shadow-quad colour before and a blended grass
+  colour after. Nothing else in that region moved.
+- **Water, which was not targeted.** The room mesh's `sea_01_Mat` band went from
+  opaque `(255, 255, 255)` to blended blue over 5,556 pixels.
+
+One flag, two visually distinct defects, in two different asset classes (an
+`.odt` object model and the room mesh). The water case is the strong one: it was
+predicted by the corpus statistics before it was looked at.
+
+Note the first attempt to measure this reported "no change" — a `< 40`
+near-black threshold, while the shadow quads are exactly 50. The instrument was
+wrong, not the fix; the counts above come from a direct before/after pixel diff
+with no threshold.

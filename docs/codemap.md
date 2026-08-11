@@ -28,10 +28,10 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | `cmd` Lua API extraction | **DONE — verified 200/200 names+impls** | `tools/asset/extract_cmd_api.py` -> `docs/cmd-api.md` |
 | MPK archive reader | **DONE — 9886/9886 extracted, validated** | `tools/asset/mpk.py`, `tools/asset/lha.py` |
 | Texture format (`.stex`/`SMDI`) | **DONE — 1319/1319 descriptors parse, image verified** | `tools/asset/stex.py` |
-| Model format (`.smdl`/`Smd3`) | **DONE — 1375/1375 parse, geometry rendered** | `tools/asset/smdl.py`, `render_smdl.py` |
+| Model format (`.smdl`/`Smd3`) | **DONE — 1375/1375 parse, geometry rendered; material blend flag (word 9) drives alpha blending** | `tools/asset/smdl.py`, `render_smdl.py` |
 | Motion format (`.smot`/`Smot`) | **DONE — 1721/1721 parse; quaternions verified. 98 of 60,803 time arrays unexplained** | `tools/asset/smot.py` |
 | Collision format (`.scol`/`SCol`) | **DONE — cells + triangles reversed; floor queries work** | `tools/asset/scol.py`, `Collision::GetFloor` |
-| Room data tables (`.odt`/`.gdt`/`.edt`) | **Layouts from the engine's own loaders; 1328/1328 files parse. Map objects RENDER in-game** (3284/3284 ids resolve to models). Placement open for 303 of 3284 (dungeon maps only); shadow planes draw opaque | `tools/asset/roomdata.py`, `tools/asset/object_table.py` |
+| Room data tables (`.odt`/`.gdt`/`.edt`) | **Layouts from the engine's own loaders; 1328/1328 files parse. Map objects RENDER in-game** (3284/3284 ids resolve to models). Placement open for 303 of 3284 (dungeon maps only) | `tools/asset/roomdata.py`, `tools/asset/object_table.py` |
 | C++ asset layer | **DONE for MPK/.stex/.smdl** — port of the verified Python | `src/mcf/` |
 | Desktop host (window + GLES2) | **Textured characters + rooms; GPU skinning + .smot playback** | `src/host/main.cpp` |
 | Lua bridge | **Lua 5.3 + all 200 `cmd` bindings; 714/715 scripts run** (stubs record calls) | `src/engine/script.cpp` |
