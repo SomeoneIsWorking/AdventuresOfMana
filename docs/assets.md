@@ -236,3 +236,50 @@ genuinely unknown — possibly multi-segment takes.
 It does not block anything (0.16% of tracks, all on non-player actors), but it is
 recorded rather than smoothed over, because a playback bug here would otherwise
 look like an animation blending problem rather than a parsing gap.
+
+---
+
+# `.scol` collision mesh (`SCol`) — REVERSED (loader-level)
+
+`SiCollisionMesh::SetBinary` is only 39 instructions: it copies the file, then
+reads a 12-byte-stride array at `[0x2C]` and pulls two entries indexed by `[0x10]`
+and `[0x14]`. Those entries decode as float triples, and the pair it extracts is
+the AABB — for `M0000_00_00` they are `(0, -15, 0)` and `(300, 150, 240)`, a
+300x240 room.
+
+## Header
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x00 | char[4] | `"SCol"` (never validated) |
+| 0x04 | u32 | header size, 20 |
+| 0x08 | u32 | node count |
+| 0x0C | s32 | node array offset |
+| 0x10 | u32 | index of AABB **min** vec3 |
+| 0x14 | u32 | index of AABB **max** vec3 |
+| 0x18 | u32 | unknown (15..45, varies per map) |
+| 0x1C | u32 | grid width — **80** in all 992 files |
+| 0x20 | u32 | grid height — **50** in all 992 files |
+| 0x24 | u32 | total file size |
+| 0x28 | u32 | vec3 count |
+| 0x2C | s32 | vec3 pool offset |
+
+## Verification
+
+Two *independent* tilings pin the layout, and both hold across all 992 files:
+
+    [0x0C] + [0x08]*40 == [0x2C]      node array runs exactly to the vec3 pool
+    [0x2C] + [0x28]*12 == filesize    vec3 pool runs exactly to EOF
+
+`tools/asset/scol.py` parses **992/992, 0 failures**, additionally checking that
+both AABB indices are in range and that min <= max componentwise — a semantic
+check the structure alone would not give. Largest room span seen is
+1200 x 1260 x 480.
+
+## NOT reversed
+
+The **40-byte node record's internals**. `SetBinary` never reads them — they are
+consumed by the collision *query* code, not the loader — so nothing here
+constrains their layout, and guessing would be inventing. Reversing them means
+following `CollisionBase` / `SiCollisionMesh` query methods, which is a separate
+job and only needed once the port does actual collision.

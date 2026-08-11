@@ -25,7 +25,7 @@ The stock engine only; the 5play `libRMS.so` mod-menu injection is excluded from
 | Texture format (`.stex`/`SMDI`) | **DONE — 1319/1319 descriptors parse, image verified** | `tools/asset/stex.py` |
 | Model format (`.smdl`/`Smd3`) | **DONE — 1375/1375 parse, geometry rendered** | `tools/asset/smdl.py`, `render_smdl.py` |
 | Motion format (`.smot`/`Smot`) | **DONE — 1721/1721 parse; quaternions verified. 98 of 60,803 time arrays unexplained** | `tools/asset/smot.py` |
-| Collision format (`.scol`/`SCol`) | NOT STARTED — parser located | `SiCollisionMesh::SetBinary` |
+| Collision format (`.scol`/`SCol`) | **DONE at loader level — 992/992 parse. 40-byte node internals not reversed** | `tools/asset/scol.py` |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 | Desktop host (window/GL/audio/input) | NOT STARTED | `src/host/` |
 
@@ -38,7 +38,9 @@ The stock engine only; the 5play `libRMS.so` mod-menu injection is excluded from
 - ~~`SMDI` texture layout?~~ **ANSWERED** — see `docs/assets.md`.
 - ~~`Smd3` model layout?~~ **ANSWERED** — see `docs/assets.md`.
 - ~~`Smot` motion layout?~~ **ANSWERED** — see `docs/assets.md`.
-- `SCol` (collision) layout. Parser is `SiCollisionMesh::SetBinary`; same method.
+- ~~`SCol` collision layout?~~ **ANSWERED at loader level** — see `docs/assets.md`.
+- The `.scol` 40-byte node record internals. `SetBinary` never reads them, so the
+  loader constrains nothing; needs the `CollisionBase` query methods instead.
 - **OPEN:** 98/60,803 motion time arrays are non-monotonic (9 files). Meaning
   unknown; not per-channel sub-arrays. See `docs/assets.md`.
 - `.smdl` section slots 0, 3, 4, 5 (meshes / materials / draw ranges) are not
