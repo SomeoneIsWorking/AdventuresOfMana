@@ -95,12 +95,12 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
 
     if (n == "AddNPC") {                    // (name, id, x, y, z, deg)
         auto& a = w.Spawn(S(1), int(N(2)), N(3), N(4), N(5));
-        a.rot_y = N(6);
+        a.rot_y = N(6); a.kind = 'N';
         return true;
     }
     if (n == "AddNPCSubType") {             // (name, id, sub, x, y, z, deg)
         auto& a = w.Spawn(S(1), int(N(2)), N(4), N(5), N(6));
-        a.rot_y = N(7);
+        a.rot_y = N(7); a.kind = 'N';
         return true;
     }
     if (n == "AddEnemy" || n == "AddBoss" || n == "AddParty") {
@@ -110,8 +110,9 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         // the type id silently collapsed them into one.
         int id = int(N(1));
         const char* kind = n == "AddBoss" ? "boss" : (n == "AddParty" ? "party" : "enemy");
-        w.Spawn(std::format("{}{}_{}", kind, id, w.NextSpawnSerial()), id,
-                N(2), N(3), N(4));
+        auto& a = w.Spawn(std::format("{}{}_{}", kind, id, w.NextSpawnSerial()), id,
+                          N(2), N(3), N(4));
+        a.kind = n == "AddBoss" ? 'B' : (n == "AddParty" ? 'C' : 'E');
         return true;
     }
     if (n == "DelNPC" || n == "DeadEnemy") { w.Remove(S(1)); return true; }

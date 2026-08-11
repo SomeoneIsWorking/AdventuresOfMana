@@ -34,3 +34,42 @@ The disagreements are instructive. 8 files have a `NNN` that does not match thei
 `ChrMotion` and the *label* is a per-model description. **Look motions up by
 number and ignore the label**; matching on names would fail on 137 files and,
 worse, would appear to work on the other 1584.
+
+## Actor type ids map to model names
+
+Verified against the enums in `sk1.lua`:
+
+| Enum | Spawner | Model | Coverage |
+|------|---------|-------|----------|
+| `eENEMY` | `AddEnemy` | `E<id>_00.smdl` | **74/74** |
+| `eBOSS` | `AddBoss` | `B<id>_00.smdl` | **24/24** |
+| `eNPC` | `AddNPC` | `N<id>_00.smdl` | 34/53 |
+
+The 19 unmatched NPC ids have no `N<id>_00` model; several are aliases
+(`WOLFMAN`/`WOLF_MAN`) and others likely reuse character (`C####`) models. The
+host logs each unmatched actor by handle rather than dropping it silently.
+
+## Room coordinates
+
+Scripts give actor positions in **room-local** coordinates; map models are
+authored in **world** space. Rooms tile a fixed **300 x 240** grid indexed by the
+two numbers in the model name, `M<map>_<gx>_<gy>`, so
+
+    room_origin = (gx * 300, 0, gy * 240)
+
+For the `M0000_00_*` column, mesh `min.z` is exactly `gy * 240` for every room.
+
+**The filename is the anchor, not the geometry.** Testing the grid against
+measured bounds fails: only 295/993 map meshes have `min` on it (walls and
+overhangs extend past the room), and only 330/992 collision AABBs do — the
+dominant collision box is 330x270, i.e. a uniform 15-unit margin around the
+300x240 room. Either measurement would have produced a plausible-looking
+per-room offset that was actually geometry noise.
+
+### Known-wrong
+
+Actor **Y** placement is not yet right — spawned enemies sit at wall height
+rather than on the floor. Scripts pass a Y (e.g. `AddEnemy(id, x, 30, z)`) that
+is evidently not a straight world offset from the room origin; ground height
+probably comes from the collision mesh (`GetGroundAttribute` exists in the API).
+Recorded rather than nudged with a constant.

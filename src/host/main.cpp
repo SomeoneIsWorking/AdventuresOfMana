@@ -20,6 +20,7 @@
 
 #include "engine/script.h"
 #include "engine/world.h"
+#include "host/render.h"
 #include "mcf/mcf.h"
 
 namespace {
@@ -146,6 +147,26 @@ GLuint Compile(GLenum kind, const char* src) {
 
 void WritePng(const std::string& path, int w, int h, const std::vector<uint8_t>& rgba);
 
+GLuint LinkProgram(const char* vs, const char* fs) {
+    GLuint p = glCreateProgram();
+    glAttachShader(p, Compile(GL_VERTEX_SHADER, vs));
+    glAttachShader(p, Compile(GL_FRAGMENT_SHADER, fs));
+    glBindAttribLocation(p, 0, "position");
+    glBindAttribLocation(p, 1, "color");
+    glBindAttribLocation(p, 2, "texcoord0");
+    glBindAttribLocation(p, 3, "weight");
+    glBindAttribLocation(p, 4, "incidence");
+    glLinkProgram(p);
+    GLint ok = 0;
+    glGetProgramiv(p, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[2048]{};
+        glGetProgramInfoLog(p, sizeof(log), nullptr, log);
+        throw mcf::Error(std::format("link failed: {}", log));
+    }
+    return p;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -156,7 +177,7 @@ int main(int argc, char** argv) {
     std::string shot, anim;
     float anim_t = 0.f;
     bool census = false;
-    std::string room;
+    std::string room, render_room;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
@@ -166,6 +187,7 @@ int main(int argc, char** argv) {
         else if (a == "--time" && i + 1 < argc) anim_t = std::stof(argv[++i]);
         else if (a == "--script-census") census = true;
         else if (a == "--run-room" && i + 1 < argc) room = argv[++i];
+        else if (a == "--render-room" && i + 1 < argc) render_room = argv[++i];
         else if (a == "--help") {
             std::printf("usage: %s [--archive sk1.mpk] [--model NAME] "
                         "[--screenshot out.png]\n", argv[0]);
@@ -383,6 +405,161 @@ int main(int argc, char** argv) {
             char log[2048]{};
             glGetProgramInfoLog(prog, sizeof(log), nullptr, log);
             throw mcf::Error(std::format("link failed: {}", log));
+        }
+
+        if (!render_room.empty()) {
+            GLuint progFlat = LinkProgram(kVS, kFS);
+            GLuint progSkin = LinkProgram(kVSkin, kFS);
+            GLuint white = 0;
+            glGenTextures(1, &white);
+            glBindTexture(GL_TEXTURE_2D, white);
+            const uint8_t kW[4] = {255, 255, 255, 255};
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, kW);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+            mcf::Renderable stage;
+            if (!mcf::LoadRenderable(ar, render_room, white, &stage))
+                throw mcf::Error(std::format("no model for room {}", render_room));
+
+            mcf::World world;
+            mcf::Script sc;
+            sc.world = &world;
+            if (!sc.Run("sk1.lua", ar.Read("sk1/sk1.lua")))
+                throw mcf::Error(std::format("prelude: {}", sc.last_error()));
+            if (!sc.CallFunction("SystemInit"))
+                throw mcf::Error(std::format("SystemInit: {}", sc.last_error()));
+            auto sp = std::format("sk1/{}.lua", render_room);
+            if (ar.Has(sp) && !sc.Run(sp, ar.Read(sp)))
+                lucent::warn("lua", "{}: {}", sp, sc.last_error());
+
+            // Scripts give actor positions in ROOM-LOCAL coordinates while map
+            // models are authored in world space. Rooms tile a fixed
+            // 300 x 240 grid indexed by the two numbers in the model name
+            // (M<map>_<gx>_<gy>): for the M0000_00_* column, mesh min.z is
+            // exactly gy*240 for every room. Mesh bounds and the collision AABB
+            // both overhang that grid by varying amounts (walls, and a uniform
+            // 15-unit collision margin giving 330x270 boxes), so the FILENAME
+            // is the anchor -- not anything measured off the geometry.
+            float room_org[3]{0, 0, 0};
+            {
+                auto us = render_room.rfind('_');
+                auto us2 = render_room.rfind('_', us - 1);
+                if (us != std::string::npos && us2 != std::string::npos) {
+                    int gx = std::atoi(render_room.substr(us2 + 1, us - us2 - 1).c_str());
+                    int gy = std::atoi(render_room.substr(us + 1).c_str());
+                    room_org[0] = float(gx) * 300.f;
+                    room_org[2] = float(gy) * 240.f;
+                    lucent::info("world", "room grid ({},{}) -> origin ({:.0f},0,{:.0f})",
+                                 gx, gy, room_org[0], room_org[2]);
+                }
+            }
+
+            // One renderable per distinct model, instanced per actor.
+            std::map<std::string, mcf::Renderable> cache;
+            struct Placed { const mcf::Renderable* r; float pos[3]; };
+            std::vector<Placed> placed;
+            for (const auto& a : world.actors()) {
+                if (!a.alive) continue;
+                auto nm = mcf::ActorModelName(a.kind, a.type_id);
+                if (!cache.count(nm)) {
+                    mcf::Renderable r;
+                    if (!mcf::LoadRenderable(ar, nm, white, &r)) {
+                        lucent::warn("world", "actor {} (kind {} id {}) has no model {}",
+                                     a.handle, a.kind, a.type_id, nm);
+                        continue;
+                    }
+                    cache[nm] = std::move(r);
+                }
+                placed.push_back({&cache[nm], {a.pos[0] + room_org[0],
+                                               a.pos[1] + room_org[1],
+                                               a.pos[2] + room_org[2]}});
+            }
+            lucent::info("world", "{} actors, {} placed, {} distinct models",
+                         world.actors().size(), placed.size(), cache.size());
+
+            // Frame the ROOM; actors sit inside it.
+            float ctr[3], radius = 0;
+            for (int k = 0; k < 3; ++k) {
+                ctr[k] = (stage.lo[k] + stage.hi[k]) * .5f;
+                radius = std::max(radius, stage.hi[k] - stage.lo[k]);
+            }
+            float d = radius * 1.25f;
+            float eye[3]{ctr[0] + d * 0.75f, ctr[1] + radius * 0.55f, ctr[2] + d * 0.75f};
+            float up[3]{0, 1, 0};
+            Mat4 vp = Perspective(45.f * float(std::numbers::pi) / 180.f, float(W) / H,
+                                  radius * 0.02f, radius * 8.f) * LookAt(eye, ctr, up);
+
+            glEnable(GL_DEPTH_TEST);
+            glClearColor(0.10f, 0.11f, 0.14f, 1.f);
+            glViewport(0, 0, W, H);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            auto drawOne = [&](const mcf::Renderable& r, const float t[3]) {
+                GLuint pr = r.skinned() ? progSkin : progFlat;
+                glUseProgram(pr);
+                Mat4 m = Mat4::Identity();
+                m.m[12] = t[0]; m.m[13] = t[1]; m.m[14] = t[2];
+                Mat4 mvp = vp * m;
+                glUniformMatrix4fv(glGetUniformLocation(pr, "mVP"), 1, GL_FALSE, mvp.m);
+                glUniform1i(glGetUniformLocation(pr, "texture0"), 0);
+                if (r.skinned()) {
+                    // Bind pose: skin = world_bind * inv_world_bind = identity.
+                    std::vector<float> j(80 * 3 * 4, 0.f);
+                    for (int bi = 0; bi < 80; ++bi)
+                        for (int rr = 0; rr < 3; ++rr) j[(bi * 3 + rr) * 4 + rr] = 1.f;
+                    glUniform4fv(glGetUniformLocation(pr, "vJoint"), 80 * 3, j.data());
+                }
+                glActiveTexture(GL_TEXTURE0);
+                glBindBuffer(GL_ARRAY_BUFFER, r.vbo);
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, r.ibo);
+                GLsizei st = GLsizei(r.model.vertex_stride);
+                const auto* pa = r.model.Find(mcf::VertexUsage::kPosition);
+                const auto* ca = r.model.Find(mcf::VertexUsage::kColor);
+                const auto* ta = r.model.Find(mcf::VertexUsage::kTexcoord0);
+                glEnableVertexAttribArray(0);
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, st, (void*)(uintptr_t)pa->offset);
+                if (ca) { glEnableVertexAttribArray(1);
+                    glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, st, (void*)(uintptr_t)ca->offset); }
+                if (ta) { glEnableVertexAttribArray(2);
+                    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, st, (void*)(uintptr_t)ta->offset); }
+                if (r.skinned()) {
+                    const auto* wa = r.model.Find(mcf::VertexUsage::kWeight);
+                    const auto* ia = r.model.Find(mcf::VertexUsage::kIncidence);
+                    glEnableVertexAttribArray(3);
+                    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, st, (void*)(uintptr_t)wa->offset);
+                    glEnableVertexAttribArray(4);
+                    glVertexAttribPointer(4, 4, GL_UNSIGNED_BYTE, GL_FALSE, st, (void*)(uintptr_t)ia->offset);
+                } else {
+                    glDisableVertexAttribArray(3);
+                    glDisableVertexAttribArray(4);
+                }
+                GLenum it = r.model.index_size == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
+                for (size_t i = 0; i < r.model.draws.size(); ++i) {
+                    glBindTexture(GL_TEXTURE_2D, r.draw_tex[i]);
+                    glDrawElements(GL_TRIANGLES, GLsizei(r.model.draws[i].index_count), it,
+                                   (void*)(uintptr_t)r.model.draws[i].byte_offset);
+                }
+            };
+
+            float origin[3]{0, 0, 0};
+            drawOne(stage, origin);
+            for (const auto& p : placed) drawOne(*p.r, p.pos);
+
+            if (!shot.empty()) {
+                std::vector<uint8_t> px(size_t(W) * H * 4);
+                glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                std::vector<uint8_t> fl(px.size());
+                for (int y = 0; y < H; ++y)
+                    std::memcpy(&fl[size_t(y) * W * 4], &px[size_t(H - 1 - y) * W * 4], size_t(W) * 4);
+                WritePng(shot, W, H, fl);
+                lucent::info("host", "wrote {}", shot);
+            }
+            SDL_GL_SwapWindow(win);
+            SDL_GL_DestroyContext(ctx);
+            SDL_DestroyWindow(win);
+            SDL_Quit();
+            return 0;
         }
 
         GLuint vbo, ibo;

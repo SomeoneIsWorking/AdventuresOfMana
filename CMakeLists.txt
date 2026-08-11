@@ -37,5 +37,5 @@ add_library(engine STATIC src/engine/script.cpp src/engine/world.cpp)
 target_include_directories(engine PUBLIC src)
 target_link_libraries(engine PUBLIC lua lucent::lucent)
 
-add_executable(mana src/host/main.cpp)
+add_executable(mana src/host/main.cpp src/host/render.cpp)
 target_link_libraries(mana PRIVATE mcf engine SDL3::SDL3 PkgConfig::GLESV2)

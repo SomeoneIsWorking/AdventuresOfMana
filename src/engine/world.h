@@ -41,6 +41,9 @@ struct Actor {
     std::string handle;          // the name scripts address it by
     std::string model;           // e.g. "B0000_00"
     int type_id = -1;            // NPC / enemy id from the spawning call
+    // Which spawner made this, because that selects the model prefix:
+    // 'N' AddNPC, 'E' AddEnemy, 'B' AddBoss, 'C' AddParty.
+    char kind = 'N';
     float pos[3]{};
     float rot_y = 0;
     int motion = 0;              // eMOTION index; also the .smot numeric prefix
