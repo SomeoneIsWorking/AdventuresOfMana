@@ -22,14 +22,15 @@ The stock engine only; the 5play `libRMS.so` mod-menu injection is excluded from
 |---|---|---|
 | `cmd` Lua API extraction | **DONE — verified 200/200 names+impls** | `tools/asset/extract_cmd_api.py` -> `docs/cmd-api.md` |
 | MPK archive reader | **DONE — 9886/9886 extracted, validated** | `tools/asset/mpk.py`, `tools/asset/lha.py` |
-| Model / motion / texture formats | NOT STARTED | — |
+| Model / motion / texture formats | magics identified, layouts NOT reversed | `docs/assets.md` |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 | Desktop host (window/GL/audio/input) | NOT STARTED | `src/host/` |
 
 ## Open questions (gate the next step)
 
-- ~~Lua source or bytecode?~~ **ANSWERED: plain UTF-8 source**, 715 files, original
-  Japanese developer comments intact. They call Lua-level helpers (`mapjump`,
-  `EvBoxOne`, `CHOCOBO_PUT`, `bgmfield`) layered over the 200 native `cmd`
-  functions, so a Lua prelude exists somewhere in the set.
-- What are the model (`SiModelBase`) and motion (`SiModelMotion`) container formats?
+- ~~Lua source or bytecode?~~ **ANSWERED: plain source**, 715 files / 50,643
+  lines, Japanese developer comments intact. `sk1.lua` is the prelude (138
+  helpers over the 200 native `cmd` functions). NOTE: `sk1.lua` is Shift-JIS,
+  map scripts are UTF-8 — see `docs/assets.md`.
+- What are the `Smd3` (model), `Smot` (motion), `SCol` (collision) and `SMDI`
+  (texture) container layouts? Magics known, internals not yet reversed.
