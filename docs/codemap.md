@@ -104,6 +104,19 @@ draws it GPU-skinned. Frames at t=0 and t=20 differ by 22,416 bytes, which is ho
 the animation is confirmed to be applied rather than silently falling back to
 bind pose.
 
+## Verified playable, end to end
+
+    ./build/mana --walk-to 105 117 --warmup 400 --screenshot out.png
+
+Boots with no room argument, walks the player into the house's event box, runs
+the `in_01` handler as a coroutine (`CHOCOBO_BYE` -> `bgmfield` -> `mapjump`),
+starts BGM 4 and decodes 4,553,579 PCM frames of it, loads `M0010_02_02`, runs
+that room's script, and ends with the player standing inside the furnished
+interior. Every subsystem in the table above is exercised by that one command.
+
+Known gaps it also shows honestly: the destination room has no `.odt`, and its
+`SHOP` NPC (id 25) is one of the 19 of 53 NPC ids with no `N<id>_00` model.
+
 ## Collision probe
 
     ./build/mana --collision-probe M0000_03_06

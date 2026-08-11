@@ -206,6 +206,8 @@ int main(int argc, char** argv) {
     bool fixed_step = false;
     bool combat_demo = false;
     bool explicit_model = false;
+    bool walk_to = false;
+    float walk_x = 0, walk_z = 0;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
@@ -232,6 +234,10 @@ int main(int argc, char** argv) {
             has_spawn = true;
         }
         else if (a == "--room" && i + 1 < argc) render_room = argv[++i];
+        else if (a == "--walk-to" && i + 2 < argc) {
+            walk_x = std::stof(argv[++i]); walk_z = std::stof(argv[++i]);
+            walk_to = true;
+        }
         else if (a == "--help" || a == "-h") {
             std::printf(
                 "usage: %s [options]\n"
@@ -249,7 +255,8 @@ int main(int argc, char** argv) {
                 "  --collision-probe ROOM                  walk outward, report walls\n"
                 "  --script-census     run every shipping script and tally cmd calls\n"
                 "  --combat-selftest / --audio-selftest    self-tests, non-zero on failure\n"
-                "  --auto-attack       swing continuously (headless combat driver)\n",
+                "  --auto-attack       swing continuously (headless combat driver)\n"
+                "  --walk-to X Z       walk toward a room-local point (headless)\n",
                 argv[0], kDefaultRoom, archive.c_str());
             return 0;
         }
@@ -792,6 +799,19 @@ int main(int argc, char** argv) {
 
             lucent::info("world", "{} actors, {} placed, {} distinct models",
                          world.actors().size(), placed.size(), cache.size());
+            // Event boxes are how the game connects rooms, so a room that
+            // registered none is worth seeing -- previously indistinguishable
+            // from a room whose script never ran.
+            {
+                size_t live = 0;
+                for (const auto& bx : world.boxes)
+                    if (bx.enabled && !bx.no_touch) ++live;
+                lucent::info("world", "{} event box(es), {} touchable",
+                             world.boxes.size(), live);
+                for (const auto& bx : world.boxes)
+                    lucent::debug("world", "  box '{}' ({:.0f},{:.0f})..({:.0f},{:.0f})",
+                                  bx.name, bx.lo[0], bx.lo[2], bx.hi[0], bx.hi[2]);
+            }
 
                 return true;
             };
@@ -1039,6 +1059,14 @@ int main(int argc, char** argv) {
                     if (key[SDL_SCANCODE_RIGHT] || key[SDL_SCANCODE_D]) mx += 1;
                     if (key[SDL_SCANCODE_UP]    || key[SDL_SCANCODE_W]) mz -= 1;
                     if (key[SDL_SCANCODE_DOWN]  || key[SDL_SCANCODE_S]) mz += 1;
+                }
+                // Headless driver: steer toward a room-local target so the
+                // walk-into-an-event-box path (which is how the game connects
+                // rooms) can be exercised without a human at the keyboard.
+                if (walk_to) {
+                    float tx = walk_x + room_org[0], tz = walk_z + room_org[2];
+                    float dx = tx - px, dz = tz - pz;
+                    if (dx * dx + dz * dz > 4.f) { mx = dx; mz = dz; }
                 }
                 bool attacking = attack_left > 0.f;
                 if (combat_demo && !attacking && frames > 30) {
