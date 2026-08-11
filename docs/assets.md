@@ -856,3 +856,39 @@ Combat balance is not faithful until the attack chain is finished.
 
 `DataTableGetName` and `DataTableGetHelpString` are a live lead on the missing
 text problem recorded above and have not been followed yet.
+
+## Room-local -> world: the engine uses a PER-ROOM size
+
+`ModeGame::RoomLocalToWorldX(float)` @ `0x2e3584` and its Z twin are short and
+unambiguous:
+
+    world_x = room_size_x * grid_x + local_x
+
+where `room_size_x` is **not a constant**. It is read from a per-room record
+(`f32 @ +0x9dc` for X, `+0x9e0` for Z, indexed through the room's own entry),
+which is also the value `ModeGame::AddCharacterRandomPos` divides by 30 to get
+the room's chip grid.
+
+The port uses a fixed 300x240, which is right for the overworld (uniquely fitted
+by 2331 objects) but wrong for the 140 of 993 rooms whose mesh spans more than
+one cell. Measured cost, over every script-placed actor in the game:
+**85 of 116 stand on floor; 31 do not** and keep their script Y instead.
+`--room-census` reports this ratio every run.
+
+### A hypothesis that was tried and FALSIFIED
+
+Using the room's collision AABB as the origin (`aabb_lo + 15`, from the uniform
+15-unit margin found earlier) scored **116 of 116** on the actor-on-floor test
+and was very nearly shipped. It is wrong:
+
+- the AABB's `lo` corner differs from `grid * 300` by multiples of 30 -- the
+  chip size -- in **659 of 992** rooms, not by a constant margin;
+- its size is not one value but 330x270 (520 rooms), 300x240 (281), 300x300,
+  300x210, 300x180, 300x270;
+- applied to `M0000_00_00`, whose AABB is exactly `(0,0)..(300,240)`, it puts
+  the origin at (15,15) where the grid correctly says (0,0).
+
+It is a tight bound on the collision geometry, not the room's extent. It scored
+perfectly only because floors are broad enough to absorb a 15-unit error, which
+is exactly the way a test passes without measuring what it claims to. The fixed
+rule is kept, with its cost stated, until the per-room size table is reversed.

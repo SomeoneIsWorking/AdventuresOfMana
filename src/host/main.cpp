@@ -479,7 +479,8 @@ int main(int argc, char** argv) {
             struct { long rooms = 0, mesh_fail = 0, no_col = 0, no_script = 0,
                           script_fail = 0, actors = 0, boxes = 0, objects = 0,
                           obj_unknown = 0, actor_no_model = 0, with_odt = 0,
-                          invisible = 0; } c;
+                          invisible = 0, col_fail = 0, on_floor = 0,
+                          off_floor = 0, engine_placed = 0, on_floor_aabb = 0; } c;
             std::map<std::string, int> missing_models;
             for (const auto& r : rooms) {
                 ++c.rooms;
@@ -487,7 +488,11 @@ int main(int argc, char** argv) {
                 catch (const std::exception&) { ++c.mesh_fail; continue; }
 
                 auto cs = std::format("sk1/{}.scol", r);
-                if (!ar.Has(cs)) ++c.no_col;
+                mcf::Collision rc;
+                bool has_col = ar.Has(cs);
+                if (!has_col) ++c.no_col;
+                else { try { rc = mcf::ParseScol(ar.Read(cs)); }
+                       catch (const std::exception&) { has_col = false; ++c.col_fail; } }
 
                 w.Reset();
                 auto sp = std::format("sk1/{}.lua", r);
@@ -496,7 +501,38 @@ int main(int argc, char** argv) {
 
                 c.actors += long(w.actors().size());
                 c.boxes += long(w.boxes.size());
+                // Room origin. Two candidates, measured against each other:
+                //   (a) the filename grid times a fixed 300x240
+                //   (b) the room's own collision AABB plus its uniform 15-unit
+                //       margin, which does not assume every room is one cell
+                float ox = float(std::atoi(r.substr(6, 2).c_str())) * 300.f;
+                float oz = float(std::atoi(r.substr(9, 2).c_str())) * 240.f;
+                float bx = ox, bz = oz;
+                if (has_col) { bx = rc.aabb_lo[0] + 15.f; bz = rc.aabb_lo[2] + 15.f; }
                 for (const auto& a : w.actors()) {
+                    // Every spawned actor should stand on floor. An actor over
+                    // nothing keeps its script Y and floats -- the bug that hid
+                    // enemy attacks for a whole session.
+                    if (has_col) {
+                        float g;
+                        float wx = a.pos[0] + ox, wz = a.pos[2] + oz;
+                        bool onfloor = rc.GetFloor(wx, wz, mcf::Collision::kFloorMask, &g);
+                        bool onfloor_aabb = rc.GetFloor(a.pos[0] + bx, a.pos[2] + bz,
+                                                        mcf::Collision::kFloorMask, &g);
+                        // A script-spawned NPC at (0,0) is placed by the engine,
+                        // so its script position is not expected to be walkable.
+                        if (a.random_place) ++c.engine_placed;
+                        else if (onfloor) { ++c.on_floor; if (onfloor_aabb) ++c.on_floor_aabb; }
+                        else {
+                            ++c.off_floor;
+                            if (onfloor_aabb) ++c.on_floor_aabb;
+                            lucent::debug("census",
+                                "  {} {} '{}' kind {} id {} at room-local "
+                                "({:.0f},{:.0f},{:.0f}) has no floor",
+                                r, a.random_place ? "rand" : "fixed", a.handle,
+                                a.kind, a.type_id, a.pos[0], a.pos[1], a.pos[2]);
+                        }
+                    }
                     auto nm = mcf::ActorModelName(a.kind, a.type_id);
                     if (nm.empty()) { ++c.invisible; continue; }   // eNPC.TRANS
                     if (!ar.Has(std::format("sk1/{}.smdl", nm))) {
@@ -526,6 +562,14 @@ int main(int argc, char** argv) {
                          "{} intentionally invisible (eNPC.TRANS)",
                          c.actors, c.actor_no_model, missing_models.size(), c.invisible);
             lucent::info("census", "  {} event boxes", c.boxes);
+            lucent::info("census", "  actor placement: {} stand on floor, {} do NOT "
+                         "(they would float at their script Y), {} are engine-placed "
+                         "so their script position is not expected to be walkable; "
+                         "{} collision meshes failed to parse",
+                         c.on_floor, c.off_floor, c.engine_placed, c.col_fail);
+            lucent::info("census", "  origin rule comparison: grid*300x240 puts {} "
+                         "actors on floor; collision-AABB+15 puts {} (of {} tested)",
+                         c.on_floor, c.on_floor_aabb, c.on_floor + c.off_floor);
             lucent::info("census", "  {} rooms have an .odt; {} objects, {} unresolved ids",
                          c.with_odt, c.objects, c.obj_unknown);
             for (const auto& [nm, n] : missing_models)
@@ -818,6 +862,13 @@ int main(int argc, char** argv) {
                 if (ar.Has(cs)) { col = mcf::ParseScol(ar.Read(cs)); have_col = true; }
                 else lucent::warn("world", "no {}; actors keep their script Y", cs);
             }
+            // NOT refined from the collision AABB. That was tried and
+            // FALSIFIED: the AABB's lo corner differs from the grid position by
+            // multiples of 30 (the chip size) in 659 of 992 rooms and its size
+            // varies (330x270, 300x240, 300x300, 300x180...), because it is a
+            // tight bound on the collision geometry rather than the room's
+            // extent. It scored 116/116 on the actor-on-floor test only because
+            // floors are broad enough to absorb the error. See docs/assets.md.
 
             // Engine-chosen NPC placement. The TRIGGER is reversed: AddNPC
             // sets a flag when the script's x and z are both 0, and

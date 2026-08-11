@@ -90,6 +90,11 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
   chip array and RNG are not reversed, so the actual pick is a documented port
   choice. A "chip" is **30 units**, confirmed independently against the event
   box `EvBoxOneY("in_01",3,3.4,2)` -> `(90,102)..(120,132)`.
+- **OPEN:** the engine converts room-local to world with a PER-ROOM size
+  (`RoomLocalToWorldX` @ `0x2e3584`), not a fixed 300x240. The port uses the
+  fixed size, which costs 31 of 116 script-placed actors their floor in
+  multi-cell dungeon rooms. Using the collision AABB instead was tried and
+  falsified — see `docs/assets.md`.
 - NOTE: container magics are written but **never checked** by the engine, so
   magic-based dispatch is not an option — `Resource::LoadFromFile` switches on a
   `ResourceKind` enum derived from the caller, not the file.
