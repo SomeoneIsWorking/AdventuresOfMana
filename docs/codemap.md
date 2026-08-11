@@ -32,7 +32,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Motion format (`.smot`/`Smot`) | **DONE — 1721/1721 parse; quaternions verified. 98 of 60,803 time arrays unexplained** | `tools/asset/smot.py` |
 | Collision format (`.scol`/`SCol`) | **DONE at loader level — 992/992 parse. 40-byte node internals not reversed** | `tools/asset/scol.py` |
 | C++ asset layer | **DONE for MPK/.stex/.smdl** — port of the verified Python | `src/mcf/` |
-| Desktop host (window + GLES2) | **Characters and map rooms render fully textured** | `src/host/main.cpp` |
+| Desktop host (window + GLES2) | **Textured characters + rooms; GPU skinning + .smot playback** | `src/host/main.cpp` |
 | Audio / input / game loop | NOT STARTED | — |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 
@@ -53,7 +53,9 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 - ~~`.smdl` slot 5?~~ **ANSWERED: vertex declaration** — see `docs/assets.md`.
 - ~~`.smdl` slots 0, 3, 4?~~ **ANSWERED: materials, mesh record, draw ranges** —
   see `docs/assets.md`. Multi-material models now render correctly.
-- `.smdl` section 1: the 352-byte bone record layout (needed for skinning).
+- ~~`.smdl` section 1 bone record?~~ **ANSWERED — skinning works.** See
+  `docs/assets.md`.
+- Bone record fields +0x040, +0x0C0 and +0x100 have no established role.
 - ~~`.stexinfo` / `.mtex` map texturing?~~ **ANSWERED** — maps render fully
   textured. See `docs/assets.md`.
 - `room_field.mtex` (240x240, the only NPOT texture) has 58 bytes of mip padding

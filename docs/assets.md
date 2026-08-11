@@ -420,3 +420,57 @@ The single failure is `room_field.mtex`, the only non-power-of-two texture in th
 game (240x240): its mip chain is 58 bytes larger than the exact sum, so NPOT
 levels are padded. Not resolved — it is one file, and the padding rule should be
 derived rather than guessed.
+
+---
+
+# `.smdl` section 1 — skeleton (352-byte `SiModelBone`) — REVERSED
+
+`SiModelBase::CreateSkeleton` passes the file pointer straight to
+`SiModelSkeleton::_SetBinary`, so the 352-byte record **is** the runtime struct.
+Field offsets come from `SiModelBase::GetBoneName` / `GetBoneIDByName`, which
+index at stride `0x160` and read the name at `+0x14C`.
+
+| Off | Size | Meaning |
+|-----|------|---------|
+| 0x000 | 64 | **local bind transform**, parent-relative, column-major 4x4 |
+| 0x040 | 64 | second matrix (identical to 0x000 in only 711/5344 bones — role unknown) |
+| 0x080 | 64 | **inverse world bind matrix** — what skinning needs |
+| 0x0C0 | 64 | as 0x040 |
+| 0x100 | 64 | identity in every bone sampled |
+| 0x144 | 4 | **parent index**, -1 for root; always < own index |
+| 0x14C | 4 | name offset into the section-8 string table |
+
+## Verification
+
+Chaining the local transforms at `+0x00` up the parent hierarchy and inverting
+reproduces the matrix at `+0x80` for **5342 of 5344 bones** across 250 models.
+
+The two exceptions are not errors. `B0021_00`'s `l_effect_01` and `r_effect_01`
+are **zero-scale** bones — their 3x3 block is all zeros, so the inverse is
+genuinely infinite, and the shipped file stores `inf`/`nan` there. The
+derivation and the data agree; the apparent mismatch was an artifact of
+comparing infinities. Any vertex weighted to such a bone yields NaN, which
+renders as scattered garbage rather than an obvious failure, so the host pins
+degenerate bones to identity.
+
+Bones are topologically sorted in every shipped model, so a single forward pass
+computes all world transforms.
+
+## Skinning
+
+The game's skinning vertex shader takes `uniform vec4 vJoint[80*3]` — three vec4
+per bone, the **rows** of a 3x4 matrix — and blends two bones with weights
+`(weight[0], 1 - weight[0])` indexed by `incidence.x` / `incidence.y`. Skin
+matrix is `world_animated * inv_world_bind`.
+
+### Control test
+
+With no animation the skin matrix collapses to `world_bind * inv_world_bind` =
+identity, so the skinned path must reproduce the unskinned render. It does:
+**71 differing bytes out of 2,074,320, max delta 1** — pure float rounding. That
+single comparison exercises bone parsing, world accumulation, the inverse bind
+matrix, the `vJoint` row layout and the two-bone blend at once; any of them wrong
+would scramble the model.
+
+Animation then plays correctly: `B0000_00_002_DASH` at frame 12 produces a
+coherent crouched dash pose. Rotation quaternions are stored **xyzw**.

@@ -6,6 +6,7 @@
 // cross-check for this code.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <stdexcept>
@@ -135,6 +136,18 @@ struct DrawRange {
     uint32_t byte_offset = 0;   // into the index buffer
 };
 
+// A 352-byte SiModelBone, used in place by the engine (CreateSkeleton passes the
+// file pointer straight to SiModelSkeleton::_SetBinary). Field offsets come from
+// SiModelBase::GetBoneName / GetBoneIDByName, which index at stride 0x160 and
+// read the name at +0x14C.
+struct Bone {
+    std::string name;
+    int32_t parent = -1;          // +0x144, -1 for root; always < own index
+    float local[16]{};            // +0x000 parent-relative bind transform
+    float inv_world[16]{};        // +0x080 inverse of the accumulated bind transform
+    bool degenerate = false;      // zero-scale bone: inv_world holds inf/nan
+};
+
 struct Model {
     std::vector<uint8_t> data;
     uint32_t bone_count = 0;
@@ -143,6 +156,7 @@ struct Model {
     std::vector<VertexAttribute> layout;
     std::vector<Material> materials;
     std::vector<DrawRange> draws;
+    std::vector<Bone> bones;
 
     std::span<const uint8_t> vertices() const {
         return {data.data() + vertex_offset, size_t(vertex_count) * vertex_stride};
@@ -154,5 +168,25 @@ struct Model {
 };
 
 Model ParseSmdl(std::vector<uint8_t> file);
+
+// ---------------------------------------------------------------------------
+// .smot skeletal animation (magic "Smot")
+// ---------------------------------------------------------------------------
+struct MotionTrack {
+    std::string name;
+    uint32_t flags = 0;
+    bool has_rotation = false, has_translation = false, has_scale = false;
+    std::vector<float> times;                  // one per key
+    std::vector<std::array<float, 4>> rot;     // empty if absent
+    std::vector<std::array<float, 4>> trans;
+};
+
+struct Motion {
+    std::vector<uint8_t> data;
+    float duration = 0;
+    std::vector<MotionTrack> tracks;
+};
+
+Motion ParseSmot(std::vector<uint8_t> file);
 
 }  // namespace mcf

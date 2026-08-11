@@ -28,6 +28,24 @@ constexpr const char* kVS =
     "void main() { gl_Position = mVP * position; colorVarying = color; "
     "texcoordVarying = texcoord0; }";
 
+// The game's skinning vertex shader, from .rodata. vJoint holds THREE vec4 per
+// bone -- the rows of a 3x4 matrix -- and the blend is two-bone with weights
+// (w, 1-w). Lighting terms are dropped here to match the simple fragment shader
+// above; the skinning math is verbatim.
+constexpr const char* kVSkin =
+    "attribute vec4 position; attribute vec2 texcoord0; attribute vec4 color; "
+    "attribute vec4 weight; attribute vec4 incidence; "
+    "varying vec2 texcoordVarying; varying vec4 colorVarying; "
+    "uniform mat4 mVP; uniform vec4 vJoint[ 80 * 3 ]; "
+    "vec3 SkinningPosition( in vec4 vPosition , int sJointID ) { vec3 vResult; "
+    "vResult.x = dot( vPosition , vJoint[ sJointID ] ); "
+    "vResult.y = dot( vPosition , vJoint[ sJointID + 1 ] ); "
+    "vResult.z = dot( vPosition , vJoint[ sJointID + 2 ] ); return vResult; } "
+    "void main() { vec4 vPosition = vec4( 0,0,0,1 ); "
+    "vPosition.xyz += SkinningPosition( position , int( incidence.x ) * 3 ) * (weight[0]); "
+    "vPosition.xyz += SkinningPosition( position , int( incidence.y ) * 3 ) * (1.0 - weight[0]); "
+    "texcoordVarying = texcoord0; colorVarying = color; gl_Position = mVP * vPosition; }";
+
 constexpr const char* kFS =
     "precision highp float; uniform sampler2D texture0; varying vec4 colorVarying; "
     "varying vec2 texcoordVarying; void main() { vec4 color = texture2D( texture0 , "
@@ -90,6 +108,24 @@ Mat4 LookAt(const float e[3], const float c[3], const float up[3]) {
     return r;
 }
 
+// Column-major 4x4, matching the file layout and GL.
+void MatMul(const float* a, const float* b, float* o) {
+    for (int c = 0; c < 4; ++c)
+        for (int r = 0; r < 4; ++r) {
+            float s = 0;
+            for (int k = 0; k < 4; ++k) s += a[k * 4 + r] * b[c * 4 + k];
+            o[c * 4 + r] = s;
+        }
+}
+
+void QuatTransToMat(const float q[4], const float t[3], float* o) {
+    float x = q[0], y = q[1], z = q[2], w = q[3];
+    o[0]  = 1 - 2 * (y * y + z * z); o[1]  = 2 * (x * y + z * w);     o[2]  = 2 * (x * z - y * w);     o[3]  = 0;
+    o[4]  = 2 * (x * y - z * w);     o[5]  = 1 - 2 * (x * x + z * z); o[6]  = 2 * (y * z + x * w);     o[7]  = 0;
+    o[8]  = 2 * (x * z + y * w);     o[9]  = 2 * (y * z - x * w);     o[10] = 1 - 2 * (x * x + y * y); o[11] = 0;
+    o[12] = t[0]; o[13] = t[1]; o[14] = t[2]; o[15] = 1;
+}
+
 GLuint Compile(GLenum kind, const char* src) {
     GLuint s = glCreateShader(kind);
     glShaderSource(s, 1, &src, nullptr);
@@ -113,12 +149,15 @@ int main(int argc, char** argv) {
 
     std::string archive = "scratch/raw/assets/sk1/sk1.mpk";
     std::string model = "B0000_00";
-    std::string shot;
+    std::string shot, anim;
+    float anim_t = 0.f;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
         else if (a == "--model" && i + 1 < argc) model = argv[++i];
         else if (a == "--screenshot" && i + 1 < argc) shot = argv[++i];
+        else if (a == "--anim" && i + 1 < argc) anim = argv[++i];
+        else if (a == "--time" && i + 1 < argc) anim_t = std::stof(argv[++i]);
         else if (a == "--help") {
             std::printf("usage: %s [--archive sk1.mpk] [--model NAME] "
                         "[--screenshot out.png]\n", argv[0]);
@@ -134,6 +173,18 @@ int main(int argc, char** argv) {
         lucent::info("assets", "{}: {} verts, {} indices ({}-bit), stride {}, {} bones",
                      model, mdl.vertex_count, mdl.index_count, mdl.index_size * 8,
                      mdl.vertex_stride, mdl.bone_count);
+
+        mcf::Motion motion;
+        bool have_anim = false;
+        if (!anim.empty()) {
+            motion = mcf::ParseSmot(ar.Read(std::format("sk1/{}.smot", anim)));
+            have_anim = true;
+            lucent::info("assets", "motion {}: {} tracks, {:.0f} frames", anim,
+                         motion.tracks.size(), motion.duration);
+            if (motion.tracks.size() != mdl.bones.size())
+                lucent::warn("assets", "motion has {} tracks but model has {} bones",
+                             motion.tracks.size(), mdl.bones.size());
+        }
 
         // Two texture paths. Characters ship a .stex holding their atlases
         // inline. Maps instead ship a .stexinfo NAME LIST, and each name
@@ -205,12 +256,15 @@ int main(int argc, char** argv) {
         lucent::info("host", "GL_VERSION  {}", (const char*)glGetString(GL_VERSION));
         lucent::info("host", "GL_RENDERER {}", (const char*)glGetString(GL_RENDERER));
 
+        const bool skinned = mdl.Find(mcf::VertexUsage::kWeight) != nullptr;
         GLuint prog = glCreateProgram();
-        glAttachShader(prog, Compile(GL_VERTEX_SHADER, kVS));
+        glAttachShader(prog, Compile(GL_VERTEX_SHADER, skinned ? kVSkin : kVS));
         glAttachShader(prog, Compile(GL_FRAGMENT_SHADER, kFS));
         glBindAttribLocation(prog, 0, "position");
         glBindAttribLocation(prog, 1, "color");
         glBindAttribLocation(prog, 2, "texcoord0");
+        glBindAttribLocation(prog, 3, "weight");
+        glBindAttribLocation(prog, 4, "incidence");
         glLinkProgram(prog);
         GLint linked = 0;
         glGetProgramiv(prog, GL_LINK_STATUS, &linked);
@@ -329,6 +383,56 @@ int main(int argc, char** argv) {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             glUseProgram(prog);
             glUniformMatrix4fv(glGetUniformLocation(prog, "mVP"), 1, GL_FALSE, vp.m);
+
+            if (skinned) {
+                // world = parent_world * local; skin = world * inv_bind_world.
+                // Bones are topologically sorted (parent index < own index) in
+                // every shipped model, so one forward pass suffices.
+                const size_t nb = mdl.bones.size();
+                std::vector<std::array<float, 16>> world(nb);
+                std::vector<float> joints(80 * 3 * 4, 0.f);
+                for (size_t bi = 0; bi < nb; ++bi) {
+                    const auto& bn = mdl.bones[bi];
+                    std::array<float, 16> local{};
+                    std::memcpy(local.data(), bn.local, 64);
+                    if (have_anim) {
+                        for (const auto& tr : motion.tracks) {
+                            if (tr.name != bn.name || tr.times.empty()) continue;
+                            size_t k = 0;
+                            while (k + 1 < tr.times.size() && tr.times[k + 1] <= anim_t) ++k;
+                            float t[3]{bn.local[12], bn.local[13], bn.local[14]};
+                            if (!tr.trans.empty())
+                                for (int j = 0; j < 3; ++j) t[j] = tr.trans[k][j];
+                            if (!tr.rot.empty())
+                                QuatTransToMat(tr.rot[k].data(), t, local.data());
+                            else { local[12] = t[0]; local[13] = t[1]; local[14] = t[2]; }
+                            break;
+                        }
+                    }
+                    if (bn.parent < 0) world[bi] = local;
+                    else MatMul(world[size_t(bn.parent)].data(), local.data(),
+                                world[bi].data());
+
+                    if (bi >= 80) continue;
+                    float skin[16];
+                    // A zero-scale bone has an infinite inverse bind matrix (the
+                    // shipped files literally store inf/nan). Feeding that to the
+                    // shader turns every vertex weighted to it into NaN, which
+                    // renders as scattered garbage rather than an obvious error,
+                    // so those bones are pinned to identity instead.
+                    if (bn.degenerate) {
+                        std::memset(skin, 0, sizeof skin);
+                        skin[0] = skin[5] = skin[10] = skin[15] = 1.f;
+                    } else {
+                        MatMul(world[bi].data(), bn.inv_world, skin);
+                    }
+                    // vJoint holds the three ROWS of the 3x4 skin matrix.
+                    for (int r = 0; r < 3; ++r)
+                        for (int c = 0; c < 4; ++c)
+                            joints[(bi * 3 + size_t(r)) * 4 + size_t(c)] = skin[c * 4 + r];
+                }
+                glUniform4fv(glGetUniformLocation(prog, "vJoint"), 80 * 3, joints.data());
+            }
             glUniform1i(glGetUniformLocation(prog, "texture0"), 0);
             glActiveTexture(GL_TEXTURE0);
 
@@ -345,6 +449,16 @@ int main(int argc, char** argv) {
             } else {
                 glDisableVertexAttribArray(1);
                 glVertexAttrib4f(1, 1, 1, 1, 1);
+            }
+            if (skinned) {
+                const auto* wa = mdl.Find(mcf::VertexUsage::kWeight);
+                const auto* ia = mdl.Find(mcf::VertexUsage::kIncidence);
+                glEnableVertexAttribArray(3);
+                glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride,
+                                      (void*)(uintptr_t)wa->offset);
+                glEnableVertexAttribArray(4);
+                glVertexAttribPointer(4, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride,
+                                      (void*)(uintptr_t)ia->offset);
             }
             if (ta) {
                 glEnableVertexAttribArray(2);

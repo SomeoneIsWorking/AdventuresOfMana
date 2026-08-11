@@ -3,6 +3,7 @@
 #include "mcf/mcf.h"
 
 #include <cstdio>
+#include <cmath>
 #include <cstring>
 #include <format>
 
@@ -265,6 +266,20 @@ Model ParseSmdl(std::vector<uint8_t> file) {
         throw Error(std::format("draw ranges cover {} indices, buffer holds {}",
                                 drawn, m.index_count));
 
+    // Skeleton: section 1, 352-byte SiModelBone records.
+    auto [bone_n, bone_off] = section(1);
+    for (uint32_t i = 0; i < bone_n; ++i) {
+        size_t d = size_t(bone_off) + size_t(i) * 352;
+        Bone bn;
+        bn.parent = RdS32(b, d + 0x144);
+        bn.name = RdCStr(b, size_t(str_off) + RdU32(b, d + 0x14C));
+        std::memcpy(bn.local, b.data() + d, 64);
+        std::memcpy(bn.inv_world, b.data() + d + 0x80, 64);
+        for (float v : bn.inv_world)
+            if (!std::isfinite(v)) { bn.degenerate = true; break; }
+        m.bones.push_back(std::move(bn));
+    }
+
     uint32_t declared_end = 0;
     for (uint32_t i = 0; i < decl_n; ++i) {
         size_t d = size_t(decl_off) + size_t(i) * 32;
@@ -277,6 +292,68 @@ Model ParseSmdl(std::vector<uint8_t> file) {
         throw Error(std::format("vertex declaration ends at {} but stride is {}",
                                 declared_end, m.vertex_stride));
     return m;
+}
+
+// ---------------------------------------------------------------------------
+// .smot
+// ---------------------------------------------------------------------------
+Motion ParseSmot(std::vector<uint8_t> file) {
+    Motion mo;
+    mo.data = std::move(file);
+    std::span<const uint8_t> b(mo.data);
+    if (b.size() < 0x28 || RdU32(b, 0) != 0x746F6D53 /* "Smot" */)
+        throw Error("not an Smot motion");
+
+    uint32_t count = RdU32(b, 8);
+    int32_t tbl = RdS32(b, 12);
+    std::memcpy(&mo.duration, b.data() + 0x1C, 4);
+    uint32_t total = RdU32(b, 0x20);
+    if (total != b.size())
+        throw Error(std::format("motion header size {} != file size {}", total, b.size()));
+
+    for (uint32_t i = 0; i < count; ++i) {
+        size_t e = size_t(tbl) + size_t(i) * 32;
+        uint32_t flags = RdU32(b, e);
+        uint32_t keys = RdU32(b, e + 4);
+        int32_t voff = RdS32(b, e + 8);
+        uint32_t vstride = RdU32(b, e + 12);
+        int32_t toff = RdS32(b, e + 16);
+
+        MotionTrack t;
+        t.name = RdCStr(b, RdU32(b, e + 20));
+        t.flags = flags;
+        t.has_rotation = flags & 4;
+        t.has_translation = flags & 2;
+        t.has_scale = flags & 8;
+
+        // One 16-byte channel per set bit of flags & 0b1110. Asserting the rule
+        // rather than whitelisting strides: a {16,32} whitelist silently missed
+        // the 48-byte (rotation+translation+scale) tracks in 142 files.
+        uint32_t want = 16 * unsigned(__builtin_popcount(flags & 0b1110));
+        if (vstride != want)
+            throw Error(std::format("track '{}': flags {:#x} imply stride {} but file "
+                                    "says {}", t.name, flags, want, vstride));
+        if (uint32_t(toff) + keys * 4 != uint32_t(voff))
+            throw Error(std::format("track '{}': time array does not abut values",
+                                    t.name));
+
+        t.times.resize(keys);
+        std::memcpy(t.times.data(), b.data() + toff, size_t(keys) * 4);
+        // Channels are stored in bit order: rotation, then translation, then scale.
+        uint32_t ch = 0;
+        auto grab = [&](std::vector<std::array<float, 4>>& dst, bool present) {
+            if (!present) return;
+            dst.resize(keys);
+            for (uint32_t k = 0; k < keys; ++k)
+                std::memcpy(dst[k].data(),
+                            b.data() + voff + size_t(k) * vstride + size_t(ch) * 16, 16);
+            ++ch;
+        };
+        grab(t.rot, t.has_rotation);
+        grab(t.trans, t.has_translation);
+        mo.tracks.push_back(std::move(t));
+    }
+    return mo;
 }
 
 }  // namespace mcf
