@@ -159,3 +159,80 @@ Structural consistency alone would not prove the positions are really positions,
 so `tools/asset/render_smdl.py` software-rasterizes a model to PNG. `B0000_00`
 (2433 verts, 3476 tris, 43 bones) renders as a coherent, correctly-wound boss
 model — see `scratch/png/B0000_00_model.png`.
+
+---
+
+# `.smot` skeletal animation (`Smot`) — REVERSED
+
+`SiModelMotion::SetBinary` copies the file verbatim and runs a single fixup pass,
+so motion data is consumed in place. That pass still pins the spine: it reads a
+track count at 0x08 and a table offset at 0x0C, walks 32-byte entries reading a
+name offset at +0x14, and ORs bit 5 into flags at +0x00 for every track whose
+name matches the wildcard `c_eye*`.
+
+## Header
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x00 | char[4] | `"Smot"` (never validated) |
+| 0x08 | u32 | track count — **equals the `.smdl` bone count** for the same character |
+| 0x0C | s32 | track table offset |
+| 0x1C | f32 | duration in frames |
+| 0x20 | u32 | total file size |
+| 0x24 | s32 | offset of name block |
+
+## Track entry — 32 bytes
+
+| Off | Type | Meaning |
+|-----|------|---------|
+| 0x00 | u32 | channel flag bitmask (below) |
+| 0x04 | u32 | key count |
+| 0x08 | s32 | offset of key **value** array (`count * stride`) |
+| 0x0C | u32 | value stride |
+| 0x10 | s32 | offset of key **time** array (`count * 4`), immediately preceding the values |
+| 0x14 | s32 | offset of NUL-terminated bone name |
+| 0x18 | s32 | offset of a 48-byte per-track record (3x4 bind matrix) |
+| 0x1C | u32 | unused in every shipped file |
+
+### Channel flags
+
+One 16-byte channel per set bit:
+
+| Bit | Value | Channel | Adds |
+|-----|-------|---------|------|
+| 2 | 4 | rotation (quaternion) | 16 B |
+| 1 | 2 | translation | 16 B |
+| 3 | 8 | scale | 16 B |
+| 4 | 16 | modifier — carries **no** data | 0 B |
+| 5 | 32 | set at load time for `c_eye*` bones; never in a file | 0 B |
+
+So `value_stride == 16 * popcount(flags & 0b1110)` — asserted, not assumed, and
+it holds for **all 60,803 tracks in all 1721 motions**. Observed combinations:
+`4, 6, 12, 14, 20, 22, 28`.
+
+## Verification
+
+`tools/asset/smot.py` parses **1721/1721 motions (60,803 tracks), 0 failures**,
+enforcing that time and value arrays abut, consecutive tracks tile with no gaps,
+the 48-byte records tile up to the name block, and `hdr[0x20]` equals the real
+file size.
+
+Structure alone would not prove the rotation channel holds quaternions, so that
+is checked semantically: over 394,248 rotation samples, **99.985% are unit
+length**, worst deviation 0.0079 (quantization). Bone names are plausible
+throughout (`cog`, `c_hip`, `l_tibia`, `l_foot`, `c_tail_a`).
+
+## OPEN: 98 non-monotonic time arrays
+
+98 of 60,803 tracks (0.161%), across **9** files (prefixes `E` enemy, `O` object,
+`W` weapon), have time arrays that restart rather than increase — e.g.
+`O0020_03_001/joint3` has 12 keys with times `[1,10,30,70]` repeated three times.
+
+This is **not** explained by per-channel sub-arrays: the tiling checks confirm the
+value array is `count * stride` bytes, so all 12 keys are real 32-byte entries,
+and 3 groups does not match that track's 2 channels either. The meaning is
+genuinely unknown — possibly multi-segment takes.
+
+It does not block anything (0.16% of tracks, all on non-player actors), but it is
+recorded rather than smoothed over, because a playback bug here would otherwise
+look like an animation blending problem rather than a parsing gap.

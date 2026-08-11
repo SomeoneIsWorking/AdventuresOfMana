@@ -24,7 +24,8 @@ The stock engine only; the 5play `libRMS.so` mod-menu injection is excluded from
 | MPK archive reader | **DONE — 9886/9886 extracted, validated** | `tools/asset/mpk.py`, `tools/asset/lha.py` |
 | Texture format (`.stex`/`SMDI`) | **DONE — 1319/1319 descriptors parse, image verified** | `tools/asset/stex.py` |
 | Model format (`.smdl`/`Smd3`) | **DONE — 1375/1375 parse, geometry rendered** | `tools/asset/smdl.py`, `render_smdl.py` |
-| Motion/collision formats | NOT STARTED — parsers located | `SiModelMotion::SetBinary`, `SiCollisionMesh::SetBinary` |
+| Motion format (`.smot`/`Smot`) | **DONE — 1721/1721 parse; quaternions verified. 98 of 60,803 time arrays unexplained** | `tools/asset/smot.py` |
+| Collision format (`.scol`/`SCol`) | NOT STARTED — parser located | `SiCollisionMesh::SetBinary` |
 | Engine reimplementation | NOT STARTED | `src/engine/` |
 | Desktop host (window/GL/audio/input) | NOT STARTED | `src/host/` |
 
@@ -36,8 +37,10 @@ The stock engine only; the 5play `libRMS.so` mod-menu injection is excluded from
   map scripts are UTF-8 — see `docs/assets.md`.
 - ~~`SMDI` texture layout?~~ **ANSWERED** — see `docs/assets.md`.
 - ~~`Smd3` model layout?~~ **ANSWERED** — see `docs/assets.md`.
-- `Smot` (motion) and `SCol` (collision) layouts. Parsers are
-  `SiModelMotion::SetBinary` and `SiCollisionMesh::SetBinary`; same method.
+- ~~`Smot` motion layout?~~ **ANSWERED** — see `docs/assets.md`.
+- `SCol` (collision) layout. Parser is `SiCollisionMesh::SetBinary`; same method.
+- **OPEN:** 98/60,803 motion time arrays are non-monotonic (9 files). Meaning
+  unknown; not per-channel sub-arrays. See `docs/assets.md`.
 - `.smdl` section slots 0, 3, 4, 5 (meshes / materials / draw ranges) are not
   yet identified — slot 6/7/8 were enough for geometry, but per-mesh material
   and texture binding still needs them.
