@@ -728,6 +728,119 @@ void PlayerStats::LevelUp(int regimen) {
     mp = max_mp();
 }
 
+// --- Inventory -------------------------------------------------------------
+// DataTableGetIdType @ 0x2c387c is six `sub`/`cmp`/`b.hs` pairs in a row, so
+// the ranges are transcribed exactly rather than derived from table sizes --
+// the weapon table's ids are 101..117 and 121 while this range is 101..118, and
+// both happen to have 18 members, which is precisely the coincidence that let
+// an earlier count-based check pass while being wrong.
+int Inventory::IdType(int32_t id) {
+    if (id >= 1   && id <= 37)  return 1;   // items, cmp #0x25 = 37
+    if (id >= 101 && id <= 118) return 2;   // weapons
+    if (id >= 201 && id <= 206) return 4;   // helms
+    if (id >= 301 && id <= 309) return 5;   // armour
+    if (id >= 401 && id <= 409) return 6;   // accessories
+    if (id >= 501 && id <= 508) return 7;   // magic
+    return 0;
+}
+
+int Inventory::BagOf(int32_t id) {
+    switch (IdType(id)) {
+        case 1:  return kItems;
+        case 2:  return kWeapons;
+        case 4: case 5: case 6: return kArmour;   // one shared bag
+        case 7:  return kMagic;
+        default: return -1;
+    }
+}
+
+Inventory::Slot* Inventory::bag(int b, int* n) {
+    switch (b) {
+        case kItems:   *n = kSlots;      return items;
+        case kWeapons: *n = kSlots;      return weapons;
+        case kArmour:  *n = kSlots;      return armour;
+        case kMagic:   *n = kMagicSlots; return magic;
+        default:       *n = 0;           return nullptr;
+    }
+}
+
+const Inventory::Slot* Inventory::bag(int b, int* n) const {
+    return const_cast<Inventory*>(this)->bag(b, n);
+}
+
+int32_t Inventory::Count(int32_t id) const {
+    int b = BagOf(id);
+    if (b < 0) return 0;
+    // Magic is not searched: IsHaveItem addresses it straight off the id with
+    // `add x8, x19, w20, sxtw #3` / `sub x8, x8, #0xc80`, which for id 501
+    // lands on GameParameter+0x328 -- the slot index is id - 501.
+    if (b == kMagic) return magic[id - kMagicFirstId].id ? 1 : 0;
+    int n = 0;
+    const Slot* s = bag(b, &n);
+    int32_t held = 0;
+    for (int i = 0; i < n; ++i)
+        if (s[i].id == id) ++held;
+    return held;
+}
+
+bool Inventory::Add(int32_t id, bool commit) {
+    int b = BagOf(id);
+    if (b < 0) {
+        lucent::warn("inv", "id {} is in no table, so it has no bag", id);
+        return false;
+    }
+    if (b == kMagic) {
+        Slot& m = magic[id - kMagicFirstId];
+        if (m.id) return false;
+        if (commit) { m.id = id; m.seq = seq_counter++; }
+        return true;
+    }
+    int n = 0;
+    Slot* s = bag(b, &n);
+    for (int i = 0; i < n; ++i) {
+        if (s[i].id) continue;              // first FREE slot; nothing stacks
+        if (commit) {
+            s[i].id = id;
+            s[i].seq = seq_counter++;
+            // `kind` is deliberately left 0. The engine writes
+            // DataTableGetItem(id)+0x4 here (zeroed when it is 1), but that
+            // field's MEANING is still open -- docs/re-frontier.md -- and its
+            // only consumer is the item-list UI the port does not have.
+            // Filling it with a number nobody can interpret would look like
+            // knowledge the project does not have.
+        }
+        return true;
+    }
+    return false;                            // bag full
+}
+
+bool Inventory::Del(int32_t id) {
+    int b = BagOf(id);
+    if (b < 0) return false;
+    if (b == kMagic) {
+        Slot& m = magic[id - kMagicFirstId];
+        if (!m.id) return false;
+        m = Slot{};
+        return true;
+    }
+    int n = 0;
+    Slot* s = bag(b, &n);
+    for (int i = 0; i < n; ++i) {
+        if (s[i].id != id) continue;
+        s[i] = Slot{};
+        return true;
+    }
+    return false;
+}
+
+void Inventory::NewGame() {
+    *this = Inventory{};
+    for (int32_t id : {kStartingWeaponId, kStartingHelmId,
+                       kStartingArmorId, kStartingAccessoryId})
+        if (!Add(id))
+            lucent::warn("inv", "new game could not grant id {}", id);
+}
+
 RoomSize FindRoomSize(const Archive& ar, const std::string& room) {
     RoomSize rs;
     // Best source: the room's own ground-attribute grid. Load_GroundAttribute @

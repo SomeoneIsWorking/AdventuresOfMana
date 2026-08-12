@@ -26,6 +26,10 @@ if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   ./build/mana --player-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --player-selftest >/dev/null 2>&1 || fail=1
 
+  echo "=== inventory self-test ==="
+  ./build/mana --inventory-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
+  ./build/mana --inventory-selftest >/dev/null 2>&1 || fail=1
+
   echo "=== text self-test ==="
   for l in en ja; do
     ./build/mana --text-selftest --lang "$l" 2>&1 | grep -E "SELFTEST:|sweep" || fail=1

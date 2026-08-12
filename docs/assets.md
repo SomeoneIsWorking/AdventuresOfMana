@@ -1471,6 +1471,77 @@ which is why an offset-ordered scan appears to restart: run 0 covers
 `0x30c874`..`0x30ce48` and run 1 `0x30cf04`..`0x30dbcc`. Both list the same
 fields in the same order.
 
-What is still unread is everything the save holds beyond this header -- the
-inventory, the map flags, the per-room enemy-dead bits (`ClearRoomEnemyDead`
+### How big the function actually is
+
+`_GameSaveAccess` runs `0x30c820`..`0x312cbc` -- **25,760 bytes**, 6,440
+instructions, with exactly one `ret` whose `add sp, sp, #0xe0` matches the
+prologue. That matters because the next symbol in the table is `0x313074`, far
+past the end, and disassembling "to the next symbol" is what previously produced
+a wrong claim about the field walk. The header above is the first 7 KB of it.
+
+Two things make a mechanical scan of this function untrustworthy, and both were
+hit before being caught:
+
+* **`x23` is not `oG` throughout.** It is loaded once at `0x30c864` and is `oG`
+  for the header walk, but at `0x30df30` it is reassigned (`add x23, x9, #0x1c8`)
+  and becomes a cursor into the inventory. Every `x23`-relative offset after that
+  address means something different.
+* **The buffer-growth paths reload `oG` into a second register** (`x12`) and call
+  `MemManagerRealloc` with `remaining + 0x1000`, so the walk resumes from a
+  different base. There are 101 such calls against 109 copy sites.
+
+### Inventory
+
+Immediately after the header -- `oG+0x1c8` **is** `GameParameter+0x168`, so the
+92-byte boundary is exactly where the inventory begins -- the save walks four
+bags that tile `GameParameter+0x168`..`+0x368` with no gaps:
+
+| bag | offset | stride | slots | holds | ends |
+|---|---|---|---|---|---|
+| items | `+0x168` | 12 | 16 | type 1, ids 1..37 | `0x228` |
+| weapons | `+0x228` | 8 | 16 | type 2, ids 101..118 | `0x2a8` |
+| armour | `+0x2a8` | 8 | 16 | types 4, 5 and 6 -- helms, armour and accessories **share one bag** | `0x328` |
+| magic | `+0x328` | 8 | 8 | type 7, ids 501..508 | `0x368` |
+
+Three independent functions agree, which is the reason to believe it:
+
+* `GameParameter::IsHaveItem` @ `0x2c5678` -- the compiler fully unrolled its
+  search, so the offsets it touches *enumerate* every slot.
+* `GameParameter::AddItem` @ `0x2c625c` -- unrolled the same way, over the same
+  offsets.
+* `_GameSaveAccess` itself -- walks bag 0 with `add x25, x25, #0xc` against
+  `cmp x25, #0xc0`, i.e. 16 records of 12 bytes, confirming stride and count
+  without reference to either accessor.
+
+Magic is not searched at all: `IsHaveItem` addresses it straight off the id with
+`add x8, x19, w20, sxtw #3` then `sub x8, x8, #0xc80`, which for id 501 lands on
+`+0x328` -- precisely where the armour bag ends. That the arithmetic and the
+tiling meet at the same address is the strongest single check on the whole
+layout.
+
+A slot is `{id, seq}` (plus a third word in bag 0). **Nothing stacks.** Neither
+the item path nor the equipment path compares the id being added against the ids
+already held -- both scan for the first slot whose id word is 0 and return false
+when all 16 are taken. The second word is the acquisition order, written from a
+monotonic counter at `GameParameter+0x368` that the write tail post-increments:
+
+```
+stp w20, w0, [x22]        slot->id = id;  slot->seq = *counter
+str w8,  [x19, #0x368]    *counter += 1
+```
+
+`GameParameter::SearchSlotGetCnt` @ `0x2c66f4` confirms the direction of use: it
+searches bag 0 for the slot whose *second* word equals its argument, which is how
+the item list walks the bag in pickup order.
+
+`AddItem`'s second parameter is a `bool`, not a count -- the symbol is
+`AddItemEib`. It gates the write, so `AddItem(id, false)` is a dry run, which is
+what `IsAddItem` @ `0x2cd8b0` uses; the global `AddItem` @ `0x2cd8e4` passes
+`true` and recomputes `GameParameter` as `oG+0x60`, confirming that offset again.
+
+Bag 0's third word is written as `DataTableGetItem(id)+0x4` forced to 0 when it
+equals 1 -- the item `kind`, whose meaning is still open, so the port models the
+field but does not fill it.
+
+Still unread: the map flags, the per-room enemy-dead bits (`ClearRoomEnemyDead`
 touches `+0x414`..`+0x438`) and the 8 KB block `Init` memsets at `+0x444`.

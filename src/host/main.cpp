@@ -223,6 +223,7 @@ int main(int argc, char** argv) {
     bool combat_selftest = false;
     bool text_selftest = false;
     bool player_selftest = false;
+    bool inventory_selftest = false;
     bool show_hud = true;
     int auto_levelup = -1;
     int grant_exp = 0;
@@ -258,6 +259,7 @@ int main(int argc, char** argv) {
         else if (a == "--combat-selftest") combat_selftest = true;
         else if (a == "--text-selftest") text_selftest = true;
         else if (a == "--player-selftest") player_selftest = true;
+        else if (a == "--inventory-selftest") inventory_selftest = true;
         else if (a == "--no-hud") show_hud = false;
         else if (a == "--auto-levelup" && i + 1 < argc) auto_levelup = std::atoi(argv[++i]);
         else if (a == "--grant-exp" && i + 1 < argc) grant_exp = std::atoi(argv[++i]);
@@ -301,6 +303,7 @@ int main(int argc, char** argv) {
                 "  --string ID         resolve a dialogue id in every language\n"
                 "  --show-string ID    open the message window on that line\n"
                 "  --combat-selftest / --audio-selftest / --text-selftest / --player-selftest\n"
+                "  --inventory-selftest\n"
                 "                                         self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
@@ -593,6 +596,101 @@ int main(int argc, char** argv) {
                 }
             }
             lucent::info("player", "SELFTEST: {} cases, {} failures", 22, bad);
+            return bad ? 1 : 0;
+        }
+
+        if (inventory_selftest) {
+            int bad = 0, ran = 0;
+            auto check = [&](const char* what, long got, long want) {
+                ++ran;
+                if (got != want) {
+                    lucent::error("inv", "SELFTEST FAIL: {} -> {} (want {})",
+                                  what, got, want);
+                    ++bad;
+                } else {
+                    lucent::info("inv", "  ok: {:<44} -> {}", what, got);
+                }
+            };
+
+            // DataTableGetIdType's six ranges, each tested on BOTH sides of
+            // both edges -- a range check that is only ever fed values inside
+            // the range cannot report a wrong bound.
+            struct T { int32_t id; int type; };
+            const T types[] = {
+                {0, 0}, {1, 1}, {37, 1}, {38, 0},
+                {100, 0}, {101, 2}, {118, 2}, {119, 0},
+                {200, 0}, {201, 4}, {206, 4}, {207, 0},
+                {300, 0}, {301, 5}, {309, 5}, {310, 0},
+                {400, 0}, {401, 6}, {409, 6}, {410, 0},
+                {500, 0}, {501, 7}, {508, 7}, {509, 0},
+            };
+            for (const auto& t : types) {
+                ++ran;
+                if (mcf::Inventory::IdType(t.id) != t.type) {
+                    lucent::error("inv", "SELFTEST FAIL: IdType({}) -> {} (want {})",
+                                  t.id, mcf::Inventory::IdType(t.id), t.type);
+                    ++bad;
+                }
+            }
+            lucent::info("inv", "  ok: {} id-type cases, both sides of every "
+                         "range edge", std::size(types));
+
+            {   // Init's four ids, and the bags they land in.
+                mcf::Inventory inv;
+                inv.NewGame();
+                check("new game holds weapon 101",  inv.Count(101), 1);
+                check("new game holds helm 201",    inv.Count(201), 1);
+                check("new game holds armour 301",  inv.Count(301), 1);
+                check("new game holds accessory 401", inv.Count(401), 1);
+                // The negative: it must NOT hold things it was never granted.
+                check("new game holds no item 1",   inv.Count(1), 0);
+                check("new game holds no magic 501", inv.Count(501), 0);
+                check("new game holds no weapon 102", inv.Count(102), 0);
+                // 201, 301 and 401 are types 4, 5 and 6 -- one SHARED bag, so
+                // three of NewGame's four grants occupy the same 16 slots.
+                check("helm/armour/accessory share a bag",
+                      mcf::Inventory::BagOf(201) == mcf::Inventory::BagOf(301) &&
+                      mcf::Inventory::BagOf(301) == mcf::Inventory::BagOf(401), 1);
+                check("weapons are a different bag",
+                      mcf::Inventory::BagOf(101) != mcf::Inventory::BagOf(201), 1);
+            }
+            {   // Nothing stacks: adding the same id twice takes two slots.
+                mcf::Inventory inv;
+                inv.Add(1); inv.Add(1); inv.Add(1);
+                check("three of item 1 occupy three slots", inv.Count(1), 3);
+                check("and the sequence keys are distinct",
+                      inv.items[0].seq != inv.items[1].seq &&
+                      inv.items[1].seq != inv.items[2].seq, 1);
+                check("sequence keys ascend with acquisition",
+                      inv.items[2].seq > inv.items[0].seq, 1);
+            }
+            {   // The bag fills and then REFUSES -- the failing case, which is
+                // the one a first-free-slot scan can get wrong.
+                mcf::Inventory inv;
+                int placed = 0;
+                for (int i = 0; i < 40; ++i) if (inv.Add(2)) ++placed;
+                check("item bag accepts exactly 16", placed, mcf::Inventory::kSlots);
+                check("and reports full afterwards", inv.Add(2), 0);
+                check("a free slot is reusable after a delete",
+                      inv.Del(2) && inv.Add(2), 1);
+            }
+            {   // Magic is direct-indexed, not searched, so an id maps to one
+                // fixed slot and cannot be held twice.
+                mcf::Inventory inv;
+                check("magic 505 is not held to begin with", inv.Count(505), 0);
+                check("granting magic 505 succeeds", inv.Add(505), 1);
+                check("magic 505 is now held", inv.Count(505), 1);
+                check("granting it twice fails", inv.Add(505), 0);
+                check("it landed on slot id-501", inv.magic[505 - 501].id, 505);
+                check("and disturbed no neighbour", inv.magic[3].id + inv.magic[5].id, 0);
+            }
+            {   // An id in no table has no bag, and must be refused rather than
+                // silently dropped into bag 0.
+                mcf::Inventory inv;
+                check("id 9999 is refused", inv.Add(9999), 0);
+                check("and nothing was stored", inv.items[0].id, 0);
+            }
+            lucent::info("inv", "SELFTEST: {} cases, {} failures", ran, bad);
             return bad ? 1 : 0;
         }
 

@@ -294,7 +294,9 @@ std::vector<EnemyStats> ParseEnemyDat(const std::vector<uint8_t>& file);
 struct WeaponStats { int32_t id, atk_lo, atk_hi; };
 const WeaponStats* FindWeapon(int32_t id);
 // VERIFIED, not assumed: GameParameter::Init @ 0x2c6d14 grants weapon 101
-// (`mov w1, #0x65` into AddItem with count 1), alongside 201, 301 and 401.
+// (`mov w1, #0x65` into AddItem), alongside 201, 301 and 401. The second
+// argument is `true`, not a count -- the symbol is AddItemEib, (int, bool), and
+// that bool gates the write rather than counting anything. Nothing stacks.
 constexpr int32_t kStartingWeaponId = 101;
 
 // ---------------------------------------------------------------------------
@@ -416,7 +418,7 @@ struct PlayerStats {
     int32_t hp = 19, mp = 6;                    // +0x114, +0x118
     int32_t exp = 0;                            // +0x12c, capped at 999999
     int32_t money = 50;                         // +0x134, capped at 65535
-    // The four equipment slots Init fills, each with AddItem(id, 1).
+    // The four equipment slots Init fills, each with AddItem(id, true).
     int32_t weapon = 101, helm = 201, armor = 301, accessory = 401;
 
     // Update recomputes these every frame; they are not stored state.
@@ -470,6 +472,105 @@ struct PlayerStats {
 };
 
 // ---------------------------------------------------------------------------
+// Inventory. Four fixed-size bags living inside GameParameter, which is at
+// oG+0x60, so the save's first post-header field oG+0x1c8 IS bag 0 -- the
+// 92-byte header ends exactly where the inventory begins.
+//
+// The layout is read out of two functions that must agree, and do:
+//
+//   GameParameter::IsHaveItem @ 0x2c5678 -- the compiler fully unrolled its
+//   search, so the bases it touches enumerate every slot: +0x168 stride 12
+//   sixteen times, then +0x228 stride 8 sixteen times, then +0x2a8 stride 8
+//   sixteen times.
+//
+//   _GameSaveAccess @ 0x30c820 -- walks bag 0 with `add x25, x25, #0xc` and
+//   `cmp x25, #0xc0`, i.e. 16 records of 12 bytes, independently confirming
+//   both the stride and the count.
+//
+// The bag a given id goes in is chosen by DataTableGetIdType @ 0x2c387c:
+//
+//     type 1  ids   1..37    kItem        bag 0
+//     type 2  ids 101..118   kWeapon      bag 1
+//     type 4  ids 201..206   kHelm    \
+//     type 5  ids 301..309   kArmor    >  bag 2, shared
+//     type 6  ids 401..409   kAccessory /
+//     type 7  ids 501..508   kMagic       bag 3, direct-indexed
+//     type 3 never occurs and type 0 is "no table".
+//
+// Bags 0..2 are searched linearly by id; bag 3 is not searched at all, because
+// magic is addressed straight off the id -- `add x8, x19, w20, sxtw #3` then
+// `sub x8, x8, #0xc80`, which for id 501 lands on +0x328, exactly where bag 2
+// ends. The four bags tile GameParameter+0x168..+0x368 with no gaps, and that
+// closure is the strongest evidence the entry counts are right.
+//
+// A slot's first word is the id, and 0 means empty. The second word is NOT a
+// quantity: AddItem's write tail does
+//
+//     stp w20, w0, [x22]          slot->id = id;  slot->seq = *counter
+//     str w8,  [x19, #0x368]      *counter += 1
+//
+// so it is the ACQUISITION ORDER, taken from a monotonic counter that lives at
+// GameParameter+0x368 -- immediately after the magic bag, closing the region.
+// GameParameter::SearchSlotGetCnt @ 0x2c66f4 confirms the direction of use: it
+// searches bag 0 for the slot whose SECOND word equals its argument, which is
+// how the item list walks the bag in pickup order.
+//
+// Nothing stacks. AddItem takes the first slot whose id is 0 and fails when all
+// 16 are taken -- neither the item path nor the equipment path compares the id
+// being added against the ids already held. Its `bool` parameter gates the
+// write, so AddItem(id, false) is a dry run; that is what IsAddItem @ 0x2cd8b0
+// uses, while the global AddItem @ 0x2cd8e4 passes true (and, incidentally,
+// recomputes GameParameter as oG+0x60, confirming that offset a third time).
+//
+// Bag 0's third word is written as DataTableGetItem(id)+0x4, forced to 0 when
+// that value is 1. tblItem+0x4 is the item's kind, whose meaning is still open
+// -- see docs/re-frontier.md.
+//
+// NOT REVERSED: how DelItem renumbers the sequence keys of the slots after the
+// one it clears, and whether the counter at +0x368 starts at 0 or 1.
+// ---------------------------------------------------------------------------
+struct Inventory {
+    enum Bag { kItems = 0, kWeapons = 1, kArmour = 2, kMagic = 3, kBagCount = 4 };
+    static constexpr int kSlots = 16;          // bags 0..2
+    static constexpr int kMagicSlots = 8;      // ids 501..508
+    static constexpr int32_t kMagicFirstId = 501;
+
+    struct Slot {
+        int32_t id = 0;      // +0x0, 0 = empty
+        int32_t seq = 0;     // +0x4, acquisition order
+        int32_t kind = 0;    // +0x8, bag 0 only
+    };
+
+    Slot items[kSlots];
+    Slot weapons[kSlots];
+    Slot armour[kSlots];
+    Slot magic[kMagicSlots];
+    int32_t seq_counter = 0;   // GameParameter+0x368
+
+    // DataTableGetIdType @ 0x2c387c, verbatim. 0 means "in no table".
+    static int IdType(int32_t id);
+    // Which bag an id belongs in, or -1 if none. Types 4, 5 and 6 share bag 2.
+    static int BagOf(int32_t id);
+
+    Slot* bag(int b, int* n);
+    const Slot* bag(int b, int* n) const;
+
+    // Slots holding this id. Nothing stacks, so this is a slot count.
+    int32_t Count(int32_t id) const;
+    bool Has(int32_t id) const { return Count(id) > 0; }
+    // GameParameter::AddItem @ 0x2c625c. First free slot; false when the bag is
+    // full. `commit == false` is the dry run IsAddItem uses.
+    bool Add(int32_t id, bool commit = true);
+    // Clears the first slot holding this id. False when none does.
+    bool Del(int32_t id);
+
+    // GameParameter::Init @ 0x2c6d14: a new game is granted 101, 201, 301 and
+    // 401 -- the same four ids PlayerStats starts equipped with, because being
+    // equipped IS holding them.
+    void NewGame();
+};
+
+// ---------------------------------------------------------------------------
 // Damage. AppCharacterEnemy::Damage @ 0x2b2b00 computes it in one run of
 // arithmetic at 0x2b3418..0x2b34a0. See docs/assets.md.
 //
@@ -505,5 +606,9 @@ int32_t EquipDefence(int32_t id);
 // The other two ids GameParameter::Init grants a new game (AddItem 0xc9, 0x12d).
 constexpr int32_t kStartingHelmId = 201;
 constexpr int32_t kStartingArmorId = 301;
+// The fourth, completing Init's set. It is an accessory (type 6) by
+// DataTableGetIdType's ranges, and carries no defence -- EquipDefence covers
+// helms and armour only.
+constexpr int32_t kStartingAccessoryId = 401;
 
 }  // namespace mcf
