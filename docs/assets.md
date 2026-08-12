@@ -1369,28 +1369,66 @@ type), `cmp w8, #0x1a` with `b.hi` to the mode switch, then a jump table at
 `.rodata` `0x9dfb0` with branch base `0x2a8ea8` — so cases 0..26, 27 distinct
 handlers, and an out-of-range type falls through to the mode switch unchanged.
 
-**The AI type does NOT map statically to a mode.** An extraction that followed
-each handler's fall-through path reported a tidy 27/27 answer, with 13 types
-"setting mode 6". That result is an artifact and is not published as a table: an
-audit counting conditional branches on each traced path shows **24 of the 27
-cross at least one** before reaching the store, so the trace picked one path out
-of several. Seven of the supposed mode-6 types converge on a single store at
-`0x2a9580`, which is the shape of a shared tail, not of seven agreeing cases.
+**The AI type does not map statically to a mode**, and the 27 handlers fall into
+two shapes. Four are unconditional; the other 23 share one template.
 
-Only three handlers reach their mode store with no conditional on the way, and
-only those are safe to state:
+*The simple four* set a mode outright:
 
-| AI type | enemies | mode | store |
-|---|---|---|---|
-| 0 | 59 | 1 | `0x2a8eac` |
-| 1 | 3 | 2 | `0x2a9170` |
-| 4 | 1 | 0 | `0x2a8f74` |
+| type | enemies | mode |
+|---|---|---|
+| 0 | 59 | 1 |
+| 1 | 3 | 2 |
+| 2 | 8 | 0 when the state is 0, else another path |
+| 4 | 1 | 0, and clears the state |
 
-The 27 handlers write the mode through only **14 distinct store sites**, which is
-why per-case reading is required: the cases share tails, and a scanner that stops
-at the first store it reaches will attribute a shared tail's value to a case that
-never takes that path. This is the same failure that produced a three-state
-machine earlier, and the conditional-branch count is what exposed it both times.
+*The other 23* run one idiom, parameterised three ways — the `+0xc7b` byte, the
+mode on a failed roll, and the mode on a passed roll:
+
+```
++0xc7b := 0 or 1                       per type
+if (state == 0)                 -> mode 0            tail 0x2a9534
+else if (GameRandom(100) >= prob) -> mode 1 or 2     tails 0x2a953c / 0x2a94c0
+else                            -> a per-type mode
+```
+
+with `prob` = `rec[+0x88]` = enemy `+0xe8`.
+
+| type | fail | pass | | type | fail | pass |
+|---|---|---|---|---|---|---|
+| 3 | 1 | 3 | | 15 | 2 | 9 |
+| 5 | 1 | 4 | | 16 | 2 | *unresolved* |
+| 6 | 2 | 5 | | 17 | 1 | 10 |
+| 7 | 1 | 6 | | 18 | 2 | 10 |
+| 8 | 1 | 6 | | 19 | 2 | *unresolved* |
+| 9 | 2 | 7 | | 20 | 2 | *unresolved* |
+| 10 | 2 | *unresolved* | | 21 | 2 | 11 |
+| 11 | 1 | 8 | | 22 | 2 | 10 |
+| 12 | 2 | 8 | | 23 | 2 | 10 |
+| 13 | 1 | 5 | | 24 | 2 | *unresolved* |
+| 14 | *unresolved* | *unresolved* | | 25 | 1 | 9 |
+| | | | | 26 | 1 | 5 |
+
+**20 of 27 fully resolved; 7 are not, and are marked rather than filled in.**
+
+This table cost four wrong extractions, each of which looked complete:
+
+1. a fall-through trace gave a tidy 27/27 with "13 types setting mode 6" —
+   refused because 24 of 27 crossed a conditional first;
+2. a template matcher then reported 27/27 conformance, including type 0 whose
+   handler is three instructions with no roll at all — its window **bled into
+   the next handler**, since the handlers are adjacent;
+3. bounding each block at the next handler start fixed that, but the pass mode
+   for type 9 came out 6 against a hand-read 7;
+4. because `0x2a93b4` is a **shared store entered with the value preloaded** —
+   type 9 does `mov w8, #7; b 0x2a93b4`. Tracing the store's register
+   *backwards* reads whichever `mov` physically precedes it, which belongs to
+   another path entirely.
+
+The fix was to simulate the register **forward** along the actual path. That
+version agrees with all seven hand-read cases and says "value not seen on this
+path" for six others instead of guessing. So mode 6 is the pass mode for types
+7 and 8 only; the original "13 types" was entirely an artifact of the shared
+tail.
 
 Four cases read instruction by instruction:
 
