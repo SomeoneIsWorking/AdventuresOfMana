@@ -1712,12 +1712,48 @@ not falsify the reading.
 So the cycle is **idle (state 0) / move (state 1) / chase (state 2) / space
 (state 3)**, at roughly 45 / 30 / 16 / 9 percent of the time.
 
-**The port's deficiency, named:** it holds an enemy still in every state but 2,
-so it idles for state 1's ~30% instead of wandering. That is not laziness about
-state 1 — the port has exactly one kind of movement, straight at the player, and
-a wander needs a destination the engine picks per MODE in code that is not read.
-Faking a direction would be an invention of exactly the sort this file keeps
-having to retract. It stays idle and is recorded here.
+#### State 1's wander, and what `s10` is
+
+`0x2aa624` is the destination picker, and it is short enough to state exactly:
+
+```
+for (tries = 126; tries; --tries) {
+    tc = col - 4 + GameRandom(9)          // +-4 columns
+    tr = row - 3 + GameRandom(7)          // +-3 rows
+    dist = sqrt((col-tc)^2 + (row-tr)^2)  // in CHIPS
+    if (dist > s10) continue
+    if (blocked(tc, tr)) continue                      // 0x2abad0
+    if (!_MakeRouteTable(col, row, tc, tr)) continue   // must be REACHABLE
+    target = RoomLocalToWorld((tc + 0.5) * 30, (tr + 0.5) * 30)
+}
+```
+
+**So `s10` is a wander radius in chips** — the per-mode 4.0 / 5.0 / 6.0 recorded
+earlier. It is named now because the code uses it as a distance against a
+`sqrt` of chip deltas, not because it looked like a radius.
+
+The `fcmp`/`fccmp` pair at `0x2aa670` reads as "reject when `dist >= s11` and
+`dist > s10`", but since `s11` = 2.0 and `s10` >= 4.0 the first term can never
+be the binding one, so the gate is simply `dist <= s10`. `s11`'s role here is
+inert.
+
+The port implements this: the same +-4 x +-3 window, the same 126 attempts, and
+the chip CENTRE as the destination. Two documented departures:
+
+- **The radius is not applied.** The widest candidate in a +-4 x +-3 window is
+  `sqrt(16+9)` = 5 chips, so the gate can only reject anything when `s10` is 4,
+  and then only the far corners. The port has no mode word to source `s10` from,
+  so it is left out rather than guessed.
+- **Reachability is weaker.** The engine requires `_MakeRouteTable` to find a
+  route; the port only requires the destination chip to be on the floor, so it
+  cannot see a wall between here and there.
+
+The effect is not subtle. In `M0000_03_06` with four WERE_WOLF, standing still
+outside the chase state gave **0 landed hits** and a closest approach of 30
+units. With the wander, the same run gives **115 landed hits**, the player takes
+924 damage over 28 hits and dies, and the closest approach is 2.1 units. Enemies
+were idle 84% of the time; now they are idle 55%, which is what the state
+occupancies say they should be.
 
 An earlier version of this section said states 0 and 1 "only roll a duration".
 That was wrong about state 1, which moves.

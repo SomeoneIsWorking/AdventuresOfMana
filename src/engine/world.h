@@ -126,6 +126,12 @@ struct Actor {
     float ai_timer = -1.f;
     mcf::EnemyStats::AiMachine ai[2];
     bool has_ai = false;
+    // State 1's wander destination, in ROOM-LOCAL units, and whether one is
+    // held. UpdateAI @ 0x2aa624 picks a chip within +-4 columns and +-3 rows,
+    // rejects it unless it is reachable, and aims at the chip CENTRE --
+    // (chip + 0.5) * 30. See docs/assets.md.
+    float wander[2]{0, 0};
+    bool  has_wander = false;
     // Attack volumes hit every frame they overlap. The engine applies a hit
     // once per swing, so each swing gets an id and a target is only damaged
     // once per id. Without this a 24-frame swing dealt damage 24 times.

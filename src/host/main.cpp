@@ -2910,11 +2910,13 @@ int main(int argc, char** argv) {
                             if (sum >= 1)
                                 a.ai_state = mcf::NextAiState(m, a.ai_state,
                                                               game_random(sum));
-                            if (a.ai_state != prev_state)
+                            if (a.ai_state != prev_state) {
                                 lucent::debug("ai", "{} (id {}) state {} -> {} "
                                               "after its timer ran out",
                                               a.handle, a.type_id, prev_state,
                                               a.ai_state);
+                                a.has_wander = false;   // re-pick on re-entry
+                            }
                             const auto& now = m.state[a.ai_state];
                             a.ai_timer = float(now.base) +
                                          (now.range > 0 ? float(game_random(now.range)) : 0.f);
@@ -2946,19 +2948,72 @@ int main(int argc, char** argv) {
                         //     vector (`movi v0.2d, #0`) and forces the idle
                         //     motion -- 0 normally, 15 on floor type 1. The
                         //     kMotionWait below matches it.
-                        //   state 1 @ 0x2a9ef0  MOVES. After a countdown at
-                        //     +0x38fc it converts the actor's position to chip
-                        //     coordinates and branches on the MODE for a
-                        //     mode-specific move. This port does NOT do that:
-                        //     it has only one kind of motion, straight at the
-                        //     player, and a wander with no destination cannot be
-                        //     faked from that without inventing a direction. So
-                        //     enemies stand still for state 1's ~30% instead of
-                        //     wandering. Named here rather than left as a
-                        //     surprise; see docs/re-frontier.md.
+                        //   state 1 @ 0x2a9ef0  WANDERS -- implemented below.
                         //   state 3 @ 0x2a9700  calls UpdateAI_TargetPos, which
                         //     SearchNears type 4 -- other ENEMIES -- so it is
-                        //     spacing, not chase.
+                        //     spacing, not chase. Not implemented; idles.
+                        if (a.ai_state == 1) {
+                            // The wander destination picker, from 0x2aa624.
+                            // The engine works in CHIPS: it takes the actor's
+                            // chip, offers a candidate in [-4, +4] columns and
+                            // [-3, +3] rows, and retries up to 126 times until
+                            // one is close enough and reachable. The accepted
+                            // chip's CENTRE -- (chip + 0.5) * 30 -- becomes the
+                            // target.
+                            //
+                            // The engine's distance gate is `dist <= s10`, a
+                            // per-mode radius of 4, 5 or 6 chips. This port has
+                            // no mode word, but the gate is mostly inert: the
+                            // widest candidate in a +-4 x +-3 window is
+                            // sqrt(16+9) = 5 chips, so it can only ever reject
+                            // anything when s10 is 4, and then only the far
+                            // corners. It is left out rather than guessed at,
+                            // and this comment is the record of that.
+                            //
+                            // Reachability: the engine calls _MakeRouteTable and
+                            // requires a route. The port has no route table, so
+                            // it requires the destination to be on the floor --
+                            // weaker (it cannot see a wall between here and
+                            // there), and marked as the approximation it is.
+                            if (!a.has_wander) {
+                                constexpr float kChip = 30.f;   // the game's spatial unit
+                                const float cc = std::floor(a.pos[0] / kChip);
+                                const float cr = std::floor(a.pos[2] / kChip);
+                                for (int tries = 0; tries < 126; ++tries) {
+                                    float tc = cc - 4.f + float(game_random(9));
+                                    float tr = cr - 3.f + float(game_random(7));
+                                    float lx = (tc + 0.5f) * kChip;
+                                    float lz = (tr + 0.5f) * kChip;
+                                    float g = 0.f;
+                                    if (have_col &&
+                                        !col.GetFloor(lx + room_org[0], lz + room_org[2],
+                                                      mcf::Collision::kFloorMask, &g))
+                                        continue;
+                                    a.wander[0] = lx;
+                                    a.wander[1] = lz;
+                                    a.has_wander = true;
+                                    break;
+                                }
+                                if (!a.has_wander)
+                                    lucent::debug("ai", "{} found no reachable "
+                                                  "wander chip in 126 tries",
+                                                  a.handle);
+                            }
+                            if (a.has_wander) {
+                                float wx = a.wander[0] - a.pos[0];
+                                float wz = a.wander[1] - a.pos[2];
+                                float wd = std::sqrt(wx * wx + wz * wz);
+                                if (wd < 2.f) { a.has_wander = false; }
+                                else {
+                                    float st = a.move_speed * dt;
+                                    a.pos[0] += wx / wd * st;
+                                    a.pos[2] += wz / wd * st;
+                                    a.rot_y = std::atan2(wx, wz);
+                                    a.motion = kMotionWalk;
+                                }
+                            }
+                            continue;
+                        }
                         if (a.ai_state != 2) { a.motion = kMotionWait; continue; }
                     }
                     float step = a.move_speed * dt;
