@@ -223,6 +223,7 @@ int main(int argc, char** argv) {
     bool combat_selftest = false;
     bool text_selftest = false;
     bool player_selftest = false;
+    bool show_hud = true;
     bool auto_attack = false;
     int warmup = 0;
     bool fixed_step = false;
@@ -255,6 +256,7 @@ int main(int argc, char** argv) {
         else if (a == "--combat-selftest") combat_selftest = true;
         else if (a == "--text-selftest") text_selftest = true;
         else if (a == "--player-selftest") player_selftest = true;
+        else if (a == "--no-hud") show_hud = false;
         else if (a == "--auto-attack") auto_attack = true;
         // --warmup implies --fixed-step: see the loop, a frame count on an
         // uncapped loop is not a duration.
@@ -299,7 +301,8 @@ int main(int argc, char** argv) {
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
                 "  --auto-advance      dismiss dialogue automatically (headless)\n"
-                "  --auto-talk         talk to any NPC in reach (headless)\n",
+                "  --auto-talk         talk to any NPC in reach (headless)\n"
+                "  --no-hud            hide the status readout\n",
                 argv[0], kDefaultRoom, archive.c_str());
             return 0;
         }
@@ -2217,6 +2220,114 @@ int main(int argc, char** argv) {
                                      "be blank or partial", printable - drawable,
                                      printable);
                 }
+                // Status HUD. The player has HP, MP, GP and EXP now, and no
+                // way to see any of them. Labels come from the game's own
+                // string table (SYS_COMMON_STATUS_LABEL_*), so this reads in
+                // whichever language is loaded rather than in invented English.
+                // PORT CHOICE: the layout. ModeGame::Draw_StatusData draws the
+                // real one and is not reversed, so this is a plain corner
+                // readout, not a fake of the game's UI.
+                if (fontTex && show_hud) {
+                    const float kScale = 2.f;
+                    const float kMargin = 16.f;
+                    auto label = [&](const char* id, const char* fallback) {
+                        const std::string* t = strings.Find(id);
+                        return t ? *t : std::string(fallback);
+                    };
+                    std::vector<std::string> rows{
+                        std::format("{} {:>3}/{:<3}  {} {:>2}/{:<2}",
+                                    label("SYS_COMMON_STATUS_LABEL_4", "HP"),
+                                    ps.hp, ps.max_hp(),
+                                    label("SYS_COMMON_STATUS_LABEL_5", "MP"),
+                                    ps.mp, ps.max_mp()),
+                        std::format("{} {:<5}  {} {}/{}",
+                                    label("SYS_COMMON_STATUS_LABEL_6", "GP"), ps.money,
+                                    label("SYS_COMMON_STATUS_LABEL_7", "EXP"),
+                                    ps.exp, ps.next_exp()),
+                        std::format("{} {:<3} {} {:<3} {} {}",
+                                    label("SYS_COMMON_STATUS_LABEL_8", "ATK"), ps.attack(),
+                                    label("SYS_COMMON_STATUS_LABEL_9", "DEF"), ps.defence(),
+                                    label("SYS_COMMON_STATUS_LABEL_1", "Lv"), ps.level),
+                    };
+                    std::vector<float> verts;
+                    auto push = [&](float x0, float y0, float x1, float y1,
+                                    float u0, float v0, float u1, float v1) {
+                        auto sx = [&](float px) { return px / float(W) * 2.f - 1.f; };
+                        auto sy = [&](float py) { return 1.f - py / float(H) * 2.f; };
+                        float q[6][4] = {{sx(x0), sy(y0), u0, v0}, {sx(x1), sy(y0), u1, v0},
+                                         {sx(x1), sy(y1), u1, v1}, {sx(x0), sy(y0), u0, v0},
+                                         {sx(x1), sy(y1), u1, v1}, {sx(x0), sy(y1), u0, v1}};
+                        for (auto& v : q) verts.insert(verts.end(), v, v + 4);
+                    };
+                    glUseProgram(progText);
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    glDisable(GL_DEPTH_TEST);
+                    glActiveTexture(GL_TEXTURE0);
+                    glBindTexture(GL_TEXTURE_2D, fontTex);
+                    glUniform1i(glGetUniformLocation(progText, "tex"), 0);
+                    GLint uTint = glGetUniformLocation(progText, "tint");
+                    GLint uUse = glGetUniformLocation(progText, "useTex");
+                    auto flush = [&](float r, float g, float b, float a, float useTex) {
+                        if (verts.empty()) return;
+                        glUniform4f(uTint, r, g, b, a);
+                        glUniform1f(uUse, useTex);
+                        glBindBuffer(GL_ARRAY_BUFFER, textVbo);
+                        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(verts.size() * 4),
+                                     verts.data(), GL_STREAM_DRAW);
+                        glEnableVertexAttribArray(0);
+                        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, nullptr);
+                        glEnableVertexAttribArray(1);
+                        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16,
+                                              (void*)(uintptr_t)8);
+                        glDrawArrays(GL_TRIANGLES, 0, GLsizei(verts.size() / 4));
+                        glDisableVertexAttribArray(1);
+                        verts.clear();
+                    };
+                    float lineH = 11.f * kScale;
+                    float widest = 0.f;
+                    for (const auto& r : rows) {
+                        float w = 0.f;
+                        for (unsigned char ch : r)
+                            if (const mcf::Glyph* g = font.Find(ch))
+                                w += float(g->Advance()) * kScale;
+                        widest = std::max(widest, w);
+                    }
+                    float boxW = widest + 16.f, boxH = lineH * float(rows.size()) + 12.f;
+                    push(kMargin, kMargin, kMargin + boxW, kMargin + boxH, 0, 0, 1, 1);
+                    flush(0.05f, 0.07f, 0.18f, 0.72f, 0.f);
+                    // A red bar behind the HP row when the pool is low, so the
+                    // one number that can end the run is not just small text.
+                    if (ps.max_hp() > 0 && ps.hp * 4 <= ps.max_hp()) {
+                        push(kMargin, kMargin + 4.f, kMargin + boxW, kMargin + 4.f + lineH,
+                             0, 0, 1, 1);
+                        flush(0.6f, 0.1f, 0.1f, 0.8f, 0.f);
+                    }
+                    float aw = float(font.width()), ah = float(font.height());
+                    float ty = kMargin + 6.f;
+                    for (const auto& row : rows) {
+                        float tx = kMargin + 8.f;
+                        for (unsigned char ch : row) {
+                            const mcf::Glyph* g = font.Find(ch);
+                            if (!g) continue;
+                            if (g->w && g->h) {
+                                float gx = tx + float(g->left) * kScale;
+                                float gy = ty + float(g->top) * kScale;
+                                push(gx, gy, gx + float(g->w) * kScale,
+                                     gy + float(g->h) * kScale,
+                                     float(g->x) / aw, float(g->y) / ah,
+                                     float(g->x + g->w) / aw, float(g->y + g->h) / ah);
+                            }
+                            tx += float(g->Advance()) * kScale;
+                        }
+                        ty += lineH;
+                    }
+                    flush(1.f, 1.f, 1.f, 1.f, 1.f);
+                    glDisableVertexAttribArray(0);
+                    glEnable(GL_DEPTH_TEST);
+                    glDisable(GL_BLEND);
+                }
+
                 if (fontTex && !sc.last_message.empty()) {
                     const float kScale = 2.f;         // the atlas is 128x128, 9px caps
                     const int kPadX = 14, kPadY = 10;
