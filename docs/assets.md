@@ -1380,3 +1380,23 @@ which walks an enemy into the player and holds it there.
 
 The next step is the mode switch at `0x2a95b4`, not more case bodies: 59 of the
 107 enemies are type 0, and type 0 is one line.
+
+
+## Game over
+
+`ModeGame::Process_GameOver` @ `0x2de964` is a three-step state machine on a
+counter at `ModeGame+0xc160`:
+
+1. `GameBgmPlay(3)`, then `SYS_GAMEOVER_MSG` through `GetStringResource` ->
+   `CnvFormatString` -> `SetMessageWindow`. The Japanese line is
+   `"@H　は　力尽きた…"`, so without the control-code expansion it cannot even
+   name the player.
+2. once the message window has closed:
+   `SetDispFade(EFADETYPE 1, 800 ms, 0, 0, 0)` -- fade to black.
+3. once the fade is done: `SetNextMode(5)`.
+
+The port does all of it except step 3's destination: it has no mode system and
+no title screen, so it ends the run and says so rather than inventing a screen.
+Verified in both languages -- "You fall to the ground..." and
+"ヒーロー　は　力尽きた…", the latter with `@H` expanded from the default hero
+name.

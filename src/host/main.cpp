@@ -1687,6 +1687,9 @@ int main(int argc, char** argv) {
             float player_iframes = 0.f;
             long player_damage_taken = 0, player_hits = 0;
             bool player_dead = false;
+            // ModeGame::Process_GameOver's own three steps: 1 show the message,
+            // 2 fade out over 800 ms once it is dismissed, 3 leave the mode.
+            int game_over_state = 0;
             bool level_up_announced = false;
             // GameRandom @ 0x3da480 is NOT reversed, so this is a stand-in with
             // the same range contract, seeded fixed so a headless run is
@@ -1996,6 +1999,25 @@ int main(int argc, char** argv) {
                     a.motion = kMotionWalk;
                 }
 
+                // Game over, steps 2 and 3. The engine fades for 800 ms
+                // (SetDispFade(1, 0x320, 0, 0, 0)) once the message is gone,
+                // then SetNextMode(5). The port has no mode system and no title
+                // screen, so step 3 ends the run and says exactly that instead
+                // of inventing a screen.
+                if (game_over_state == 1 && !sc.message_pending) {
+                    game_over_state = 2;
+                    world.fade.kind = 1;
+                    world.fade.duration_ms = 800;
+                    world.fade.remaining_ms = 800;
+                    world.fade.colour[0] = world.fade.colour[1] = world.fade.colour[2] = 0;
+                } else if (game_over_state == 2 && world.fade.remaining_ms <= 0.f) {
+                    game_over_state = 3;
+                    lucent::info("world", "game over: the engine would "
+                                 "SetNextMode(5) here, which is a mode this port "
+                                 "does not have; ending the run");
+                    running = false;
+                }
+
                 t += dt * 30.f;      // motions are keyed in frames at 30fps
                 if (!fade_test) world.fade.Tick(dt * 1000.f);
                 sc.ResumeCoroutines();
@@ -2113,16 +2135,28 @@ int main(int argc, char** argv) {
                                             player_hits);
                                         if (ps.hp == 0 && !player_dead) {
                                             player_dead = true;
-                                            // NOT the engine's death sequence:
-                                            // AppCharacterPlayer's death motion
-                                            // and the game-over path are not
-                                            // reversed. What is real is that the
-                                            // pool can reach zero at all.
-                                            lucent::warn("combat", "MainPlayer is "
-                                                "down (0 HP after {} damage); the "
-                                                "game-over path is not reversed, so "
-                                                "play continues",
-                                                player_damage_taken);
+                                            // ModeGame::Process_GameOver @
+                                            // 0x2de964, step 1 of 3: the
+                                            // game-over BGM, then the game's own
+                                            // SYS_GAMEOVER_MSG in the message
+                                            // window. In Japanese that line is
+                                            // "@H は 力尽きた…", so it needs the
+                                            // control-code expansion to name the
+                                            // player at all.
+                                            game_over_state = 1;
+                                            sc.pending_bgm = 3;
+                                            const std::string* t =
+                                                sc.strings ? sc.strings->Find("SYS_GAMEOVER_MSG")
+                                                           : nullptr;
+                                            sc.last_message = sc.FormatText(
+                                                t ? *t : std::string("SYS_GAMEOVER_MSG"));
+                                            sc.message_pending = true;
+                                            std::string shown;
+                                            for (char c : sc.last_message)
+                                                { if (c == '\n') shown += "\\n"; else shown += c; }
+                                            lucent::info("combat", "MainPlayer is down "
+                                                "(0 HP after {} damage): \"{}\"",
+                                                player_damage_taken, shown);
                                         }
                                         continue;
                                     }
