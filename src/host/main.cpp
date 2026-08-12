@@ -199,7 +199,13 @@ int main(int argc, char** argv) {
     // the starting equipment but no map, and MapJump is only ever called from
     // Lua. Rooms connect by walking, so any real room is a usable entry point.
     static constexpr const char* kDefaultRoom = "M0000_00_00";
-    std::string archive = "scratch/raw/assets/sk1/sk1.mpk";
+    // The game's assets are not in the repo and never can be. They come from a
+    // directory holding the APK's own `assets/` tree, given by $MANA_ASSETS or,
+    // failing that, dropped in at scratch/raw/assets -- both, so neither a
+    // shared checkout nor a one-off run needs the other set up.
+    const char* assets_env = std::getenv("MANA_ASSETS");
+    std::string assets = assets_env && *assets_env ? assets_env : "scratch/raw/assets";
+    std::string archive = assets + "/sk1/sk1.mpk";
     std::string model = "B0000_00";
     std::string shot, anim;
     float anim_t = 0.f;
@@ -207,7 +213,7 @@ int main(int argc, char** argv) {
     bool room_census = false;
     std::string string_id, show_string;
     std::string room, render_room;
-    std::string bgm_dir = "scratch/raw/assets";
+    std::string bgm_dir = assets;
     bool audio_selftest = false;
     std::string probe;
     float spawn_x = 0, spawn_z = 0;
@@ -270,7 +276,7 @@ int main(int argc, char** argv) {
                 "\nWith no options, plays from the default start room.\n"
                 "\nPlaying:\n"
                 "  --room NAME         start in this room (default %s)\n"
-                "  --archive PATH      sk1.mpk (default %s)\n"
+                "  --archive PATH      sk1.mpk (default %s; see $MANA_ASSETS)\n"
                 "  --bgm-dir PATH      directory holding bgmNNN*.ogg\n"
                 "  --lang en|ja        dialogue language (default en)\n"
                 "  --spawn X Z         start at these room-local coordinates\n"
