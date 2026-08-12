@@ -77,8 +77,10 @@ DESC_BASES = ((0x80, 0x98, 0xB0, 0xC8),        # record 0
               (0x10C, 0x124, 0x13C, 0x154))    # record 1
 DESC_SIZE = 0x18
 # Record +0x88 (from enemy +0xe8) is an AI PROBABILITY, in percent. The engine
-# reads it as `GameRandom(100)` vs `rec[+0x88]` -- e.g. at 0x2a90bc, where
-# failing the roll sends the enemy to movement mode 9. It is the most-read field
+# reads it as `GameRandom(100)` vs `rec[+0x88]`. What it gates varies by AI type:
+# type 15 (0x2a90bc) rolls it to reach mode 9, type 7 (0x2a9138) to reach mode 6.
+# It is the chance of taking the case's ALTERNATIVE branch, not of one fixed
+# mode -- an earlier version of this note said "the wander" and was over-general. It is the most-read field
 # of the record (25 reads off the record pointer in UpdateAI).
 #
 # "0..100" alone would be a weak check, since a small enum passes it too. What

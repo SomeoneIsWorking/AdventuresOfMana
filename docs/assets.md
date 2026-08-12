@@ -1695,7 +1695,29 @@ rec = actor+0x377c + [+0x3894]*140
 if (w0 < rec[+0x88]) { mode := 9; state := 1 }     ; 9 is the wander
 ```
 
-so it is the chance per decision of entering the wander rather than continuing.
+**What it gates varies by AI type**, and the line above is type 15's variant.
+The commit that introduced this section described it as "the chance of entering
+the wander", which is true for type 15 and over-general: type 7's handler at
+`0x2a9138` uses the identical roll to reach **mode 6** instead. So the field is
+the probability of taking the case's *alternative* branch, not of one fixed mode.
+
+The roll sits inside an idiom several handlers share verbatim:
+
+```
+if (state == 0)                     -> mode 0        (tail 0x2a9534)
+else if (GameRandom(100) >= prob)   -> mode 1        (tail 0x2a953c)
+else                                -> mode 6, state := 1   (tail 0x2a93a4)
+```
+
+with `prob` = `rec[+0x88]` = enemy `+0xe8`. Types 7 and 15 both use it; 15 swaps
+the last arm for mode 9. All three tails fall into one epilogue at `0x2a9544`
+that resets `+0xc7f`/`+0xc80` to 1, `+0xcc5` to 0 and `+0x36fc` to 1.0f — the
+same reset the mode-switch body performs.
+
+This also explains the mode-6 convergence honestly: 13 types appeared to "set
+mode 6" because `0x2a93a4` is a **shared probabilistic tail**, reached only when
+the roll passes. Mode 6 really is the common alternative; attributing it to those
+types unconditionally was what made the earlier table wrong.
 
 The corpus check is deliberately not "is it in 0..100", which a small enum would
 also pass. What identifies it is the **vocabulary**: across all 107 enemies the
