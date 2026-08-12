@@ -106,6 +106,51 @@ struct TitleMenu {
 };
 
 // ---------------------------------------------------------------------------
+// The opening crawl -- ApplicationMode sub-mode 10, reached from New Game
+// (SetNextSubMode(10) @ 0x307bc8).
+//
+// New Game's setup @ 0x306df0 loads FORTY lines, `SYS_TITLE_OPENING_%d` for
+// i = 0..0x27, into ModeTitle+0x328 (an array of char*). ModeTitle::Render
+// @ 0x308e60 draws them and STOPS AT THE FIRST EMPTY STRING (`ldrb`/`cbz` @
+// 0x308f58), which is why only 15 show: `_11` is a single space, and `_15`
+// onward are empty. So the count is data, not a constant.
+//
+// Geometry, from Render:
+//   line 0 sits at  scroll + 0x240   (0x308e94)
+//   each line is    0x28 lower       (`add w22, w22, #0x28` @ 0x308f50)
+//   font size       0x20             each line drawn twice, a 0x40 shadow
+//                                    then the 0xf0 body
+//   alpha fades in over the first 0x50 and out over the last 0x54, and is
+//   zero past y > 0x20c
+//
+// Scroll, from Process @ 0x306ec8:
+//   scroll -= dt_ms / 30.0           normally
+//   scroll -= dt_ms / 4.0            while skipping (7.5x)
+//   done when the last line's y <= -0x15, then SetNextSubMode(11)
+// ---------------------------------------------------------------------------
+struct OpeningCrawl {
+    static constexpr int kIdCount = 0x28;     // ids loaded, 0..39
+    static constexpr float kFirstY = 576.f;   // 0x240
+    static constexpr float kLineStep = 40.f;  // 0x28
+    static constexpr float kSlowDiv = 30.f;
+    static constexpr float kFastDiv = 4.f;    // while skipping
+    static constexpr float kEndY = -21.f;     // -0x15
+    static constexpr float kFadeIn = 80.f;    // 0x50
+    static constexpr float kFadeOut = 84.f;   // 0x54
+    static constexpr float kHideY = 524.f;    // 0x20c
+    static constexpr const char* kSkipId = "SYS_TITLE_BTN_SKIP";
+
+    float scroll = 0.f;
+    bool  skipping = false;
+
+    // Advance by a frame. `lines` is how many are actually drawn. Returns true
+    // once the crawl is over.
+    bool Step(float dt_ms, int lines);
+    // Alpha 0..1 for a line at app-space y.
+    static float Alpha(float y);
+};
+
+// ---------------------------------------------------------------------------
 // Name entry. New Game asks for two names, and ModeTitle::Process @ 0x307ec8
 // validates each one against a character set the game states outright in
 // SYS_NAMEENTRY_USE: it walks the entered name a UTF-8 code point at a time and

@@ -243,7 +243,8 @@ int main(int argc, char** argv) {
     bool ai_selftest = false;
     bool name_selftest = false;
     bool boot_chain = false;
-    std::string title_phase;   // TEST HOOK: attract | menu | names
+    std::string title_phase;   // TEST HOOK: attract | menu | crawl | names
+    int shot_delay = 0;        // frames to wait inside --shot-mode
     bool mode_selftest = false;
     bool png_selftest = false;
     std::string shot_mode;
@@ -287,6 +288,7 @@ int main(int argc, char** argv) {
         else if (a == "--nameentry-selftest") name_selftest = true;
         else if (a == "--boot") boot_chain = true;
         else if (a == "--title-phase" && i + 1 < argc) title_phase = argv[++i];
+        else if (a == "--shot-delay" && i + 1 < argc) shot_delay = std::atoi(argv[++i]);
         else if (a == "--mode-selftest") mode_selftest = true;
         else if (a == "--png-selftest") png_selftest = true;
         else if (a == "--shot-mode" && i + 1 < argc) shot_mode = argv[++i];
@@ -335,7 +337,8 @@ int main(int argc, char** argv) {
                 "  --combat-selftest / --audio-selftest / --text-selftest / --player-selftest\n"
                 "  --inventory-selftest / --ai-selftest / --nameentry-selftest\n"
                 "  --boot              boot through the engine's real mode chain\n"
-                "  --title-phase P     TEST HOOK: open the title on attract|menu|names\n"
+                "  --title-phase P     TEST HOOK: attract|menu|crawl|names\n"
+                "  --shot-delay N      wait N frames inside --shot-mode before capturing\n"
                 "                                         self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
@@ -2333,7 +2336,8 @@ int main(int argc, char** argv) {
             mcf::ModeMachine modes;
             bool title_bgm = false;
             mcf::TitleMenu title;
-            if (title_phase == "menu" || title_phase == "names")
+            if (title_phase == "menu" || title_phase == "names" ||
+                title_phase == "crawl")
                 title.phase = mcf::TitleMenu::Phase::kMenu;
             bool title_press = false;   // "any button" on the attract screen
             // Which menu items this port can actually act on. Continue and Load
@@ -2343,9 +2347,17 @@ int main(int argc, char** argv) {
             auto titleEnabled = [](int item) { return item == 0; };
             // Name entry: the engine asks for two, hero then heroine
             // (SYS_NAMEENTRY_HERO_NAME_TITLE / _GIRL_NAME_TITLE).
+            // The crawl runs BEFORE name entry: New Game's setup @ 0x306df0
+            // loads the lines, then SetNextSubMode(10) @ 0x307bc8 plays them.
+            mcf::OpeningCrawl crawl;
+            std::vector<std::string> crawl_lines;
+            bool crawling = false;
+            // Only --title-phase crawl (or the normal New Game path) plays it.
+            bool crawl_done = !title_phase.empty() && title_phase != "crawl";
             bool naming = title_phase == "names";
             bool naming_done = false;
-            if (naming) title.chosen = true;   // as New Game would
+            if (naming || title_phase == "crawl")
+                title.chosen = true;               // as New Game would
             int  name_field = 0;              // 0 = hero, 1 = heroine
             std::string names[2];
             int  name_err = mcf::NameEntry::kOk;
@@ -2375,6 +2387,20 @@ int main(int argc, char** argv) {
                 uint64_t now = SDL_GetTicks();
                 float dt = float(now - prev) / 1000.f;
                 prev = now;
+                if (dt > 0.1f) dt = 0.1f;
+                // A frame COUNT is only a duration if the step is fixed. The
+                // loop is uncapped, so --warmup 400 on this machine was ~0.5 s,
+                // not the 13 s the number suggests -- enemies closing at 30
+                // units/s covered 15 of the 98 they start at and combat looked
+                // dead. Headless runs therefore step at a fixed 30 Hz, which
+                // also makes them reproducible across machines.
+                //
+                // This is clamped HERE, before the boot chain, not after it:
+                // the title's opening crawl scrolls in real milliseconds, and
+                // with a raw uncapped dt it advanced ~0.03 units a frame and
+                // never came on screen. The same bug the comment above
+                // describes, one scope higher.
+                if (fixed_step) dt = 1.f / 30.f;
                 if (boot_chain) {
                     // 60fps is the engine's own rate --
                     // MainProcess::Initialize calls SetFrameParSecond(60).
@@ -2406,6 +2432,38 @@ int main(int argc, char** argv) {
                                 lucent::info("title", "menu: {} items",
                                              mcf::TitleMenu::kItemCount);
                             }
+                        } else if (title.chosen && !crawl_done) {
+                            if (!crawling) {
+                                crawling = true;
+                                // Load the ids the engine loads, and stop where
+                                // it stops: at the first EMPTY string. The
+                                // count is data, not a constant.
+                                for (int i = 0; i < mcf::OpeningCrawl::kIdCount; ++i) {
+                                    const std::string* l = strings.Find(
+                                        std::format("SYS_TITLE_OPENING_{}", i));
+                                    if (!l || l->empty()) break;
+                                    crawl_lines.push_back(*l);
+                                }
+                                lucent::info("title", "opening crawl: {} of {} ids "
+                                             "are non-empty", crawl_lines.size(),
+                                             mcf::OpeningCrawl::kIdCount);
+                                if (crawl_lines.empty()) {
+                                    lucent::warn("title", "no opening lines "
+                                                 "resolved; skipping the crawl");
+                                    crawl_done = true;
+                                }
+                            }
+                            if (crawling && !crawl_done) {
+                                const bool* ks = SDL_GetKeyboardState(nullptr);
+                                // Headless skips at the engine's own fast
+                                // rate rather than teleporting past the crawl,
+                                // so the screen is still observable.
+                                crawl.skipping = (ks && ks[SDL_SCANCODE_LSHIFT]) ||
+                                                 ((warmup > 0 || auto_advance) &&
+                                                  title_phase != "crawl");
+                                if (crawl.Step(dt * 1000.f, int(crawl_lines.size())))
+                                    crawl_done = true;
+                            }
                         } else if (title.chosen && !naming_done) {
                             // New Game asks for the two names before it starts.
                             // Only New Game is reachable -- see titleEnabled.
@@ -2423,8 +2481,14 @@ int main(int argc, char** argv) {
                                 // Headless: no keyboard. Take the defaults so
                                 // the boot path still reaches the game, and say
                                 // that the names were not typed.
-                                names[0] = "Sumo";
-                                names[1] = "Fuji";
+                                // The engine's defaults, copied into
+                                // GameParameter+0x8 and +0x88 @ 0x306e54.
+                                const std::string* dh =
+                                    strings.Find("SYS_DEFAULTNAME_HERO");
+                                const std::string* dg =
+                                    strings.Find("SYS_DEFAULTNAME_GIRL");
+                                names[0] = dh ? *dh : std::string("Sumo");
+                                names[1] = dg ? *dg : std::string("Fuji");
                                 lucent::info("name", "headless: using defaults "
                                              "'{}' and '{}' (nobody typed one)",
                                              names[0], names[1]);
@@ -2501,7 +2565,10 @@ int main(int argc, char** argv) {
                         else if (modes.current == mcf::Mode::kTitle) {
                             // Name entry is its own screen, not an overlay on
                             // the logo.
-                            if (!naming || naming_done) drawSprite(sprTitle);
+                            // Name entry and the crawl are their own
+                            // screens, not overlays on the logo.
+                            if ((!naming || naming_done) &&
+                                (!crawling || crawl_done)) drawSprite(sprTitle);
                             // Every word here is the game's own, resolved
                             // through the shipping string table.
                             auto say = [&](const char* id) {
@@ -2513,10 +2580,35 @@ int main(int argc, char** argv) {
                             const float cx = float(W) * 0.5f;
                             const float kScale = 2.f;      // as the HUD uses
                             const float sc = kScale * 1.4f;
-                            drawUiText(say(mcf::TitleMenu::kCopyrightId),
-                                       cx, float(H) - 22.f * kScale, kScale, true,
-                                       1.f, 1.f, 1.f, 0.75f);
-                            if (naming && !naming_done) {
+                            // The copyright belongs to the title screen
+                            // proper, not to the crawl or the name screen.
+                            if ((!crawling || crawl_done) && (!naming || naming_done))
+                                drawUiText(say(mcf::TitleMenu::kCopyrightId),
+                                           cx, float(H) - 22.f * kScale, kScale,
+                                           true, 1.f, 1.f, 1.f, 0.75f);
+                            if (crawling && !crawl_done) {
+                                // App space is 544 tall; scale to the window so
+                                // the engine's own offsets stay meaningful.
+                                const float k = float(H) / 544.f;
+                                for (size_t i = 0; i < crawl_lines.size(); ++i) {
+                                    float ay = crawl.scroll +
+                                               mcf::OpeningCrawl::kFirstY +
+                                               mcf::OpeningCrawl::kLineStep * float(i);
+                                    float a = mcf::OpeningCrawl::Alpha(ay);
+                                    if (a <= 0.f) continue;
+                                    float y = ay * k;
+                                    // Shadow then body, as Render does (0x40
+                                    // then 0xf0).
+                                    drawUiText(crawl_lines[i], cx + 2.f, y + 2.f,
+                                               sc, true, 0.25f, 0.25f, 0.25f, a);
+                                    drawUiText(crawl_lines[i], cx, y, sc, true,
+                                               0.94f, 0.94f, 0.94f, a);
+                                }
+                                drawUiText(say(mcf::OpeningCrawl::kSkipId) +
+                                               "  [Shift]",
+                                           cx, float(H) - 40.f,
+                                           kScale, true, 1, 1, 1, 0.7f);
+                            } else if (naming && !naming_done) {
                                 // Every word here is the game's own.
                                 drawUiText(say("SYS_NAMEENTRY_INFO_1"),
                                            cx, float(H) * 0.30f, kScale, true,
@@ -2581,7 +2673,8 @@ int main(int argc, char** argv) {
                         // "the logo draws" can be checked on real pixels rather
                         // than asserted. Without it the splash is invisible to
                         // --screenshot, which counts gameplay frames only.
-                        if (!shot.empty() && shot_mode == mcf::ModeName(modes.current)) {
+                        if (!shot.empty() && shot_mode == mcf::ModeName(modes.current) &&
+                            modes.frames >= shot_delay) {
                             std::vector<uint8_t> px(size_t(W) * H * 4);
                             glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
                             std::vector<uint8_t> fl(px.size());
@@ -2597,15 +2690,6 @@ int main(int argc, char** argv) {
                         continue;
                     }
                 }
-                if (dt > 0.1f) dt = 0.1f;
-                // A frame COUNT is only a duration if the step is fixed. The
-                // loop is uncapped, so --warmup 400 on this machine was ~0.5 s,
-                // not the 13 s the number suggests -- enemies closing at 30
-                // units/s covered 15 of the 98 they start at and combat looked
-                // dead. Headless runs therefore step at a fixed 30 Hz, which
-                // also makes them reproducible across machines.
-                if (fixed_step) dt = 1.f / 30.f;
-
                 SDL_Event ev;
                 while (SDL_PollEvent(&ev)) {
                     if (ev.type == SDL_EVENT_QUIT) running = false;

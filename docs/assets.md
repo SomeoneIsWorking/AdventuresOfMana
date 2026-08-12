@@ -2354,8 +2354,40 @@ displacement from the table's own base rather than a pointer, and the load is
 `ldursw [x9, #-0x4]`. Resolved: 1 -> `SYS_NAMEENTRY_USAGE_PROHIBITED_STRING`,
 2 -> `SYS_NAMEENTRY_NUMBER_EXCESS`, 3 -> `SYS_NAMEENTRY_NOT_BEEN_ENTER`.
 
-Still not drawn, though every string ships: the opening crawl
-(`SYS_TITLE_OPENING_0..14`, 15 non-empty lines).
+##### The opening crawl
+
+Sub-mode 10, reached from New Game (`SetNextSubMode(10)` @ `0x307bc8`). New
+Game's setup @ `0x306df0` loads **forty** ids, `SYS_TITLE_OPENING_%d` for
+i = 0..0x27, into `ModeTitle+0x328`; `Render` @ `0x308e60` draws them and
+**stops at the first empty string** (`ldrb`/`cbz` @ `0x308f58`). That is why 15
+show: `_11` is a single space, and `_15` onward are empty. The count is data,
+not a constant, so the port loads until the first empty one too.
+
+| what | value | where |
+|---|---|---|
+| line 0 | `scroll + 0x240` | `0x308e94` |
+| line step | `0x28` | `add w22, w22, #0x28` @ `0x308f50` |
+| font | `0x20`, drawn twice: `0x40` shadow then `0xf0` body | `0x308f00`..`0x308f48` |
+| fade in / out | over `0x50` / `0x54`, alpha 0 past y > `0x20c` | `0x308fc4`, `0x308ed8`, `0x308ee0` |
+| scroll | `scroll -= dt_ms / 30`, or `/ 4` while skipping | `0x306ec8` |
+| ends | last line y <= `-0x15`, then `SetNextSubMode(11)` | `0x306ee8` |
+
+The end test is on the **last line's position**, not on the scroll, so a crawl
+with fewer lines ends sooner. The port reproduces that rather than substituting
+a fixed duration.
+
+##### Default names, and where they live
+
+New Game's setup also calls `GameParameter::Init` and then copies two string
+resources in with `__strcpy_chk(..., 0x80)` @ `0x306e54` and `0x306e8c`:
+
+| field | id | en | ja |
+|---|---|---|---|
+| `GameParameter+0x8`  | `SYS_DEFAULTNAME_HERO` | Sumo | (hero) |
+| `GameParameter+0x88` | `SYS_DEFAULTNAME_GIRL` | Fuji | (heroine) |
+
+So the two names are `char[0x80]` at `GameParameter+0x8` and `+0x88`, which
+fills in part of the save layout ahead of the inventory at `+0x168`.
 
 One visible gap: `SYS_TITLE_COPYRIGHT_1` begins with `(c)` U+00A9, and the font
 atlas is ASCII 32..126, so that one glyph is missing. The original draws

@@ -1,5 +1,7 @@
 #include "engine/mode.h"
 
+#include <algorithm>
+
 #include <lucent/log.h>
 
 namespace mcf {
@@ -44,6 +46,24 @@ const char* const TitleMenu::kItemId[TitleMenu::kItemCount] = {
     "SYS_TITLE_MENU_CONTINUE",
     "SYS_TITLE_MENU_LOADGAME",
 };
+
+bool OpeningCrawl::Step(float dt_ms, int lines) {
+    scroll -= dt_ms / (skipping ? kFastDiv : kSlowDiv);
+    // The engine's end test is on the LAST line's position, not the scroll, so
+    // a crawl with fewer lines ends sooner. Reproduced rather than replaced by
+    // a fixed duration, which would drift if the line count ever differed.
+    float last = scroll + kFirstY + kLineStep * float(lines > 0 ? lines - 1 : 0);
+    return last <= kEndY;
+}
+
+float OpeningCrawl::Alpha(float y) {
+    if (y > kHideY) return 0.f;                       // csel wzr @ 0x308ee0
+    float a = 1.f;
+    if (y < kFadeIn) a = y / kFadeIn;                 // LerpN @ 0x308fc4
+    float d = kHideY - y;
+    if (d < kFadeOut) a = std::min(a, d / kFadeOut);  // LerpH @ 0x308ed8
+    return a < 0.f ? 0.f : (a > 1.f ? 1.f : a);
+}
 
 const char* NameEntry::ErrorId(int err) {
     switch (err) {
