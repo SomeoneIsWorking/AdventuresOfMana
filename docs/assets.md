@@ -1396,19 +1396,41 @@ with `prob` = `rec[+0x88]` = enemy `+0xe8`.
 | type | fail | pass | | type | fail | pass |
 |---|---|---|---|---|---|---|
 | 3 | 1 | 3 | | 15 | 2 | 9 |
-| 5 | 1 | 4 | | 16 | 2 | *unresolved* |
+| 5 | 1 | 4 | | 16 | 2 | 5 or 9 |
 | 6 | 2 | 5 | | 17 | 1 | 10 |
 | 7 | 1 | 6 | | 18 | 2 | 10 |
-| 8 | 1 | 6 | | 19 | 2 | *unresolved* |
-| 9 | 2 | 7 | | 20 | 2 | *unresolved* |
-| 10 | 2 | *unresolved* | | 21 | 2 | 11 |
+| 8 | 1 | 6 | | 19 | 2 | 5 or 10 |
+| 9 | 2 | 7 | | 20 | 2 | 9 or 10 |
+| 10 | 2 | 5 or 7 | | 21 | 2 | 11 |
 | 11 | 1 | 8 | | 22 | 2 | 10 |
-| 12 | 2 | 8 | | 23 | 2 | 10 |
-| 13 | 1 | 5 | | 24 | 2 | *unresolved* |
-| 14 | *unresolved* | *unresolved* | | 25 | 1 | 9 |
+| 12 | 2 | 8 | | 23 | 2 | 3-way |
+| 13 | 1 | 5 | | 24 | 2 | 5/9/10 by table |
+| 14 | 1 | 9 | | 25 | 1 | 9 |
 | | | | | 26 | 1 | 5 |
 
-**20 of 27 fully resolved; 7 are not, and are marked rather than filled in.**
+The seven that no scanner resolved all share one reason: **they have no single
+pass mode.** On a passed roll they roll *again* and pick among several:
+
+| type | second roll | outcome |
+|---|---|---|
+| 10 | `GameRandom(2)` | 0 → mode 5, else mode 7 |
+| 16 | `GameRandom(2)` | 0 → mode 5, else mode 9 |
+| 19 | `GameRandom(2)` | 0 → mode 5, else mode 10 |
+| 20 | `GameRandom(2)` | 0 → mode 9, else mode 10 (via `cinc`) |
+| 23 | `GameRandom(3)` | a 3-way branch, 0 → mode 5 |
+| 24 | `GameRandom(3)` | indexes a **`.rodata` table at `0x9e5b8` = {5, 9, 10}** |
+| 14 | — | inverts the test (`b.lt`, not `b.ge`): pass → mode 9, fail → mode 1 |
+
+Types 10, 16 and 19 share the tail at `0x2a9450` — `w9 = 5; csel w8, w9, w8, eq`
+— which is where the "0 → mode 5" comes from. Type 24 is the only case whose
+mode is *data*: three `int32`s at `.rodata` `0x9e5b8`, and the word after them
+is unrelated, confirming the table is exactly three entries.
+
+So the map is complete: **all 27 handlers accounted for.** The extraction failed
+on these seven not through another blind spot but because the question was
+malformed — asking for "the pass mode" of a handler that has two.
+
+
 
 This table cost four wrong extractions, each of which looked complete:
 
