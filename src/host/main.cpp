@@ -228,6 +228,7 @@ int main(int argc, char** argv) {
     bool ai_selftest = false;
     bool boot_chain = false;
     bool mode_selftest = false;
+    bool png_selftest = false;
     bool show_hud = true;
     int auto_levelup = -1;
     int grant_exp = 0;
@@ -267,6 +268,7 @@ int main(int argc, char** argv) {
         else if (a == "--ai-selftest") ai_selftest = true;
         else if (a == "--boot") boot_chain = true;
         else if (a == "--mode-selftest") mode_selftest = true;
+        else if (a == "--png-selftest") png_selftest = true;
         else if (a == "--no-hud") show_hud = false;
         else if (a == "--auto-levelup" && i + 1 < argc) auto_levelup = std::atoi(argv[++i]);
         else if (a == "--grant-exp" && i + 1 < argc) grant_exp = std::atoi(argv[++i]);
@@ -604,6 +606,77 @@ int main(int argc, char** argv) {
                 }
             }
             lucent::info("player", "SELFTEST: {} cases, {} failures", 22, bad);
+            return bad ? 1 : 0;
+        }
+
+        if (png_selftest) {
+            // Decodes the real boot-path art and prints a checksum per image.
+            // The cross-check is tools/asset/png_check.py, which decodes the
+            // same files through Python's zlib -- an INDEPENDENT implementation
+            // -- and compares. A decoder validated only against itself proves
+            // nothing, and this one was written from scratch precisely because
+            // the project has no zlib.
+            const char* files[] = {"sk1/sqex.png", "sk1/titlelogo_en_color.png",
+                                   "sk1/titlelogo_ja_color.png", "sk1/title_000.png"};
+            int bad = 0, done = 0;
+            for (const char* f : files) {
+                if (!ar.Has(f)) {
+                    lucent::error("png", "SELFTEST FAIL: {} not in the archive", f);
+                    ++bad; continue;
+                }
+                auto blob = ar.Read(f);
+                int w = 0, h = 0; std::vector<uint8_t> rgba;
+                if (!mcf::DecodePng(blob, &w, &h, &rgba)) {
+                    lucent::error("png", "SELFTEST FAIL: {} did not decode", f);
+                    ++bad; continue;
+                }
+                if (rgba.size() != size_t(w) * size_t(h) * 4) {
+                    lucent::error("png", "SELFTEST FAIL: {} gave {} bytes for {}x{}",
+                                  f, rgba.size(), w, h);
+                    ++bad; continue;
+                }
+                // A decode that returned all-zero would satisfy every check
+                // above, so the content is what gets summarised.
+                uint64_t sum = 0; size_t opaque = 0;
+                for (size_t i = 0; i < rgba.size(); ++i) sum = sum * 131 + rgba[i];
+                for (size_t i = 3; i < rgba.size(); i += 4) opaque += rgba[i] > 0;
+                if (opaque == 0) {
+                    lucent::error("png", "SELFTEST FAIL: {} is fully transparent "
+                                  "-- a decode that produced nothing", f);
+                    ++bad; continue;
+                }
+                lucent::info("png", "  {:<30} {}x{} hash {:016x} opaque {}/{}",
+                             f, w, h, sum, opaque, size_t(w) * size_t(h));
+                ++done;
+            }
+            // The other class. A decoder that never says no would "succeed"
+            // on anything, so each of these MUST be refused.
+            {
+                auto blob = ar.Read("sk1/sqex.png");
+                int w = 0, h = 0; std::vector<uint8_t> px;
+                struct Neg { const char* what; std::vector<uint8_t> data; };
+                std::vector<Neg> negs;
+                negs.push_back({"empty input", {}});
+                negs.push_back({"signature mismatch",
+                                std::vector<uint8_t>(64, 0x41)});
+                { auto t = blob; t.resize(t.size() / 2);
+                  negs.push_back({"truncated mid-IDAT", t}); }
+                { auto t = blob; t[25] = 3;      // colour type -> palette
+                  negs.push_back({"palette colour type", t}); }
+                { auto t = blob; t[28] = 1;      // interlace on
+                  negs.push_back({"interlaced", t}); }
+                { auto t = blob; t[24] = 16;     // bit depth 16
+                  negs.push_back({"16-bit depth", t}); }
+                for (auto& n : negs) {
+                    if (mcf::DecodePng(n.data, &w, &h, &px)) {
+                        lucent::error("png", "SELFTEST FAIL: accepted {}", n.what);
+                        ++bad;
+                    } else {
+                        lucent::info("png", "  ok: refused {}", n.what);
+                    }
+                }
+            }
+            lucent::info("png", "SELFTEST: {} images decoded, {} failures", done, bad);
             return bad ? 1 : 0;
         }
 

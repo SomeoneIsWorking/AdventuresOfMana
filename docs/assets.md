@@ -2081,3 +2081,42 @@ of black in place of gameplay would be a regression dressed as progress.
 
 NOT REVERSED: what `ModeInit`, `ModeCESA` and `ModeMakerLogo` actually draw, and
 `ModeTitle`'s menu — the port takes its "start" branch directly and says so.
+
+
+### The boot art, and a PNG decoder
+
+Each boot mode names its assets, and the names come from the string literals its
+own code references:
+
+| mode | assets |
+|---|---|
+| `ModeInit` | mounts `sk1/sk1.mpk`, `sk1/sk1bgm.mpk`, `sk1/sk1patch.mpk` |
+| `ModeCESA` | `cesa.png` |
+| `ModeMakerLogo` | `sk1/sqex%s.png`, `sk1/SE%04d.wav` |
+| `ModeTitle` | title logos, and the **name-entry** screen (`SYS_NAMEENTRY_*`, `SYS_DEFAULTNAME_HERO` / `_GIRL`) |
+
+So the title is not just a menu — it is where a new game's hero and girl names
+are entered, which is the missing half of the new-game path.
+
+Searching the archive (9,886 entries, stated because a zero here must be
+distinguishable from not having looked): `sk1/sqex.png` and `sk1/sqex_high.png`
+are present, as are `titlelogo_{en,ja}_{color,mono}[_high].png` and
+`sk1/title_000.png`. **`cesa` matches 0 of 9,886** — that screen's art is not in
+the archive, and it is not in the assets root either, which holds no PNG at all.
+
+`sk1bgm.mpk` and `sk1patch.mpk` are likewise **not present** in this extracted
+tree; only `sk1.mpk` is. The port never referenced them, which turns out to be
+harmless here, but it is recorded because a patch archive that did ship would
+override entries and silently change what the port loads.
+
+Every boot PNG is **8-bit RGBA, non-interlaced**, so `src/mcf/png.cpp` decodes
+exactly that and refuses anything else by name. It carries its own inflate,
+because the project has no zlib — `WritePng` emits only stored blocks, so
+nothing in the tree could read a real deflate stream.
+
+The decoder is cross-checked against an independent implementation rather than
+itself: `tools/asset/png_check.py` decodes the same four files through Python's
+`zlib` and prints the same rolling hash. All four agree byte for byte, over 2.6
+million pixels. `--png-selftest` additionally feeds six inputs that MUST be
+refused — empty, bad signature, truncated mid-IDAT, palette, interlaced and
+16-bit — because a decoder that never says no would "succeed" on anything.

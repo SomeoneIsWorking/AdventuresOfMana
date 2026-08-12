@@ -30,7 +30,8 @@ FetchContent_MakeAvailable(lucent)
 
 add_library(mcf STATIC
   src/mcf/lha.cpp
-  src/mcf/assets.cpp)
+  src/mcf/assets.cpp
+  src/mcf/png.cpp)
 target_include_directories(mcf PUBLIC src)
 target_link_libraries(mcf PUBLIC lucent::lucent)
 

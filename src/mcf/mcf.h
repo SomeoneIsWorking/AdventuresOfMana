@@ -71,6 +71,15 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// PNG. The boot path loads its art by name -- ModeMakerLogo's `sk1/sqex%s.png`,
+// ModeTitle's title logos -- and those are plain PNGs in the archive rather than
+// .stex. Every one the boot path touches is 8-bit RGBA, non-interlaced, so the
+// decoder handles exactly that and refuses anything else loudly.
+// ---------------------------------------------------------------------------
+bool DecodePng(std::span<const uint8_t> file, int* w, int* h,
+               std::vector<uint8_t>* rgba);
+
+// ---------------------------------------------------------------------------
 // .stex texture container (magic "SMDI")
 // ---------------------------------------------------------------------------
 struct Texture {

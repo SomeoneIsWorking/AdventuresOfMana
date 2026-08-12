@@ -32,6 +32,8 @@ if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   ./build/mana --ai-selftest >/dev/null 2>&1 || fail=1
   ./build/mana --mode-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --mode-selftest >/dev/null 2>&1 || fail=1
+  ./build/mana --png-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
+  ./build/mana --png-selftest >/dev/null 2>&1 || fail=1
   ./build/mana --inventory-selftest >/dev/null 2>&1 || fail=1
 
   echo "=== text self-test ==="
