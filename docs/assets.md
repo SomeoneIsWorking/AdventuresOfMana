@@ -1621,9 +1621,34 @@ actor[0x3900] = 0
 `x20 = actor + 0x377c` is pinned at `0x2a8b98` (`add x20, x19, #0x377c`), and the
 140-byte stride is the AI record already recorded.
 
-The `floor` is 0 for modes 6/7/10/11 and 9, so those roll plainly. Mode 5 sets it
-from two `vtable[0x240]` calls (arguments 158 and 159) combined as
-`(a + b) / 30 * 60`, so mode 5's states cannot be shorter than that.
+The `floor` is 0 for modes 6/7/10/11 and 9, so those roll plainly. Modes 4 and 5
+set it from two motion lengths, and are otherwise the same body:
+
+| mode | calls | at |
+|---|---|---|
+| 4 | `GetMotionTimeLength(157)`, `GetMotionTimeLength(156)` | `0x2aa204`, `0x2aa21c` |
+| 5 | `GetMotionTimeLength(158)`, `GetMotionTimeLength(159)` | `0x2a990c`, `0x2a9924` |
+
+`vtable[0x240]` is `AppCharacterBase::GetMotionTimeLength(CharacterMotionKind)`
+— resolved from the relocation on `vtable for AppCharacterEnemy + 0x10 + 0x240`
+(the `+0x10` is the offset-to-top and typeinfo pair, which the object's vptr
+skips; reading the symbol without it names the neighbouring slot instead).
+
+The two lengths are combined as `(a + b) / 30 * 60`, which is **a 30fps-to-60fps
+unit conversion, not a tuning constant**: motions are keyed at 30fps and the
+engine runs at 60, so dividing by 30 gives seconds and multiplying by 60 gives
+engine frames. Net, it doubles. So a mode 4 or 5 state lasts at least as long as
+its two animations take to play, and the rolled `{base, range}` only matters
+when it exceeds that.
+
+Mode 3 @ `0x2a9dec` is a different shape: it shares the difference-and-publish
+opening but has **no latch block**, and instead branches on a party byte at
+`+0x958` — to `0x2aa3c8` when clear, and to `0x2aaa40` / `0x2aaa58` when set.
+Those targets are not read yet.
+
+Two vtable slots that this file previously listed as unknown are named by the
+same relocation lookup: `vtable[0x1c8]` is `AppCharacterBase::UpdateGround()`
+and `vtable[0x2f0]` is `AppCharacterBase::SetShadowAlpha(float)`.
 
 **This confirms the port's duration model from an independent direction.** The
 port reads `{base, range}` out of the FILE, at `descriptor[st] + 0x10 / +0x14`
