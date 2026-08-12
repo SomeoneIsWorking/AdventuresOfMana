@@ -1776,6 +1776,13 @@ int main(int argc, char** argv) {
             mcf::Collision col;
             bool have_col = false;
             float room_org[3]{0, 0, 0};
+            // Chip-resolution pathing state. `chip_walk` is per room;
+            // `chip_dist` is rebuilt each frame from the player's chip and
+            // shared by every chaser, as one flood fill rather than one per
+            // enemy.
+            int chip_w = 0, chip_h = 0;
+            std::vector<uint8_t> chip_walk;
+            std::vector<int32_t> chip_dist;
             struct Placed { const mcf::Renderable* r; float pos[3]; const mcf::Motion* mo; };
             std::vector<Placed> placed;
             struct PlacedObj { const mcf::Renderable* r; float pos[3]; };
@@ -1913,6 +1920,34 @@ int main(int argc, char** argv) {
             // of chip centres for one with walkable floor, nearest the room
             // centre. What is faithful is that the engine places these, not the
             // script; parking them at the literal origin was simply wrong.
+            // The chip walkability mask, built once per room. The engine keeps
+            // a per-chip height map at ModeGame+0x9bb0 and an attribute byte at
+            // +0x9ba8, and _MakeRouteTable @ 0x2a7c5c gates each step on them
+            // (no-floor sentinel |h| > 10000, step limit |dh| < 5). How those
+            // grids are derived from the room's .gdt is NOT reversed, so this
+            // substitutes the port's own floor test -- the same one the rest of
+            // the port already trusts for placement. The SHAPE below is the
+            // engine's; only the passability source is the port's.
+            chip_w = int(room_size.w / 30.f);
+            chip_h = int(room_size.h / 30.f);
+            chip_walk.assign(size_t(chip_w) * size_t(chip_h), 0);
+            if (have_col) {
+                for (int gz = 0; gz < chip_h; ++gz)
+                    for (int gx = 0; gx < chip_w; ++gx) {
+                        float g;
+                        if (col.GetFloor(room_org[0] + (float(gx) + 0.5f) * 30.f,
+                                         room_org[2] + (float(gz) + 0.5f) * 30.f,
+                                         mcf::Collision::kFloorMask, &g))
+                            chip_walk[size_t(gz) * size_t(chip_w) + size_t(gx)] = 1;
+                    }
+            }
+            {
+                long w = 0;
+                for (uint8_t v : chip_walk) w += v;
+                lucent::info("ai", "chip grid {}x{}: {} of {} walkable",
+                             chip_w, chip_h, w, chip_walk.size());
+            }
+
             std::vector<std::pair<int, int>> taken_chips;
             for (auto& a : world.actors_mutable()) {
                 if (!a.random_place || !have_col) continue;
@@ -2872,8 +2907,37 @@ int main(int argc, char** argv) {
                     }
                 }
 
-                // Enemies close on the player. Deliberately minimal -- the real
-                // AI lives in native code that is not reversed.
+                // The chip distance field, rebuilt once per frame from the
+                // player's chip and shared by every chaser. MakeRouteTable
+                // @ 0x2a7ef4 allocates chips_w * chips_h int32s, memsets them
+                // to ZERO, and treats a still-zero cell as unreached -- so the
+                // field is 1-based and needs no separate visited map. Same here.
+                if (chip_w > 0 && chip_h > 0) {
+                    chip_dist.assign(size_t(chip_w) * size_t(chip_h), 0);
+                    int pcx = int(std::floor((px - room_org[0]) / 30.f));
+                    int pcz = int(std::floor((pz - room_org[2]) / 30.f));
+                    if (pcx >= 0 && pcz >= 0 && pcx < chip_w && pcz < chip_h) {
+                        std::vector<int> q;
+                        q.push_back(pcz * chip_w + pcx);
+                        chip_dist[size_t(q[0])] = 1;
+                        for (size_t h = 0; h < q.size(); ++h) {
+                            int c = q[h], cx2 = c % chip_w, cz2 = c / chip_w;
+                            int nd = chip_dist[size_t(c)] + 1;
+                            static const int kDx[4] = {1, -1, 0, 0};
+                            static const int kDz[4] = {0, 0, 1, -1};
+                            for (int k = 0; k < 4; ++k) {
+                                int nx = cx2 + kDx[k], nz = cz2 + kDz[k];
+                                if (nx < 0 || nz < 0 || nx >= chip_w || nz >= chip_h) continue;
+                                size_t ni = size_t(nz) * size_t(chip_w) + size_t(nx);
+                                if (!chip_walk[ni] || chip_dist[ni]) continue;
+                                chip_dist[ni] = nd;
+                                q.push_back(int(ni));
+                            }
+                        }
+                    }
+                }
+
+                // Enemies close on the player.
                 for (auto& a : world.actors_mutable()) {
                     if (!a.alive || (a.kind != 'E' && a.kind != 'B')) continue;
                     float ax = a.pos[0] + room_org[0], az = a.pos[2] + room_org[2];
@@ -3016,10 +3080,38 @@ int main(int argc, char** argv) {
                         }
                         if (a.ai_state != 2) { a.motion = kMotionWait; continue; }
                     }
+                    // Chase along the distance field when there is one, exactly
+                    // as state 2 does @ 0x2a9d44: find my chip, step to the
+                    // neighbour whose distance is one LESS. Falls back to the
+                    // straight line when the field has no route -- off-grid, or
+                    // a room with no collision.
+                    float tx = dx, tz = dz;
+                    if (!chip_dist.empty()) {
+                        int mcx = int(std::floor(a.pos[0] / 30.f));
+                        int mcz = int(std::floor(a.pos[2] / 30.f));
+                        if (mcx >= 0 && mcz >= 0 && mcx < chip_w && mcz < chip_h) {
+                            int32_t here = chip_dist[size_t(mcz) * size_t(chip_w) + size_t(mcx)];
+                            if (here > 1) {
+                                static const int kDx[4] = {1, -1, 0, 0};
+                                static const int kDz[4] = {0, 0, 1, -1};
+                                for (int k = 0; k < 4; ++k) {
+                                    int nx = mcx + kDx[k], nz = mcz + kDz[k];
+                                    if (nx < 0 || nz < 0 || nx >= chip_w || nz >= chip_h) continue;
+                                    if (chip_dist[size_t(nz) * size_t(chip_w) + size_t(nx)]
+                                        != here - 1) continue;
+                                    tx = (float(nx) + 0.5f) * 30.f - a.pos[0];
+                                    tz = (float(nz) + 0.5f) * 30.f - a.pos[2];
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    float tl = std::sqrt(tx * tx + tz * tz);
+                    if (tl < 1e-4f) { tx = dx; tz = dz; tl = d; }
                     float step = a.move_speed * dt;
-                    a.pos[0] += dx / d * step;
-                    a.pos[2] += dz / d * step;
-                    a.rot_y = std::atan2(dx, dz);
+                    a.pos[0] += tx / tl * step;
+                    a.pos[2] += tz / tl * step;
+                    a.rot_y = std::atan2(tx, tz);
                     a.motion = kMotionWalk;
                 }
 
