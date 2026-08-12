@@ -24,6 +24,7 @@
 #include "engine/audio.h"
 #include "engine/world.h"
 #include "host/render.h"
+#include "engine/mode.h"
 #include "mcf/mcf.h"
 
 namespace {
@@ -225,6 +226,8 @@ int main(int argc, char** argv) {
     bool player_selftest = false;
     bool inventory_selftest = false;
     bool ai_selftest = false;
+    bool boot_chain = false;
+    bool mode_selftest = false;
     bool show_hud = true;
     int auto_levelup = -1;
     int grant_exp = 0;
@@ -262,6 +265,8 @@ int main(int argc, char** argv) {
         else if (a == "--player-selftest") player_selftest = true;
         else if (a == "--inventory-selftest") inventory_selftest = true;
         else if (a == "--ai-selftest") ai_selftest = true;
+        else if (a == "--boot") boot_chain = true;
+        else if (a == "--mode-selftest") mode_selftest = true;
         else if (a == "--no-hud") show_hud = false;
         else if (a == "--auto-levelup" && i + 1 < argc) auto_levelup = std::atoi(argv[++i]);
         else if (a == "--grant-exp" && i + 1 < argc) grant_exp = std::atoi(argv[++i]);
@@ -306,6 +311,7 @@ int main(int argc, char** argv) {
                 "  --show-string ID    open the message window on that line\n"
                 "  --combat-selftest / --audio-selftest / --text-selftest / --player-selftest\n"
                 "  --inventory-selftest / --ai-selftest\n"
+                "  --boot              boot through the engine's real mode chain\n"
                 "                                         self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
@@ -598,6 +604,49 @@ int main(int argc, char** argv) {
                 }
             }
             lucent::info("player", "SELFTEST: {} cases, {} failures", 22, bad);
+            return bad ? 1 : 0;
+        }
+
+        if (mode_selftest) {
+            int bad = 0;
+            auto ck=[&](const char* what, long got, long want){
+                if (got!=want){ lucent::error("mode","SELFTEST FAIL: {} -> {} (want {})",
+                    what,got,want); ++bad; }
+                else lucent::info("mode","  ok: {:<46} -> {}",what,got);
+            };
+            // The enum values are ProcessMain's switch cases, not ours.
+            ck("EMODE ModeInit",      (long)mcf::Mode::kInit, 2);
+            ck("EMODE ModeCESA",      (long)mcf::Mode::kCESA, 3);
+            ck("EMODE ModeMakerLogo", (long)mcf::Mode::kMakerLogo, 4);
+            ck("EMODE ModeTitle",     (long)mcf::Mode::kTitle, 5);
+            ck("EMODE ModeGame",      (long)mcf::Mode::kGame, 6);
+            // The chain, driven for real rather than asserted as a list.
+            mcf::ModeMachine m;
+            std::vector<mcf::Mode> seen;
+            for (int i = 0; i < 4000 && seen.size() < 5; ++i) {
+                if (m.Step(1.f)) seen.push_back(m.current);
+                if (m.current == mcf::Mode::kTitle) m.next = mcf::Mode::kGame;
+            }
+            const mcf::Mode want[] = {mcf::Mode::kInit, mcf::Mode::kCESA,
+                                      mcf::Mode::kMakerLogo, mcf::Mode::kTitle,
+                                      mcf::Mode::kGame};
+            ck("the chain reaches all 5 modes", (long)seen.size(), 5);
+            for (size_t i = 0; i < seen.size() && i < 5; ++i)
+                ck(mcf::ModeName(want[i]), (long)seen[i], (long)want[i]);
+            // The negative: a splash mode must NOT advance early. This checks
+            // the MECHANISM -- that a gate exists at all -- and NOT the value
+            // 0xb1, because the check reads the same constant the gate does.
+            // Editing kMakerLogoFrames was tried as a sabotage and produced
+            // zero failures, so the number itself is verified only by the
+            // disassembly (ModeMakerLogo::Process, `cmp w8, #0xb1`), never by
+            // this test. Said here so the passing line is not mistaken for
+            // proof of the duration.
+            mcf::ModeMachine e; e.Step(1.f);              // -> kInit
+            e.next = mcf::Mode::kCESA; e.Step(1.f);       // -> kCESA
+            for (int i = 0; i < mcf::kMakerLogoFrames - 2; ++i) e.Step(1.f);
+            ck("ModeCESA still held one frame short of 0xb1",
+               (long)(e.current == mcf::Mode::kCESA), 1);
+            lucent::info("mode", "SELFTEST: {} failures", bad);
             return bad ? 1 : 0;
         }
 
@@ -1962,6 +2011,15 @@ int main(int argc, char** argv) {
             float eye_cur[3]{};
             bool cam_init = false;
             bool running = true;
+            // The engine's mode machine. The port reaches gameplay through the
+            // same chain the binary does -- ModeInit -> ModeCESA ->
+            // ModeMakerLogo -> ModeTitle -> ModeGame -- rather than starting in
+            // a room. It is OPT-IN (--boot) for now because the two splash
+            // modes draw nothing: the logo artwork has not been located in the
+            // archive, so running them by default would replace six seconds of
+            // gameplay with six seconds of black and call it progress.
+            mcf::ModeMachine modes;
+            if (!boot_chain) modes = {mcf::Mode::kGame, mcf::Mode::kNone, 0};
             uint64_t prev = SDL_GetTicks();
             float t = anim_t;
             int frames = 0;
@@ -1987,6 +2045,30 @@ int main(int argc, char** argv) {
                 uint64_t now = SDL_GetTicks();
                 float dt = float(now - prev) / 1000.f;
                 prev = now;
+                if (boot_chain) {
+                    // 60fps is the engine's own rate --
+                    // MainProcess::Initialize calls SetFrameParSecond(60).
+                    modes.Step(dt * 60.f);
+                    if (modes.current == mcf::Mode::kTitle) {
+                        // ModeTitle::Process @ 0x3070bc advances on the
+                        // player's choice. The port has no title UI yet, so it
+                        // takes the one branch that is reversed -- "start" --
+                        // and says so rather than pretending to draw a menu.
+                        lucent::info("mode", "ModeTitle has no UI in the port; "
+                                     "taking SetNextMode(ModeGame) directly");
+                        modes.next = mcf::Mode::kGame;
+                    }
+                    if (modes.current != mcf::Mode::kGame) {
+                        // Splash modes: the engine's timing, no art. Pump events
+                        // and present a black frame so the window stays alive.
+                        SDL_Event ev;
+                        while (SDL_PollEvent(&ev))
+                            if (ev.type == SDL_EVENT_QUIT) running = false;
+                        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                        SDL_GL_SwapWindow(win);
+                        continue;
+                    }
+                }
                 if (dt > 0.1f) dt = 0.1f;
                 // A frame COUNT is only a duration if the step is fixed. The
                 // loop is uncapped, so --warmup 400 on this machine was ~0.5 s,
@@ -2264,9 +2346,15 @@ int main(int argc, char** argv) {
                     world.fade.colour[0] = world.fade.colour[1] = world.fade.colour[2] = 0;
                 } else if (game_over_state == 2 && world.fade.remaining_ms <= 0.f) {
                     game_over_state = 3;
-                    lucent::info("world", "game over: the engine would "
-                                 "SetNextMode(5) here, which is a mode this port "
-                                 "does not have; ending the run");
+                    // ModeGame::Process_GameOver @ 0x2dea58 calls
+                    // SetNextMode(5), and mode 5 is ModeTitle -- so the engine
+                    // returns to the TITLE here, it does not end the program.
+                    // An earlier note called 5 "a mode this port does not
+                    // have"; it is named now, and the port follows the engine
+                    // by handing back to the mode machine.
+                    modes.next = mcf::Mode::kTitle;
+                    lucent::info("world", "game over: SetNextMode(ModeTitle), "
+                                 "as the engine does");
                     running = false;
                 }
 

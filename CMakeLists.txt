@@ -34,7 +34,7 @@ add_library(mcf STATIC
 target_include_directories(mcf PUBLIC src)
 target_link_libraries(mcf PUBLIC lucent::lucent)
 
-add_library(engine STATIC src/engine/script.cpp src/engine/world.cpp src/engine/audio.cpp)
+add_library(engine STATIC src/engine/script.cpp src/engine/world.cpp src/engine/audio.cpp src/engine/mode.cpp)
 target_include_directories(engine PUBLIC src)
 target_link_libraries(engine PUBLIC lua lucent::lucent SDL3::SDL3 PkgConfig::VORBISFILE)
 

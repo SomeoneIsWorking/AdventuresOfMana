@@ -2030,3 +2030,54 @@ field but does not fill it.
 
 Still unread: the map flags, the per-room enemy-dead bits (`ClearRoomEnemyDead`
 touches `+0x414`..`+0x438`) and the 8 KB block `Init` memsets at `+0x444`.
+
+
+## The boot chain: ModeInit to ModeGame
+
+`MainProcess::Initialize` @ `0x2c08d8` seeds `srand(time(0))`, sets the frame
+rate with `SiDrawServer::SetFrameParSecond(60)`, and `new`s three singletons —
+`ApplicationMode` (0xb8 bytes), `MCFSiLib` (0x30) and **`ApplicationGlobal`
+(0x2910 = 10,512 bytes)**. That last one is stored at GOT slot `0xd38`, which
+is the pointer this project has been calling `oG` all along: it is an
+`ApplicationGlobal`, and `GameParameter` lives at its `+0x60`.
+
+`ApplicationMode::ProcessMain` @ `0x2c133c` is the mode **factory** — it
+switches on the pending mode word and `new`s the matching class, so the enum
+values are the game's own:
+
+| EMODE | class | size |
+|---|---|---|
+| 2 | `ModeInit` | — |
+| 3 | `ModeCESA` | 792 |
+| 4 | `ModeMakerLogo` | 800 |
+| 5 | `ModeTitle` | — |
+| 6 | `ModeGame` | 55,304 |
+
+`SetNextMode` @ `0x2c0d04` is one instruction, `str w1, [x0, #0x5c]`, so the
+chain is read from the argument each mode passes:
+
+```
+ModeInit      @0x2f6778 -> 3  ModeCESA
+ModeCESA      @0x2d1ef0 -> 4  ModeMakerLogo
+ModeMakerLogo @0x2f6a2c -> 5  ModeTitle
+ModeTitle     @0x3070bc -> 6  ModeGame
+ModeGame                -> 5  from Process_GameOver @0x2dea58,
+                              Process_SystemMenu @0x2f4514, and Process itself
+```
+
+**Game over returns to the title.** The port previously logged mode 5 as "a mode
+this port does not have" — it is `ModeTitle`, and that note is now retired.
+
+The two splash modes are frame-counter state machines: `ModeCESA::Process`
+compares a step counter against `0x13`, `0x14`, `0x1e` and `0x28`, advancing at
+`0x28`; `ModeMakerLogo` does the same and additionally requires its counter at
+`+0x318` to reach `0xb1` — 177 frames, about 2.95s at the engine's 60fps.
+
+The port implements this chain (`src/engine/mode.{h,cpp}`, `--boot`) and
+`--mode-selftest` drives it for real rather than asserting a list. It is
+**opt-in** rather than the default because the splash modes draw nothing: the
+logo artwork has not been located in the archive, and defaulting to six seconds
+of black in place of gameplay would be a regression dressed as progress.
+
+NOT REVERSED: what `ModeInit`, `ModeCESA` and `ModeMakerLogo` actually draw, and
+`ModeTitle`'s menu — the port takes its "start" branch directly and says so.
