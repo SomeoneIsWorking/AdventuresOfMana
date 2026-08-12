@@ -75,6 +75,12 @@ constexpr const char* kFText =
     "float a = mix(1.0, texture2D(tex, uv).r, useTex); "
     "gl_FragColor = vec4(tint.rgb, tint.a * a); }";
 
+// Full RGBA, for the boot art. The text shader samples only .r, because it
+// serves an 8-bit luminance font atlas; the logos are RGBA and need all four.
+constexpr const char* kFSprite =
+    "precision highp float; varying vec2 uv; uniform sampler2D tex; "
+    "uniform vec4 tint; void main() { gl_FragColor = texture2D(tex, uv) * tint; }";
+
 constexpr const char* kFS =
     "precision highp float; uniform sampler2D texture0; varying vec4 colorVarying; "
     "varying vec2 texcoordVarying; void main() { vec4 color = texture2D( texture0 , "
@@ -229,6 +235,7 @@ int main(int argc, char** argv) {
     bool boot_chain = false;
     bool mode_selftest = false;
     bool png_selftest = false;
+    std::string shot_mode;
     bool show_hud = true;
     int auto_levelup = -1;
     int grant_exp = 0;
@@ -269,6 +276,7 @@ int main(int argc, char** argv) {
         else if (a == "--boot") boot_chain = true;
         else if (a == "--mode-selftest") mode_selftest = true;
         else if (a == "--png-selftest") png_selftest = true;
+        else if (a == "--shot-mode" && i + 1 < argc) shot_mode = argv[++i];
         else if (a == "--no-hud") show_hud = false;
         else if (a == "--auto-levelup" && i + 1 < argc) auto_levelup = std::atoi(argv[++i]);
         else if (a == "--grant-exp" && i + 1 < argc) grant_exp = std::atoi(argv[++i]);
@@ -1521,6 +1529,77 @@ int main(int argc, char** argv) {
                 glBindBuffer(GL_ARRAY_BUFFER, fadeVbo);
                 glBufferData(GL_ARRAY_BUFFER, sizeof quad, quad, GL_STATIC_DRAW);
             }
+            // Boot art. Names come from the modes' own string literals:
+            // ModeMakerLogo formats "sk1/sqex%s.png", ModeTitle uses the
+            // per-language title logo. Loaded lazily and only when --boot is
+            // on, so a normal run pays nothing for them.
+            GLuint progSprite = LinkProgram(kVText, kFSprite);
+            GLuint spriteVbo = 0;
+            glGenBuffers(1, &spriteVbo);
+            struct Sprite { GLuint tex = 0; int w = 0, h = 0; };
+            auto loadSprite = [&](const char* name) -> Sprite {
+                Sprite sp;
+                if (!ar.Has(name)) {
+                    lucent::warn("boot", "{} is not in the archive; that screen "
+                                 "will be blank", name);
+                    return sp;
+                }
+                int w = 0, h = 0; std::vector<uint8_t> rgba;
+                if (!mcf::DecodePng(ar.Read(name), &w, &h, &rgba)) {
+                    lucent::warn("boot", "{} did not decode", name);
+                    return sp;
+                }
+                glGenTextures(1, &sp.tex);
+                glBindTexture(GL_TEXTURE_2D, sp.tex);
+                glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA,
+                             GL_UNSIGNED_BYTE, rgba.data());
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                sp.w = w; sp.h = h;
+                lucent::info("boot", "{}: {}x{}", name, w, h);
+                return sp;
+            };
+            Sprite sprMaker, sprTitle;
+            if (boot_chain) {
+                sprMaker = loadSprite("sk1/sqex.png");
+                sprTitle = loadSprite(lang == "ja" ? "sk1/titlelogo_ja_color.png"
+                                                   : "sk1/titlelogo_en_color.png");
+            }
+            // Aspect-fit, because the art is authored at 960x544 and the window
+            // is whatever the user gave us. Letterboxing preserves the logo's
+            // proportions; stretching would not.
+            auto drawSprite = [&](const Sprite& sp) {
+                if (!sp.tex) return;
+                int vw = 0, vh = 0;
+                SDL_GetWindowSizeInPixels(win, &vw, &vh);
+                if (vw <= 0 || vh <= 0) { vw = W; vh = H; }
+                float sa = float(sp.w) / float(sp.h), va = float(vw) / float(vh);
+                float ex = sa > va ? 1.f : sa / va;
+                float ey = sa > va ? va / sa : 1.f;
+                const float q[] = {
+                    -ex,-ey, 0,1,   ex,-ey, 1,1,   ex, ey, 1,0,
+                    -ex,-ey, 0,1,   ex, ey, 1,0,  -ex, ey, 0,0};
+                glUseProgram(progSprite);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glDisable(GL_DEPTH_TEST);
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, sp.tex);
+                glUniform1i(glGetUniformLocation(progSprite, "tex"), 0);
+                glUniform4f(glGetUniformLocation(progSprite, "tint"), 1, 1, 1, 1);
+                glBindBuffer(GL_ARRAY_BUFFER, spriteVbo);
+                glBufferData(GL_ARRAY_BUFFER, sizeof q, q, GL_STREAM_DRAW);
+                glEnableVertexAttribArray(0);
+                glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, nullptr);
+                glEnableVertexAttribArray(1);
+                glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16,
+                                      (const void*)(sizeof(float) * 2));
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+            };
+
             GLuint white = 0;
             glGenTextures(1, &white);
             glBindTexture(GL_TEXTURE_2D, white);
@@ -2124,20 +2203,51 @@ int main(int argc, char** argv) {
                     modes.Step(dt * 60.f);
                     if (modes.current == mcf::Mode::kTitle) {
                         // ModeTitle::Process @ 0x3070bc advances on the
-                        // player's choice. The port has no title UI yet, so it
-                        // takes the one branch that is reversed -- "start" --
-                        // and says so rather than pretending to draw a menu.
-                        lucent::info("mode", "ModeTitle has no UI in the port; "
-                                     "taking SetNextMode(ModeGame) directly");
-                        modes.next = mcf::Mode::kGame;
+                        // player's CHOICE, not a timer -- so the port waits for
+                        // one too, rather than inventing a duration. The menu
+                        // itself (and the name entry the same class carries) is
+                        // not reversed; this takes the "start" branch only.
+                        const bool* ks = SDL_GetKeyboardState(nullptr);
+                        bool press = ks && (ks[SDL_SCANCODE_SPACE] ||
+                                            ks[SDL_SCANCODE_RETURN] ||
+                                            ks[SDL_SCANCODE_Z]);
+                        // A headless or warmup run has nobody to press it.
+                        if (press || warmup > 0 || auto_advance) {
+                            lucent::info("mode", "ModeTitle: taking the start "
+                                         "branch (the menu and its name entry "
+                                         "are not reversed)");
+                            modes.next = mcf::Mode::kGame;
+                        }
                     }
                     if (modes.current != mcf::Mode::kGame) {
-                        // Splash modes: the engine's timing, no art. Pump events
-                        // and present a black frame so the window stays alive.
                         SDL_Event ev;
                         while (SDL_PollEvent(&ev))
                             if (ev.type == SDL_EVENT_QUIT) running = false;
                         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                        // ModeCESA's art (cesa.png) is NOT in this archive --
+                        // 0 hits in all 9886 entries, and no PNG in the assets
+                        // root either. Its screen stays black on purpose, and
+                        // the log says so once rather than pretending.
+                        if (modes.current == mcf::Mode::kMakerLogo)
+                            drawSprite(sprMaker);
+                        else if (modes.current == mcf::Mode::kTitle)
+                            drawSprite(sprTitle);
+                        // --shot-mode NAME captures this screen and exits, so
+                        // "the logo draws" can be checked on real pixels rather
+                        // than asserted. Without it the splash is invisible to
+                        // --screenshot, which counts gameplay frames only.
+                        if (!shot.empty() && shot_mode == mcf::ModeName(modes.current)) {
+                            std::vector<uint8_t> px(size_t(W) * H * 4);
+                            glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                            std::vector<uint8_t> fl(px.size());
+                            for (int y = 0; y < H; ++y)
+                                std::memcpy(&fl[size_t(y) * W * 4],
+                                            &px[size_t(H - 1 - y) * W * 4], size_t(W) * 4);
+                            WritePng(shot, W, H, fl);
+                            lucent::info("host", "wrote {} during {}", shot,
+                                         mcf::ModeName(modes.current));
+                            running = false;
+                        }
                         SDL_GL_SwapWindow(win);
                         continue;
                     }

@@ -2120,3 +2120,37 @@ itself: `tools/asset/png_check.py` decodes the same four files through Python's
 million pixels. `--png-selftest` additionally feeds six inputs that MUST be
 refused — empty, bad signature, truncated mid-IDAT, palette, interlaced and
 16-bit — because a decoder that never says no would "succeed" on anything.
+
+
+### Drawing the boot screens
+
+`--boot` now draws the real art: `ModeMakerLogo` shows `sk1/sqex.png` and
+`ModeTitle` shows the per-language title logo, both decoded by the port's own
+PNG decoder and uploaded as RGBA textures. They are aspect-fit rather than
+stretched, because the art is authored at 960x544 and the window is not.
+
+`ModeCESA` stays blank, and that is the honest outcome rather than a bug: its
+`cesa.png` is in neither the archive nor the assets root.
+
+`ModeTitle` waits for the player, as `ModeTitle::Process` does — it advances on
+a choice, not a timer, so the port does not invent a duration. Headless and
+`--warmup` runs auto-advance since nobody is there to press anything. Only the
+"start" branch is taken; the menu and the name entry the same class carries are
+not reversed.
+
+Verifying this needed a real diagnostic, and the first one lied. `--screenshot`
+counts gameplay frames, so it never captures a splash screen at all; `--shot-mode
+NAME` was added to capture the named mode and exit. Then the first pixel check
+counted "non-black" pixels and reported all three screens as ~100% covered —
+including CESA, which draws nothing — because the port clears to (26, 28, 36),
+not black, so the background counted as content. Measuring the pixels that
+*differ from the clear colour* separates the classes properly:
+
+| mode | frame differing from the clear colour |
+|---|---|
+| `ModeCESA` | 0% — nothing drawn, as expected |
+| `ModeMakerLogo` | 2% |
+| `ModeTitle` | 6% |
+
+Those magnitudes are consistent with the sources: `sqex.png` is 5% opaque and
+the title logo 11%, letterboxed into a square window.
