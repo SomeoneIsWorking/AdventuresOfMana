@@ -1,6 +1,7 @@
 # RE frontier — what is the engine's, and what is not
 
 `docs/codemap.md` says what exists. This says how much of it is **real**.
+`docs/open-questions.md` is the working list of what is still unanswered.
 
 The rule this file exists to enforce: on a reimplementation project the cardinal
 sin is faking a step's output before its RE is done, because that makes a broken
@@ -43,7 +44,6 @@ code rather than from memory.
 | Life steal | attack param `+0x28 == 0x6d` heals the attacker `damage / 4` | the attack-type ids again |
 | Shop / inn / ring menu UI | all the DATA: item names (`ITEM_NAME_<id>`), buy and sell prices, categories, and the `@I`/`@P` message slots the dialogue uses | the screens |
 | Text control code `@<digits>` | it indexes a caller-supplied argument array | every caller on the dialogue path passes NULL. 1 of 393 strings is affected |
-| CJK glyphs | the font atlas is ASCII 32..126 | the original draws CJK with the **Android system font**, which is not in the archive. Japanese text decodes and expands correctly and cannot be drawn |
 | enemydat `+0x51`, `+0x53`, `+0x58`, `+0x5c` | where `SetEnemyId` puts them | what they are |
 | `tblItem` `kind` | — | no consumer found; Candy/Ether/Elixir share kind 1 while Potion and Hi-Potion are kind 2 |
 | 98 of 60,803 motion time arrays | they are non-monotonic, in 9 files | what that means |
@@ -75,6 +75,7 @@ Kept because a confidently wrong note costs more than no note.
 | "Items stack, and a slot's second word is the quantity" | nothing stacks. `AddItem` takes the first slot whose id is 0 without ever comparing the id being added against the ids already held, and the second word is the acquisition order, taken from a counter at `GameParameter+0x368` |
 | "Several AI cases roll `GameRandom(100)` against a per-enemy probability at `+0x3894`" | `+0x3894` is an **index**, not a probability — it is multiplied by 140 (`smaddl`) to select a record in the AI parameter block at actor `+0x377c` |
 | "The AI parameter block is not from `enemydat.bin`, because `SetEnemyId`'s memcpy lands past it" | true of that memcpy, false as a conclusion. `SetAITblFromEnemyTbl` @ `0x2a6cb0` is a second path out of the same file and copies `+0x80..+0x194` into the block. Two thirds of every enemy record is AI configuration that sat unparsed behind the wrong conclusion |
+| "Japanese cannot be drawn — the atlas is ASCII 32..126 and the original draws CJK with the Android system font" | the atlas claim was true of `BasicFont.sfont` and the CONCLUSION from it was wrong. `BasicFont` is not what the engine draws UI text with: `FontFileLoad` @ `0x2c2608` loads `sk1/font_<lang>.bin`, which carries 543 characters in English and 1209 in Japanese, kana and all. The port draws with it now |
 | "The AI's event-box loop uses 30.0 as a chip-scaled reach" | written one commit earlier from the fact that 30.0 is loaded just before the branch into the loop. It is never read there — across `0x2a9618`..`0x2a9cd4` those callee-saved registers are only reassigned. A constant being *live* is not a constant being *used* |
 | "The per-chip height/attribute grids come from the room's `.gdt`, so the route table is buildable from what the port already parses" | they do not come from the `.gdt` at all. `ModeGame::MakeRandomChrPosTbl` @ `0x2dd0a0` builds both by raycasting the collision mesh once per chip through `CheckAddPos` @ `0x2dcd20`; an enumeration of every writer of `+0x9ba8`/`+0x9bb0` across the whole disassembly, in five encodings, finds exactly two — the ctor null-init and that function. Consequence: the port's `GetFloor`-at-chip-centre grid is essentially the ENGINE's method, not a substitution for it |
 | "`_MakeRouteTable`'s `(w3,w4)` is the previous chip, re-based each step" | it is the **fixed goal cell** — saved to `w23`/`w24` @ `0x2a7d8c`/`0x2a7d94` and restored unchanged for all four recursive calls, and the wrapper reads `route[chipsW*w4 + w3]` at the end. So the 5-unit test is an absolute height band around the GOAL, not a per-step slope limit, and both attribute tests are against the goal chip. It is a depth-limited flood fill |

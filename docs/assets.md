@@ -966,10 +966,60 @@ Verified by rendering: the record for `A` claims atlas (78,12) size 8x9, and
 cropping exactly that rectangle out of the atlas produces the letter A.
 
 **Limitation:** the font covers exactly ASCII 32..126 (95 glyphs) — confirmed
-from the codepoint map, not assumed. Japanese therefore has no glyphs; the game
-draws CJK with the Android system font, which is not in the archive. The port
-warns once per line when characters cannot be drawn, so a blank panel is not
-mistaken for a broken message window.
+from the codepoint map, not assumed. **This is not the font the engine draws UI
+text with**, which is why the port no longer uses it except as a fallback — see
+the next section.
+
+
+## `font_<lang>.bin` — the font the engine actually draws with
+
+`FontFileLoad` @ `0x2c2608` reads `sk1/font_%s.bin` and `sk1/font_%s.txt`, hands
+the `.bin` to `FontTexCreate` -> `FTData::FTData(MCFSiPlatform*, void*)` @
+`0x338588`, and the `.txt` to `FontTexFix`. Four ship: `font_en`, `font_ja`,
+`font_en_high` (2x, a 2048 atlas) and `font_en_op` (the opening crawl's own).
+
+Header, from the ctor's own loads and the sizes it allocates:
+
+| Offset | Meaning |
+|---|---|
+| +0x00 | 0 in all four |
+| +0x04 | base font size — **also the atlas row pitch** (en 28, ja 23, high 60, op 33) |
+| +0x08 | the same value again in all four |
+| +0x0c | records per page (`this+0xf8`) |
+| +0x10 | pages (`this+0xfc`; 1 in all four) |
+| +0x14 | texture dimension (`this+0xec`; square, 8-bit coverage) |
+| +0x18 | `pages * records * 0xa04` bytes of records, then `pages * dim * dim` of pixels |
+
+A record is **one row of the atlas**: 128 entries of `0x14` bytes and a `u32`
+count at `+0xa00`. An entry is the character's UTF-8 bytes (NUL padded, 8), two
+runtime cache fields, and its width at `+0x10`.
+
+The x position is **not stored**. `FTData::drawCharacter` @ `0x339780`
+recomputes it by summing `width + 2` over the preceding entries of the same
+record — `movi v0.4s, #0x2` @ `0x339a34` in the vectorised path and
+`add w10, w10, #0x2` @ `0x339ad8` in the scalar tail. So:
+
+    x = sum over i < index of (width_i + 2),    y = record * pitch
+
+Three independent checks, because a font layout that is merely plausible renders
+plausible-looking rubbish:
+
+- the computed size accounts for **every byte of all four files** (en 1135776,
+  ja 1151160, en_high 4278940, en_op 298064);
+- the entry count equals the character count of the companion `.txt` **exactly**
+  (543 for en, 1209 for ja), and record 0's characters are that file's first 65
+  in order;
+- rendered. `Adventures of Mana © ® ― Sumo ぁあぃ` comes out legible from the
+  computed boxes; the same string laid out without the `+ 2` gap comes out
+  visibly garbled. Both were looked at, not reasoned about.
+
+Glyph ink can spill into the 2px gap — `#` is 19 wide in a cell of 17 — so the
+cell is the **advance**, not a bounding box.
+
+`font_en` covers 543 characters including the copyright and registered signs,
+the em dash, full-width punctuation and kana; `font_ja` covers 1209. So the
+older note that "Japanese has no glyphs and the game draws CJK with the Android
+system font" was wrong about this game: the CJK is in the archive.
 
 
 ## Dialogue control codes -- expanded, from the engine's own parser

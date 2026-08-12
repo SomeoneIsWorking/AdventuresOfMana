@@ -36,7 +36,10 @@ More precisely:
 `docs/codemap.md` carries an honest per-subsystem status, and
 `docs/re-frontier.md` splits everything into what was read out of the shipping
 binary, what the port had to choose for itself, and what is simply missing —
-along with every claim this project has had to retract. Nothing here is marked
+along with every claim this project has had to retract.
+`docs/open-questions.md` is the shorter working list: the reversing questions
+that are currently blocking something, and the findings that are recorded but
+have not yet survived a second, adversarial reading. Nothing here is marked
 done unless it was verified on real data.
 
 ## What is NOT here
