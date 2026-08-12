@@ -38,6 +38,29 @@ Mode ModeMachine::Advance() const {
     }
 }
 
+// ModeTitle::Render @ 0x3087cc: memcpy(dst, 0xbd354, 0x180) over a 0x80 stride.
+const char* const TitleMenu::kItemId[TitleMenu::kItemCount] = {
+    "SYS_TITLE_MENU_NEWGAME",
+    "SYS_TITLE_MENU_CONTINUE",
+    "SYS_TITLE_MENU_LOADGAME",
+};
+
+void TitleMenu::Down() { cursor = (cursor + 1) % kItemCount; }
+void TitleMenu::Up()   { cursor = (cursor + kItemCount - 1) % kItemCount; }
+
+bool TitleMenu::Confirm(bool (*enabled)(int)) {
+    if (enabled && !enabled(cursor)) {
+        // Refuse rather than accept-and-do-nothing: an item that looks like it
+        // was taken but changed nothing is the worse failure.
+        lucent::info("title", "{} has no data to act on", kItemId[cursor]);
+        return false;
+    }
+    chosen = true;
+    choice = cursor;
+    lucent::info("title", "chose {}", kItemId[cursor]);
+    return true;
+}
+
 bool ModeMachine::Step(float dt_frames) {
     if (next != Mode::kNone && next != current) {
         lucent::info("mode", "{} -> {}", ModeName(current), ModeName(next));

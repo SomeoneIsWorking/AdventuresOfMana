@@ -3,6 +3,7 @@
 //
 // --screenshot renders a single frame and writes a PNG, so correctness can be
 // checked without a display. That is the acceptance test for this stage.
+#include <set>
 #include <SDL3/SDL.h>
 #include <GLES2/gl2.h>
 
@@ -241,6 +242,7 @@ int main(int argc, char** argv) {
     bool inventory_selftest = false;
     bool ai_selftest = false;
     bool boot_chain = false;
+    bool title_start_in_menu = false;   // TEST HOOK: skip the attract screen
     bool mode_selftest = false;
     bool png_selftest = false;
     std::string shot_mode;
@@ -282,6 +284,7 @@ int main(int argc, char** argv) {
         else if (a == "--inventory-selftest") inventory_selftest = true;
         else if (a == "--ai-selftest") ai_selftest = true;
         else if (a == "--boot") boot_chain = true;
+        else if (a == "--title-menu") title_start_in_menu = true;
         else if (a == "--mode-selftest") mode_selftest = true;
         else if (a == "--png-selftest") png_selftest = true;
         else if (a == "--shot-mode" && i + 1 < argc) shot_mode = argv[++i];
@@ -330,6 +333,7 @@ int main(int argc, char** argv) {
                 "  --combat-selftest / --audio-selftest / --text-selftest / --player-selftest\n"
                 "  --inventory-selftest / --ai-selftest\n"
                 "  --boot              boot through the engine's real mode chain\n"
+                "  --title-menu        TEST HOOK: open the title on its menu\n"
                 "                                         self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
@@ -1610,6 +1614,81 @@ int main(int argc, char** argv) {
                 glDrawArrays(GL_TRIANGLES, 0, 6);
             };
 
+            // Screen-space text, in the game's own font. The HUD, the message
+            // window and the level-up panel each build their quads inline
+            // because they also draw boxes and bars; this is the plain-text
+            // path the title screen needs, factored so the title does not
+            // become a fourth copy of the same glyph loop.
+            //
+            // x is the LEFT edge unless `centre`, in which case it is the
+            // centre. Returns the advance width, so a caller can lay out
+            // without measuring twice.
+            auto drawUiText = [&](const std::string& s, float x, float y,
+                                  float scale, bool centre,
+                                  float r, float g, float b, float a) -> float {
+                float wpx = 0.f;
+                for (unsigned char ch : s)
+                    if (const mcf::Glyph* gl = font.Find(ch))
+                        wpx += float(gl->Advance()) * scale;
+                if (s.empty() || !font.height()) return wpx;
+                float tx = centre ? x - wpx * 0.5f : x;
+                const float aw = float(font.width()), ah = float(font.height());
+                std::vector<float> verts;
+                auto sx = [&](float px) { return px / float(W) * 2.f - 1.f; };
+                auto sy = [&](float py) { return 1.f - py / float(H) * 2.f; };
+                for (unsigned char ch : s) {
+                    const mcf::Glyph* gl = font.Find(ch);
+                    if (!gl) {
+                        // A dropped byte is a hole in the text, so say so once
+                        // per byte value rather than rendering a shorter string
+                        // and looking correct. The atlas is ASCII 32..126, so
+                        // anything above that (the copyright sign in
+                        // SYS_TITLE_COPYRIGHT_1, and all CJK) has no glyph --
+                        // the original draws those with the Android system
+                        // font, which is not in the archive.
+                        static std::set<unsigned char> warned;
+                        if (warned.insert(ch).second)
+                            lucent::warn("text", "no glyph for byte 0x{:02x}; the "
+                                         "atlas is ASCII 32..126", ch);
+                        continue;
+                    }
+                    if (gl->w && gl->h) {
+                        float gx = tx + float(gl->left) * scale;
+                        float gy = y + float(gl->top) * scale;
+                        float x1 = gx + float(gl->w) * scale;
+                        float y1 = gy + float(gl->h) * scale;
+                        float u0 = float(gl->x) / aw, v0 = float(gl->y) / ah;
+                        float u1 = float(gl->x + gl->w) / aw;
+                        float v1 = float(gl->y + gl->h) / ah;
+                        float q[6][4] = {{sx(gx), sy(gy), u0, v0}, {sx(x1), sy(gy), u1, v0},
+                                         {sx(x1), sy(y1), u1, v1}, {sx(gx), sy(gy), u0, v0},
+                                         {sx(x1), sy(y1), u1, v1}, {sx(gx), sy(y1), u0, v1}};
+                        for (auto& v : q) verts.insert(verts.end(), v, v + 4);
+                    }
+                    tx += float(gl->Advance()) * scale;
+                }
+                if (verts.empty()) return wpx;
+                glUseProgram(progText);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glDisable(GL_DEPTH_TEST);
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, fontTex);
+                glUniform1i(glGetUniformLocation(progText, "tex"), 0);
+                glUniform4f(glGetUniformLocation(progText, "tint"), r, g, b, a);
+                glUniform1f(glGetUniformLocation(progText, "useTex"), 1.f);
+                glBindBuffer(GL_ARRAY_BUFFER, textVbo);
+                glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(verts.size() * 4),
+                             verts.data(), GL_STREAM_DRAW);
+                glEnableVertexAttribArray(0);
+                glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, nullptr);
+                glEnableVertexAttribArray(1);
+                glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, (void*)(uintptr_t)8);
+                glDrawArrays(GL_TRIANGLES, 0, GLsizei(verts.size() / 4));
+                glDisableVertexAttribArray(1);
+                return wpx;
+            };
+
             GLuint white = 0;
             glGenTextures(1, &white);
             glBindTexture(GL_TEXTURE_2D, white);
@@ -2182,6 +2261,14 @@ int main(int argc, char** argv) {
             // gameplay with six seconds of black and call it progress.
             mcf::ModeMachine modes;
             bool title_bgm = false;
+            mcf::TitleMenu title;
+            if (title_start_in_menu) title.phase = mcf::TitleMenu::Phase::kMenu;
+            bool title_press = false;   // "any button" on the attract screen
+            // Which menu items this port can actually act on. Continue and Load
+            // Game both need a save file, and the save format past the
+            // inventory is not reversed, so there is nothing to load: they are
+            // listed and dimmed rather than offered and then ignored.
+            auto titleEnabled = [](int item) { return item == 0; };
             if (!boot_chain) modes = {mcf::Mode::kGame, mcf::Mode::kNone, 0};
             uint64_t prev = SDL_GetTicks();
             float t = anim_t;
@@ -2222,26 +2309,53 @@ int main(int argc, char** argv) {
                     }
                     if (modes.current == mcf::Mode::kTitle) {
                         // ModeTitle::Process @ 0x3070bc advances on the
-                        // player's CHOICE, not a timer -- so the port waits for
-                        // one too, rather than inventing a duration. The menu
-                        // itself (and the name entry the same class carries) is
-                        // not reversed; this takes the "start" branch only.
-                        const bool* ks = SDL_GetKeyboardState(nullptr);
-                        bool press = ks && (ks[SDL_SCANCODE_SPACE] ||
-                                            ks[SDL_SCANCODE_RETURN] ||
-                                            ks[SDL_SCANCODE_Z]);
-                        // A headless or warmup run has nobody to press it.
-                        if (press || warmup > 0 || auto_advance) {
-                            lucent::info("mode", "ModeTitle: taking the start "
-                                         "branch (the menu and its name entry "
-                                         "are not reversed)");
+                        // player's CHOICE, not a timer, so the port waits for
+                        // one too. The attract screen comes first; any button
+                        // opens the three-item menu that ModeTitle::Render
+                        // builds from the id table at 0xbd354.
+                        if (title.phase == mcf::TitleMenu::Phase::kAttract) {
+                            // A headless run has nobody to press a button, but
+                            // the attract screen is a screen the player really
+                            // sees, so hold it for the engine's own 1000ms
+                            // prompt period rather than blinking past it.
+                            bool headless_done =
+                                (warmup > 0 || auto_advance) && modes.frames >= 60;
+                            if (title_press || headless_done) {
+                                title.phase = mcf::TitleMenu::Phase::kMenu;
+                                title_press = false;
+                                lucent::info("title", "menu: {} items",
+                                             mcf::TitleMenu::kItemCount);
+                            }
+                        } else if (title.chosen) {
+                            // Only New Game is reachable -- see titleEnabled.
+                            // oG[0x28c0] initialises to -1 (ApplicationGlobal's
+                            // ctor @ 0x2c07e8) and -1 IS "new game", so this
+                            // matches the engine's own default.
                             modes.next = mcf::Mode::kGame;
+                        } else if (warmup > 0 || auto_advance) {
+                            // Headless: take the engine's default immediately.
+                            title.Confirm(titleEnabled);
                         }
                     }
                     if (modes.current != mcf::Mode::kGame) {
                         SDL_Event ev;
-                        while (SDL_PollEvent(&ev))
+                        while (SDL_PollEvent(&ev)) {
                             if (ev.type == SDL_EVENT_QUIT) running = false;
+                            if (ev.type != SDL_EVENT_KEY_DOWN || ev.key.repeat) continue;
+                            // Edge-triggered: a menu must not scroll once per
+                            // frame while a key is held.
+                            SDL_Keycode k = ev.key.key;
+                            if (modes.current == mcf::Mode::kTitle &&
+                                title.phase == mcf::TitleMenu::Phase::kMenu) {
+                                if (k == SDLK_DOWN || k == SDLK_S) title.Down();
+                                else if (k == SDLK_UP || k == SDLK_W) title.Up();
+                                else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_Z)
+                                    title.Confirm(titleEnabled);
+                            } else if (k != SDLK_ESCAPE) {
+                                title_press = true;   // "any button"
+                            }
+                            if (k == SDLK_ESCAPE) running = false;
+                        }
                         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
                         // ModeCESA's art (cesa.png) is NOT in this archive --
                         // 0 hits in all 9886 entries, and no PNG in the assets
@@ -2249,8 +2363,50 @@ int main(int argc, char** argv) {
                         // the log says so once rather than pretending.
                         if (modes.current == mcf::Mode::kMakerLogo)
                             drawSprite(sprMaker);
-                        else if (modes.current == mcf::Mode::kTitle)
+                        else if (modes.current == mcf::Mode::kTitle) {
                             drawSprite(sprTitle);
+                            // Every word here is the game's own, resolved
+                            // through the shipping string table.
+                            auto say = [&](const char* id) {
+                                // Echo the id when it is missing, so a wrong id
+                                // shows on screen instead of drawing nothing.
+                                const std::string* s = strings.Find(id);
+                                return s ? *s : std::string(id);
+                            };
+                            const float cx = float(W) * 0.5f;
+                            const float kScale = 2.f;      // as the HUD uses
+                            const float sc = kScale * 1.4f;
+                            drawUiText(say(mcf::TitleMenu::kCopyrightId),
+                                       cx, float(H) - 22.f * kScale, kScale, true,
+                                       1.f, 1.f, 1.f, 0.75f);
+                            if (title.phase == mcf::TitleMenu::Phase::kAttract) {
+                                // The engine fades this prompt (LerpL over
+                                // 1000ms @ 0x3084c8); the port pulses it on the
+                                // same 1s period rather than inventing a rate.
+                                float t = float(modes.frames % 60) / 60.f;
+                                float a = 0.35f + 0.65f * std::fabs(1.f - 2.f * t);
+                                drawUiText(say(mcf::TitleMenu::kStartId),
+                                           cx, float(H) * 0.74f, sc, true, 1, 1, 1, a);
+                            } else {
+                                float y = float(H) * 0.64f;
+                                for (int i = 0; i < mcf::TitleMenu::kItemCount; ++i) {
+                                    bool on = titleEnabled(i);
+                                    bool sel = i == title.cursor;
+                                    // Unavailable items are still SHOWN -- the
+                                    // engine lists them -- but dimmed, so the
+                                    // menu does not lie about what it has.
+                                    float v = on ? 1.f : 0.4f;
+                                    if (sel && on) v = 1.f;
+                                    drawUiText(say(mcf::TitleMenu::kItemId[i]),
+                                               cx, y, sc, true,
+                                               v, v, sel ? 0.55f * v : v, on ? 1.f : 0.7f);
+                                    if (sel)
+                                        drawUiText(">", cx - 90.f * kScale, y, sc, false,
+                                                   1.f, 0.85f, 0.35f, 1.f);
+                                    y += 20.f * kScale;
+                                }
+                            }
+                        }
                         // --shot-mode NAME captures this screen and exits, so
                         // "the logo draws" can be checked on real pixels rather
                         // than asserted. Without it the splash is invisible to

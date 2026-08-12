@@ -2294,6 +2294,44 @@ arm @ `0x2d2b8c` is:
 so **a new game starts at world 1, cell (0,0)** = `sk1/M0001_00_00`. The port had
 guessed `M0000_00_00`; that is a real room, but not the one the game starts in.
 
+##### The title screen
+
+`ModeTitle` keeps two counters: a load phase at `+0x318` (0..4, driving
+`GameSaveDataHeaderLoad`) and the screen state at `+0x31c`, which `Process`
+compares against 1..13. The selected save slot is at `+0x324`.
+
+The menu is not built from scattered literals. `ModeTitle::Render` @ `0x3087cc`
+does `memcpy(dst, 0xbd354, 0x180)` over a `0x80` stride, so it is exactly three
+entries, in this order:
+
+| # | id | English |
+|---|---|---|
+| 0 | `SYS_TITLE_MENU_NEWGAME` | New Game |
+| 1 | `SYS_TITLE_MENU_CONTINUE` | Continue |
+| 2 | `SYS_TITLE_MENU_LOADGAME` | Load Game |
+
+`SYS_TITLE_MENU_OPTION` ("Settings") is in the string table but **not** in that
+table, so the title does not offer it.
+
+The attract screen draws `SYS_TITLE_START` plus a platform suffix -- `_PAD`
+("Press Any Button"), `_TOUCH` and `_PSVITA` all ship. The port uses `_PAD`,
+being a keyboard/controller build. The prompt is faded with `LerpL` over 1000ms
+@ `0x3084c8`, so the port pulses it on that period rather than inventing a rate.
+
+The port draws all three items and dims the two it cannot act on: Continue and
+Load Game both need a save file, and the save format past the inventory is not
+reversed. They are listed and refused rather than offered and then ignored.
+
+Not drawn yet, though the strings are all present: the opening crawl
+(`SYS_TITLE_OPENING_0..14`, 15 non-empty lines) and the name-entry screen, whose
+allowed character set the game states outright in `SYS_NAMEENTRY_USE`.
+
+One visible gap: `SYS_TITLE_COPYRIGHT_1` begins with `(c)` U+00A9, and the font
+atlas is ASCII 32..126, so that one glyph is missing. The original draws
+non-ASCII with the Android system font, which is not in the archive. The port
+now warns once per unrenderable byte instead of quietly drawing a shorter
+string.
+
 ##### `oG[0x28c0]`: the pending save slot
 
 The word the constructor branches on has exactly 9 writers and 4 readers in the

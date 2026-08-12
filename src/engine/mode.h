@@ -65,4 +65,43 @@ struct ModeMachine {
     Mode Advance() const;
 };
 
+// ---------------------------------------------------------------------------
+// The title screen.
+//
+// ModeTitle keeps two counters: a load phase at +0x318 (values 0..4, which
+// drive GameSaveDataHeaderLoad) and the screen state at +0x31c, which the
+// Process body compares against 1..13. The selected save slot is at +0x324.
+//
+// The menu is a table of string ids, memcpy'd 0x180 bytes from 0xbd354 at
+// stride 0x80 by ModeTitle::Render @ 0x3087cc -- so it is exactly three
+// entries, in this order. SYS_TITLE_MENU_OPTION ("Settings") is in the string
+// table but NOT in that table, so it is not offered here.
+// ---------------------------------------------------------------------------
+struct TitleMenu {
+    // The attract screen comes first: the logo plus a prompt, and any button
+    // moves on. Then the three-item menu.
+    enum class Phase { kAttract, kMenu };
+
+    // ModeTitle::Render's table at 0xbd354, verbatim and in its order.
+    static constexpr int kItemCount = 3;
+    static const char* const kItemId[kItemCount];
+
+    // Drawn on the attract screen. The engine picks a platform variant of
+    // SYS_TITLE_START; _PAD is the keyboard/controller one, which is what this
+    // port has. (_TOUCH and _PSVITA are the others.)
+    static constexpr const char* kStartId = "SYS_TITLE_START_PAD";
+    static constexpr const char* kCopyrightId = "SYS_TITLE_COPYRIGHT_1";
+
+    Phase phase = Phase::kAttract;
+    int   cursor = 0;         // 0..kItemCount-1
+    bool  chosen = false;     // set when the player confirms
+    int   choice = -1;        // the confirmed item, once `chosen`
+
+    void Down();
+    void Up();
+    // Confirm the cursor. Items whose data is absent are refused rather than
+    // silently accepted; `enabled` says which ones can be picked.
+    bool Confirm(bool (*enabled)(int));
+};
+
 }  // namespace mcf
