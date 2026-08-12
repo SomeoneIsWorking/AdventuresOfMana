@@ -2240,3 +2240,47 @@ this same region were wrong: first a "272-record 16x17 world grid", which came
 from starting 0x80 too early and sampling at a stride that drifted a whole
 record every 16 entries. The raw bytes killed it. Nothing should be built on
 this run until its reader is found.
+
+
+### `ModeGame`'s constructor: the authoritative game-start order
+
+`ModeGame::ModeGame` @ `0x2d22e8` makes 126 calls, and their order is the
+engine's own game-start sequence:
+
+1. `ModeBase`, display sizing (`NativeDispW/H`, `texSizeFix`)
+2. the nine servers, each `new`ed: `AppCharacterServer`, `AppObjectServer`,
+   `AppMapServer`, `AppMapTextureServer`, `AppEventBoxServer`,
+   `AppCollisionServer`, `AppEffectServer`, `AppWeaponServer`,
+   `AppCharacterStandServer`
+3. effect textures and six `StorageLoadModel` / `StorageLoadTexArray` /
+   `AddEffectModel` triples, then `EffectPackStatInit`
+4. `new GameScript`; **`fileread("sk1/sk1.lua")`** then
+   `GameScript::AddScriptToOwner`
+5. **`RunString("SystemInit();")`**
+6. `LoadMapObject`
+7. **`GameParameter::Init`**
+8. `WeaponInit`
+9. `CreatePlayer(-1, 0)` → `AppCharacterServer::Add(..., "MainPlayer")`
+10. `TexPackHelper::Load` / `DataInit`, `SiSurfaceRender::Create`,
+    `new AppCameraGame(player)`
+11. **`GameSaveDataLoad(i)`**
+12. `CreatePlayer_SetData`, `ModeOverlayOption::OptionUpdate`, six `AppTextView`s
+13. character models + motions, nine `WeaponLoad`s, twelve `LoadEffectPackData`s
+
+The port already does steps 4 and 5 — `sk1/sk1.lua` is loaded and `SystemInit`
+called — which is now confirmed as exactly what the engine does rather than a
+reasonable-looking choice. `SystemInit` itself is 85 lines of pure assignment
+(every `scflag*` and `v##_##_##` story flag zeroed) with no calls at all, so it
+sets no map.
+
+**The start room comes from `GameSaveDataLoad`**, not from a literal: the
+constructor loads the save *after* `GameParameter::Init` has laid down defaults.
+That localises the remaining question to which `GameParameter` field holds the
+map — still open, and `M0000_00_00` remains a PORT CHOICE.
+
+One offset trap worth recording: `GameParameter+0x168` is the **item bag**
+(`IsHaveItem`, `AddItem` and `SearchSlotGetCnt` all read it), while the save's
+first post-name field is `oG+0x168`, which is `GameParameter+0x108`. Since
+`GameParameter` sits at `oG+0x60` the two are 0x60 apart and easy to confuse —
+`GameParameter+0x168` is `oG+0x1c8`, exactly where the bag was already shown to
+begin.
