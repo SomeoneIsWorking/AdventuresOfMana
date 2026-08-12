@@ -1604,6 +1604,73 @@ form, which is correct for the states it was verified against but is not the
 whole mechanism. The distance-driven form is recorded and NOT implemented,
 because what feeds `+0x3948`, `+0xc68` and `+0x3918` is not read.
 
+### What the AI STATES do
+
+After the mode body, every path reaches a dispatch on the state word
+`actor+0x38e8` @ `0x2a96d8`:
+
+| state | goes to | what it does |
+|---|---|---|
+| 0, 1 | `0x2a9ed8` | the plain roll path |
+| 2 | `0x2a9748` -> `0x2a9d44` | **walks the route tables** — see below |
+| 3 | `0x2a9700` | reads `record[0x78]`; if `<= 2` sets `actor[0x3908] = it + 10`, then calls `vtable[0x430]` = `UpdateAI_TargetPos()` |
+
+**State 2 is pathfinding.** It indexes two arrays at chip resolution:
+
+```
+w25 = width_in_chips                       // s12 / 30
+w24 = height_in_chips                      // s13 / 30
+w22 = WorldToRoomLocalX(x) / 30            // chip column
+w23 = WorldToRoomLocalZ(z) / 30            // chip row
+idx = w23 * w25 + w22
+d   = (w23 - 1) * w25 + w22                // the neighbour one row back
+if (in bounds && short[d] != 0 && route[idx] - 1 == route[d]) -> step there
+```
+
+`actor+0x3768` is written by `AppCharacterBase::MakeRouteTable` and
+`actor+0x3770` by `MakeShortRoute` — 2 stores each, plus one clear in the
+destructor, and no other writer in the binary. So `+0x3768` is a **distance
+field** and the test `route[here] - 1 == route[neighbour]` is the standard
+descend-by-one backtrack; the block at `0x2a9de4` onward repeats it for the
+other neighbours.
+
+Note on method: `MakeRouteTable`, `MakeShortRoute` and `UpdateAI_TargetPos` have
+**no `bl` call sites and no PLT stubs**. They are reached virtually or through
+shared tails, so a caller scan reports zero for all three. That is the same trap
+as counting callers by target address on a library whose own calls go through
+the PLT — a zero here means "not called this way", never "not called".
+
+#### This bears on a port choice
+
+`docs/re-frontier.md` records **"which AI state means pursue" = state 0** as a
+port choice, reasoned from state 0 being the reset state. State 2 is the state
+that actually paths toward something, and state 3 is the one that calls
+`UpdateAI_TargetPos`. Both are better candidates than state 0.
+
+The port choice is **not** changed here, because what the route table is built
+*toward* has not been read — naming state 2 "pursue" on this evidence would be
+the same leap that produced three wrong readings of the world table. It is
+recorded as evidence against the current choice, to be settled by reading what
+seeds `MakeRouteTable`.
+
+### The tail of the modes 0-2 body
+
+After the event-box loop:
+
+```
+actor[0x3910] -= 1
+if (GetFloorType() == 1) {
+    if (actor[0x38e8] != 0) actor[0x38e8] = 1     // clamp the state
+    actor[0x3934] = 1                             // FORCE mode 1
+    if (w22 == 2) s14 = (actor[0xc4c] == 1) ? 2.0 : 1.0
+}
+s10 = 6.0; s11 = 0.0
+```
+
+then it falls into the same roll tail as every other mode. So the convergence is
+total: **every mode body ends in the shared roll**, and they differ only in what
+they do before it.
+
 ### The duration roll, confirmed by a second path
 
 Modes 5, 6/7/10/11 and 9 all fall into one shared tail at `0x2a9e74`, which is
