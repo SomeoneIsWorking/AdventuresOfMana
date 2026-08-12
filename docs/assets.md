@@ -1525,13 +1525,46 @@ pair stores, record 1's from the copies at `+0x10c`..`+0x160` — and agree.
 Enemy 0 reads out as: state 0 `params (1,3,0,0) timer 60+rand(30)`, state 1
 `(3,1,0,0) 100+rand(50)`, state 3 `(0,0,0,0) 120+rand(120)`.
 
-**How many states are real is NOT settled.** `UpdateAI` stores the state word at
-13 sites; 12 resolve to the immediates 0, 1 and 3, and the 13th is a SIMD store
-that resets state and timer together. State 2 is never among them — yet the code
-compares against 2, and 167 of 214 records carry a populated state-2 descriptor.
-So the store scan is treated as **incomplete**, not as proof that state 2 is
-dead. "Only three states are real" is the conclusion the evidence does not
-support, and it is not drawn.
+#### The four params are transition weights
+
+`UpdateAI` @ `0x2a8d50` picks the next state by **weighted roulette** over the
+current state's four params:
+
+```
+q0   = ldr q0, [rec + state*0x10 + 0x20]   ; the four weights, as a vector
+sum  = addv s0, v0.4s
+if (sum < 1) -> no transition at all; the state stands
+roll = GameRandom(sum)
+roll -= w0;  if (roll < 0) next = 0
+roll -= w1;  if (roll < 0) next = 1
+roll -= w2;  if (roll < 0) next = 2
+next = (roll < w3) ? 3 : unchanged
+```
+
+So param *i* of state *s* is the weight of the transition `s -> i`, and a
+descriptor whose weights sum to zero is one the enemy does not leave by this
+path. That is why the params are always small integers: they are weights, and
+the corpus bears it out — every sum is a small non-negative int, 520 of 856
+descriptors roll for a next state and 336 stand.
+
+Enemy 0, the commonest AI type, reads out as a wander/pause cycle:
+
+| state | transitions | duration |
+|---|---|---|
+| 0 | `->0` 25%, `->1` 75% | 60 + rand(30) frames |
+| 1 | `->0` 75%, `->1` 25% | 100 + rand(50) frames |
+| 2, 3 | none (sum 0) | 120 + rand(120) frames |
+
+There are **77 distinct state machines** across the 214 descriptor sets.
+
+**All four states are real, and an earlier note here was wrong.** That note said
+the state word is only ever stored as 0, 1 or 3, from a scan of the store sites.
+The four branches above converge on a single store at `0x2a8e0c`, so a linear
+backward walk from it only ever sees the nearest `mov`, which is `#3`; the
+branch that sets `#2` at `0x2a8dec` is invisible to that method. The corpus
+disagreed with the scan — 167 of 214 records carry a populated state-2
+descriptor — and the corpus was right. The scan was recorded as incomplete
+rather than as proof, which is the only reason this resolved cleanly.
 
 The descriptor check in `enemydat.py` began as "a timer is 1..3600 frames" and a
 deliberate sabotage — shifting a base by 4 — **passed it**, because that stays

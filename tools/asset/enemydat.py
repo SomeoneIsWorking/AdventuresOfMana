@@ -76,13 +76,25 @@ AI_FLOAT_SLOTS = (0xF8, 0x100, 0x108, 0x184, 0x18C, 0x194)
 DESC_BASES = ((0x80, 0x98, 0xB0, 0xC8),        # record 0
               (0x10C, 0x124, 0x13C, 0x154))    # record 1
 DESC_SIZE = 0x18
-# UpdateAI stores the state word (+0x38e8) at 13 sites. 12 resolve to the
-# immediates 0, 1 and 3; the 13th is a SIMD store that resets it with its timer.
-# State 2 is NOT among them -- yet the code compares against 2 and the data
-# populates state-2 descriptors in most records. So the store scan is treated as
-# INCOMPLETE rather than as proof that state 2 is dead. Saying "only three
-# states are real" here would be a conclusion the evidence does not support.
-STATES_SEEN_STORED = (0, 1, 3)
+# The four params are TRANSITION WEIGHTS, one per destination state, and
+# UpdateAI @ 0x2a8d50 picks the next state by weighted roulette:
+#
+#     q0   = the four weights of the CURRENT state   ldr q0, [rec + state*0x10 + 0x20]
+#     sum  = addv s0, v0.4s
+#     if (sum < 1) -> no transition at all, the state stands
+#     roll = GameRandom(sum)
+#     roll -= w0; if (roll < 0) next = 0
+#     roll -= w1; if (roll < 0) next = 1
+#     roll -= w2; if (roll < 0) next = 2
+#     next = (roll < w3) ? 3 : unchanged
+#
+# All FOUR states are real. An earlier note here said the state word was only
+# ever stored as 0, 1 or 3, from a backward scan of the store sites -- but the
+# four branches above converge on ONE store (0x2a8e0c), so a linear backward
+# walk only ever sees the nearest `mov`, which is #3. The corpus disagreed with
+# that scan (167 of 214 records carry a populated state-2 descriptor) and the
+# corpus was right.
+STATE_COUNT = 4
 # 46 of the 57 source offsets the function reads are typed by a direct `ldr w`
 # or `ldr s`. The remaining 11 arrive through `ldr d`/`ldp`/`str q` SIMD moves
 # that carry no type, so they are reported as untyped rather than assumed int.
@@ -299,8 +311,37 @@ def main(argv):
                 if struct.unpack_from("<2i", raw, r * STRIDE + b + 0x10) != (0, 0):
                     per_state[st] += 1
     print("    populated per state: " + ", ".join(
-        f"{st}={per_state[st]}{'' if st in STATES_SEEN_STORED else ' (never stored by UpdateAI)'}"
-        for st in range(4)))
+        f"{st}={per_state[st]}" for st in range(STATE_COUNT)))
+
+    # The weights are a probability distribution, so they must be non-negative;
+    # a negative one would mean the param block is not what it is claimed to be.
+    # `sum == 0` is meaningful rather than missing: UpdateAI's `cmp w23, #1 /
+    # b.lt` skips the roll entirely, so the state simply stands.
+    neg = terminal = rolling = 0
+    machines = set()
+    for r in range(len(rows)):
+        for rec, bases in enumerate(DESC_BASES):
+            m = []
+            for b in bases:
+                w = struct.unpack_from("<4i", raw, r * STRIDE + b)
+                pair = struct.unpack_from("<2i", raw, r * STRIDE + b + 0x10)
+                m.append((w, pair))
+                if min(w) < 0:
+                    neg += 1
+                if sum(w) < 1:
+                    terminal += 1
+                else:
+                    rolling += 1
+            machines.add(tuple(m))
+    if neg:
+        print(f"    FAIL: {neg} descriptors carry a negative transition weight, "
+              f"so the param block is not a weight table")
+        ok = False
+    else:
+        print(f"    transition weights: {rolling} descriptors roll for a next "
+              f"state, {terminal} have sum 0 and stand; 0 negative weights")
+    print(f"    {len(machines)} distinct state machines across "
+          f"{len(rows) * len(DESC_BASES)} descriptor sets")
 
     if "--ai" in argv:
         # The frame-count pairs are what drive behaviour, so show their spread
