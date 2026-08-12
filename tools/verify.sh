@@ -66,6 +66,8 @@ if [ -f scratch/raw/libmcfandroid.so ]; then
   python3 tools/asset/weapon_table.py || fail=1
   echo "=== item table ==="
   python3 tools/asset/item_table.py || fail=1
+  echo "=== world map ==="
+  python3 tools/asset/worldmap.py --check || fail=1
 else
   echo "=== map-object table SKIPPED (scratch/raw/libmcfandroid.so missing) ==="
 fi

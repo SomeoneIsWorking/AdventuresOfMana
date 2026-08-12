@@ -20,14 +20,13 @@ code rather than from memory.
 
 | what | the choice | why the engine's answer is unavailable |
 |---|---|---|
-| Start room | `M0000_00_00` | narrowed but still open. `ModeGame`'s constructor calls `GameSaveDataLoad` *after* `GameParameter::Init`, so the map is a `GameParameter` field. `MapJump` has exactly **one** caller in the whole binary — the Lua binding `luaopen_cmd` — so native code never calls it, and no `M%04d_%02d_%02d`-style format string exists, so names are not built from its three ints either |
+| Start room | `M0000_00_00` | narrowed further. The engine names a room by **grid position**, not by string: `Process_Room` indexes the world table at `row * cols + col` and copies the name out. So the open question is now the three integers (world, col, row) a new game starts at, which `GameSaveDataLoad` restores. `M0000_00_00` is cell 0 of world 0, so it is a defensible guess, but it is still a guess |
 | Engine-placed NPC positions | deterministic scan of chip centres for walkable floor nearest the room centre, one actor per chip | the chip attribute array and `GameRandom` are not reversed. What IS faithful: that the ENGINE places these, not the script (`AddNPC` @ `0x2c8a10` sets a flag when the script's x and z are both 0) |
 | Which AI state means "pursue" | state 0 | the mode bodies that would say are not reversed. State 0 is the state the engine resets to, and the states an enemy can never leave (weight sum 0, 336 of 856 descriptors) would be absurd as a permanent chase. Everything about the TIMING is the engine's; only this mapping is not |
 | Talk reach | one chip, 30 units | the engine's own talk trigger is not reversed; 30 is the game's fundamental spatial unit rather than an invented number |
 | Player i-frame duration | 30 frames | `AppCharacterPlayer::DamageProcess` reloads it from a per-character field the port cannot source. The RULE — that damage is refused while the timer runs — is the engine's |
 | HUD layout | corner readout | `ModeGame::Draw_StatusData` @ `0x2f1098` draws the real one and is not reversed. Every WORD is the game's (`SYS_COMMON_STATUS_LABEL_*`) |
 | Level-up screen layout | centred panel | same; every word is `SYS_LEVELUP_TYPE_*` and `SYS_HELP_LEVELUP_*` |
-| Room size where no `.gdt` exists | whichever of 300x240 / 330x270 puts the room's collision AABB at `size * grid_index` | the size table lives in `ModeGame` at `+0x9dc` and what fills it has not been found. Scored against the 656 rooms where the truth IS known: 654 agree, 2 disagree |
 | `GameRandom` | fixed-seed `mt19937` with the same range contract | `GameRandom` @ `0x3da480` is not reversed. Every roll's SHAPE is the engine's; the sequence is not |
 | Damage floor at 1 | ~~port choice~~ | **retired** — it is the engine's, `cmp w8, #1` / `csinc` @ `0x2b349c` |
 
@@ -58,6 +57,10 @@ Kept because a confidently wrong note costs more than no note.
 | "303 objects are outside their room cell" | the TEST was wrong: 140 of 993 rooms span several cells. 3284/3284 objects are inside their room mesh |
 | "The charge meter IS the attack power passed to the attack volume" | it is a MULTIPLIER; `SetCollisionAttackParam` stores it at param `+0x2c` and the attack power separately at `+0x30` |
 | "The damage floor at 1 is a port choice" | it is the engine's |
+| "Room size where no `.gdt` exists is a port choice" | it is the engine's. `RoomSizeW` @ `0x2e3654` reads a size index from the cell record and looks it up in a per-world 8-entry table. Scores **656/656** against the `.gdt` ground truth the inference scored 654 on, and covers 344 rooms that have no `.gdt` |
+| "A 272-record 16x17 world grid at `0xbd678`" (then retracted as an artifact) | the retraction was **wrong**, and the original reading was right for the wrong reasons. It IS a 16x17 grid of 272 cells — but the base is `0xbd5ec`, not `0xbd678`, and the record is `{int32 size_index; int32; char name[] at +8}` |
+| "`M0000_00_00` at `0xbd5f8` is a separate literal in a different shape (no `sk1/` prefix)" | it is the tail of `"sk1/M0000_00_00"` at `0xbd5f4`, which is cell 0's own name. The linker merged the shorter literal into the longer one's tail; reading from `0xbd5f8` starts 4 bytes into the string |
+| "Nothing references the table — 0 `adrp`+`add` pairs land in its 36KB" | the scan was right and the inference from it was wrong. Nothing takes its address because it is **copied into `ModeGame`** and read at `this+0xa64` with a computed index — exactly the access shape the scan said it could not see |
 | "`enemydat` ids run 0..106" | three blocks: 0..73, 100..123, 201..209 |
 | "Item sell price is half the buy price" | the ratios are 2, 4, 6 and 15 |
 | "`DataTableGetIdType`'s ranges match each table's record count" | the weapon range is 101..118 and `tblWeapon` holds 101..117 and 121. Both sets have 18 members — the coincidence that let the check pass |

@@ -1181,7 +1181,7 @@ int main(int argc, char** argv) {
                           obj_unknown = 0, actor_no_model = 0, with_odt = 0,
                           invisible = 0, col_fail = 0, on_floor = 0,
                           off_floor = 0, engine_placed = 0, on_floor_aabb = 0;
-                     long size_src[3] = {0, 0, 0}; } c;
+                     long size_src[4] = {0, 0, 0, 0}; } c;
             std::map<std::string, int> missing_models;
             for (const auto& r : rooms) {
                 ++c.rooms;
@@ -1273,8 +1273,10 @@ int main(int argc, char** argv) {
             lucent::info("census", "  origin rule comparison: per-room size puts {} "
                          "actors on floor; a fixed 300x240 puts {} (of {} tested)",
                          c.on_floor, c.on_floor_aabb, c.on_floor + c.off_floor);
-            lucent::info("census", "  room size source: {} from .gdt (engine-attested), "
-                         "{} from the collision AABB (inferred), {} defaulted to 300x240",
+            lucent::info("census", "  room size source: {} from the engine's world "
+                         "table, {} from .gdt, {} from the collision AABB (inferred), "
+                         "{} defaulted to 300x240",
+                         c.size_src[mcf::RoomSize::kTable],
                          c.size_src[mcf::RoomSize::kGdt],
                          c.size_src[mcf::RoomSize::kAabb],
                          c.size_src[mcf::RoomSize::kDefault]);

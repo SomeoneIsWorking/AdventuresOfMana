@@ -878,8 +878,79 @@ void Inventory::NewGame() {
             lucent::warn("inv", "new game could not grant id {}", id);
 }
 
+// ---------------------------------------------------------------------------
+// The engine's world grid. Built once from src/engine/world_table.inc, which
+// tools/asset/worldmap.py reads out of libmcfandroid.so .rodata at 0xbd564.
+// ---------------------------------------------------------------------------
+namespace {
+
+struct WorldTable {
+    std::vector<WorldGrid> worlds;
+    // Parallel to `worlds`: cols*rows names, row-major, "" for an empty cell.
+    std::vector<std::vector<std::string>> names;
+    std::unordered_map<std::string, std::pair<float, float>> size_by_room;
+
+    WorldTable() {
+#define WORLD(id, c, r)                        \
+        worlds.push_back(WorldGrid{c, r});     \
+        names.emplace_back(size_t(c) * size_t(r));
+#define CELL(w, col, row, cw, ch, name)                                  \
+        names[size_t(w)][size_t(row) * size_t(worlds[size_t(w)].cols)    \
+                         + size_t(col)] = name;                          \
+        size_by_room[name] = {cw, ch};
+#include "engine/world_table.inc"
+#undef CELL
+#undef WORLD
+    }
+};
+
+const WorldTable& Table() {
+    static const WorldTable t;
+    return t;
+}
+
+const std::string kNoRoom;
+
+}  // namespace
+
+const std::string& WorldGrid::At(int col, int row) const {
+    if (col < 0 || row < 0 || col >= cols || row >= rows) return kNoRoom;
+    // Index of this grid inside the table -- the grids are contiguous, so the
+    // pointer difference is the world id.
+    const auto& t = Table();
+    size_t w = size_t(this - t.worlds.data());
+    if (w >= t.names.size()) return kNoRoom;
+    return t.names[w][size_t(row) * size_t(cols) + size_t(col)];
+}
+
+const WorldGrid* WorldGrid::Get(int world) {
+    const auto& t = Table();
+    if (world < 0 || size_t(world) >= t.worlds.size()) return nullptr;
+    return &t.worlds[size_t(world)];
+}
+
+const std::string& WorldRoomName(int world, int col, int row) {
+    const WorldGrid* g = WorldGrid::Get(world);
+    return g ? g->At(col, row) : kNoRoom;
+}
+
 RoomSize FindRoomSize(const Archive& ar, const std::string& room) {
     RoomSize rs;
+    // The engine's own answer, when it has one. ModeGame::RoomSizeW @ 0x2e3654
+    // reads the size index out of the cell record and looks it up in the
+    // per-world size table; worldmap.py resolves that to a width and height per
+    // room. It agrees with every one of the 656 rooms whose .gdt states the
+    // size independently, and covers 344 more that have no .gdt at all.
+    {
+        const auto& by_room = Table().size_by_room;
+        auto it = by_room.find(room.starts_with("sk1/") ? room : "sk1/" + room);
+        if (it != by_room.end()) {
+            rs.w = it->second.first;
+            rs.h = it->second.second;
+            rs.source = RoomSize::kTable;
+            return rs;
+        }
+    }
     // Best source: the room's own ground-attribute grid. Load_GroundAttribute @
     // 0x2e6cec computes the grid from the room size (`ceil(size / 30)` chips,
     // four cells per chip, cell = the literal 7.5) and REFUSES the file unless

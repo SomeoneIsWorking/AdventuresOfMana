@@ -419,14 +419,36 @@ private:
 struct RoomSize {
     float w = 300.f, h = 240.f;
     enum Source {
+        kTable,     // the engine's own world table -- src/engine/world_table.inc
         kGdt,       // measured from the room's own .gdt -- engine-attested
         kAabb,      // inferred from the collision AABB -- see docs/assets.md
         kDefault,   // neither file is present
     } source = kDefault;
     const char* source_name() const {
-        return source == kGdt ? ".gdt" : source == kAabb ? "collision AABB" : "default";
+        switch (source) {
+            case kTable: return "world table";
+            case kGdt:   return ".gdt";
+            case kAabb:  return "collision AABB";
+            default:     return "default";
+        }
     }
 };
+
+// ---------------------------------------------------------------------------
+// The engine's world grid, from src/engine/world_table.inc (see
+// tools/asset/worldmap.py and docs/world-map.md). 32 worlds; each is a grid of
+// cells and each non-empty cell names the room file that sits there. This is
+// how the engine turns a position into a room name: Process_Room indexes the
+// table at `row * cols + col` and strcpy's the name out of the record.
+// ---------------------------------------------------------------------------
+struct WorldGrid {
+    int cols = 0, rows = 0;
+    // Empty string where the grid has a hole -- 879 of 1879 cells are empty.
+    const std::string& At(int col, int row) const;
+    static const WorldGrid* Get(int world);   // nullptr if out of range
+};
+// The room at (world, col, row), or "" if that cell is empty or out of range.
+const std::string& WorldRoomName(int world, int col, int row);
 // Never throws: a room with no size data gets the 300x240 default, flagged as
 // such, so a caller can report which rooms it is guessing about.
 RoomSize FindRoomSize(const Archive& ar, const std::string& room);

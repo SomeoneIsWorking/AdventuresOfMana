@@ -2226,31 +2226,75 @@ That choice is *not* confirmed by the standalone `"M0000_00_00"` literal at
 recording because it is exactly the sort of coincidence that would otherwise
 read as confirmation.
 
-#### The unreferenced map-name table at `0xbd678`
+#### The world map: how the engine names a room
 
-Layout, finally pinned from raw bytes rather than inferred: records of stride
-`0x88`, each `{u32}{"sk1/M####_##_##"}` — the `u32` first, the string at `+4`,
-the rest zero padding. **271 records**, all world `M0000`, running
-`M0000_01_00` through `M0000_15_16`; the `u32` takes values 0, 1, 2, 4, 6, 8, 9
-and 10, with 0 in 204 of them. `"M0000_00_00"` sits immediately before at
-`0xbd5f8` in a *different* shape (bare name, no `sk1/` prefix, no `u32`) and is
-the literal `SceneWeapon::Initialize` uses.
+The engine does not name a room with a string; it names it with a **grid
+position**. `ModeGame::Process_Room` @ `0x2e3858` is the only caller of both
+`Load_RoomDat` and `ObjFileLoad`, and it gets the name by indexing a table at
+`row * cols + col` and `__strcpy_chk`-ing the name out of the record @ `0x2e4a40`.
+The room script is then that name plus `%s.lua` (`0x967cc`).
 
-271 + that one is 272, which is exactly 16 x 17 — the shape of a grid whose
-names run `_00_00` to `_15_16`.
+`ModeGame::RoomSizeW` @ `0x2e3654` states the whole layout in nine instructions:
 
-**Nothing references it.** A search for `adrp`+`add` pairs landing anywhere in
-the whole 36KB span `0xbd5f8`..`0xc6670` returns **0**. That bounds the claim to
-what the method can see — it cannot follow an index computed into a register
-base — but the table's purpose is *not* established and nothing should be built
-on it.
+    w10 = this[0xa5c]                      // world width, in cells
+    w9  = this[0x9b1c]                     // current row
+    w8  = this[0x9b18]                     // current column
+    w8  = w10 * w9 + w8                    // linear cell index
+    x8  = this + 0xa64 + w8 * 0x88         // the cell table, stride 0x88
+    w8  = (int32)x8[0]                     // record+0: a size index
+    s0  = *(float *)(this + 0x9dc + w8*16) // the size table, stride 16
 
-Getting here cost three readings, two of them wrong: a "272-record grid with
-fields at +0x60/+0x84" (base off by `0x80`, stride drifting a full record every
-16 entries, and `+0x84` was ASCII `"sk1/"` misread as a float), then a
-"14-record list" (the scan required the leading `u32` to be 4, and it varies).
-Only dumping the bytes across a record boundary settled it.
+So a cell record is `{int32 size_index; int32 unknown; char name[] at +8}`. Two
+member offsets fix the block layout exactly: the size table is at `+0x9dc` and
+the cell table at `+0xa64`, so the header is `0xa64 - 0x9dc` = `0x88` — eight
+16-byte size entries, then `int32 cols` and `int32 rows`. A block is `0x88` of
+header plus at most 272 records of `0x88`, and `273 * 0x88` = `0x9108`, four
+under the `0x910C` stride measured between blocks, so each block has four bytes
+of tail padding. 272 is the cap because M0000 is 16x17.
 
+The `.rodata` copy is at `0xbd564`: **32 worlds, 1879 cells, 1000 named** (879
+cells are holes). `tools/asset/worldmap.py` extracts it to
+`src/engine/world_table.inc` and validates it in both directions:
+
+- every named cell's string encodes its own world id and `(col, row)` — 1000/1000;
+- 998 of 1000 have a `.dat` in the archive;
+- the size the table gives matches the room's own `.gdt` header — **656/656**,
+  against a deliberately-wrong control (always 300x240) that scores 384/656 on
+  the same corpus, so the corpus discriminates.
+
+The check is verified to fail: shifting the base by 4, the stride by 4, or the
+record size by 4 each trips a gate. Worth noting which one — a record size of
+`0x8C` still scored **9/9** on the size gate and was caught only by the name
+gate, so the size check alone would have certified a wrong layout.
+
+This supersedes the old inference: the room census now takes 988 of 993 room
+sizes from the engine's own table.
+
+##### Three wrong readings of this table, and what caused each
+
+Kept because this region defeated inference three times and the failure modes
+generalise.
+
+1. *"272-record 16x17 grid with fields at +0x60/+0x84"* — base off by `0x80`, a
+   stride that drifted a record every 16 entries, and `+0x84` was the ASCII
+   `"sk1/"` read as a float. Retracted.
+2. *"14 records of `{u32 = 4}{name}`"* — the scan required the leading `u32` to
+   be 4, and it varies. This also **wrongly retracted reading 1**, which had the
+   grid shape right.
+3. *"271 records at `0xbd678`, string at +4"* — off by 4, so the field the engine
+   actually compares (`record+0`, the size index) was never looked at, and cell 0
+   was excluded. That made `"M0000_00_00"` at `0xbd5f8` look like a separate
+   literal "in a different shape, with no `sk1/` prefix" — it is simply the tail
+   of `"sk1/M0000_00_00"` at `0xbd5f4`, merged by the linker.
+
+Reading 3 also concluded the table was unreferenced, because zero `adrp`+`add`
+pairs land in its 36KB. That scan was correct; the inference from it was not.
+Nothing takes the table's address because it is **copied into `ModeGame`** and
+read at `this + 0xa64` with a computed index — precisely the access shape the
+scan had already said it could not see. The stated blind spot was the answer.
+
+What finally settled it was not a better scan: it was reading the nine
+instructions of `RoomSizeW`, which name every offset outright.
 
 ### `ModeGame`'s constructor: the authoritative game-start order
 
