@@ -1810,10 +1810,12 @@ is what `_MakeRouteTable`'s `|h| > 9999` test rejects.
 Two limits on that negative, carried deliberately: `MapServer::IsCollisionFloor`
 and `IsCollisionPushBack` were **not** decoded, so if the collision mesh is
 itself loaded from the `.gdt` then the `.gdt` reaches the grid indirectly and a
-static read cannot see it. And `Load_GroundAttribute` sizes the `.gdt` with
-`frintp` (**ceil**) while every chip-grid reader uses `fcvtzs` (**truncate**), so
-the two do not even cover the same area for a room whose size is not a multiple
-of 30 — how many rooms that is has not been counted.
+static read cannot see it. `Load_GroundAttribute` sizes the `.gdt` with `frintp` (**ceil**) while every
+chip-grid reader uses `fcvtzs` (**truncate**), which would split the two for any
+room whose size is not a multiple of 30 — but **counted over the world table's
+1000 rooms, that is 0 of them**. Every shipping room's width and depth is a
+multiple of 30, so ceil and truncate agree everywhere and the mismatch is
+latent, not live.
 
 **What the port does.** It chases over a BFS distance field whose passability
 comes from `col.GetFloor` at each chip centre. Given the above, that is
