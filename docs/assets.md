@@ -1403,9 +1403,45 @@ The shared body for modes 0..2 opens by resetting state — `strh #0x101` into
 `+0xc7f` sets the two bytes at `+0xc7f` and `+0xc80` to 1, `+0xcc5` := 0,
 `+0x36f4` := 0.0f, `+0x36fc` := 1.0f — and additionally clears `+0xc7c` for
 modes 0 and 1 only, which is the one place the three modes diverge. It then
-enumerates the room's event boxes through `AppEventBoxServer::EnumInit` / `Enum`
-with the literals 30.0, 15.0 and -10.0 held in registers across the loop. 30 is
-one chip, so the reach is chip-scaled like everything else spatial in this game.
+enumerates the room's event boxes through `AppEventBoxServer::EnumInit` / `Enum`.
+
+The literals 30.0, 15.0 and -10.0 are loaded into callee-saved registers at
+`0x2a9618`, immediately before the branch into the loop. An earlier version of
+this note called 30 a chip-scaled *reach* for the loop. That was an invention:
+across `0x2a9618`..`0x2a9cd4` those registers are only ever **reassigned**
+(`0x2a96b0`, `0x2a97ac`, `0x2a9810`) and never read, so the loop body does not
+consume them. What they are for is not established.
+
+### What the event-box loop does
+
+Not pathing — a **floor-type state machine**. Per box:
+
+```
+mask = box->vtable[0x40]()          // a type mask
+if (!(mask & 3)) continue
+if (!box->vtable[0x20](actor_pos))  // containment test
+    continue
+```
+
+The two mask bits are the two directions of one transition on
+`CharacterBase::GetFloorType` / `SetFloorType`:
+
+| bit | condition | effect |
+|---|---|---|
+| 0 | floor type is 0, and bit 31 of `+0x3910` is set | `SetFloorType(1)`, then `vtable[0x2f0](0.0f)` |
+| 1 | floor type is 1, and the float at `+0x38c0` is > 0 | `SetFloorType(0)`, then `vtable[0x1c8]()` and `vtable[0x2f0](1.0f)` |
+
+Bit 1 also has an earlier arm: when the floor type is still 0 and either bit 31
+of `+0x3910` is set or the float at `+0x38c4` is > 0, it branches to `0x2a9a00`
+instead. So `+0x38c0` and `+0x38c4` are the two gates on the transition, one per
+direction.
+
+This reframes the older note that described the mode switch as reaching "event
+boxes and route tables" as though it were navigation. For modes 0..2 the event
+boxes are **terrain regions**, and the body's job is entering and leaving them.
+What `vtable[0x2f0]` and `vtable[0x1c8]` do is **not read** — the 0.0f / 1.0f
+pairing invites reading the first as a speed multiplier, which is exactly the
+kind of guess this file exists to keep out.
 
 Mode 8's body is the only other one read: it differences two counters at
 `+0x38c8` and `+0x38cc`, writes the `<=` result as a byte into a *different*
