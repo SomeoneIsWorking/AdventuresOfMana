@@ -43,7 +43,7 @@ code rather than from memory.
 | Text control code `@<digits>` | it indexes a caller-supplied argument array | every caller on the dialogue path passes NULL. 1 of 393 strings is affected |
 | CJK glyphs | the font atlas is ASCII 32..126 | the original draws CJK with the **Android system font**, which is not in the archive. Japanese text decodes and expands correctly and cannot be drawn |
 | enemydat `+0x51`, `+0x53`, `+0x58`, `+0x5c` | where `SetEnemyId` puts them | what they are |
-| `tblItem` `kind`, `+0x10` | `+0x10` is strongly implied to be the restore amount (Candy 8, Potion 16, Hi-Potion 32; Elixir and Crystal 999) | no consumer found for either, so both stay labelled guesses |
+| `tblItem` `kind` | — | no consumer found; Candy/Ether/Elixir share kind 1 while Potion and Hi-Potion are kind 2 |
 | 98 of 60,803 motion time arrays | they are non-monotonic, in 9 files | what that means |
 
 ## Corrections this project has had to make
@@ -61,3 +61,4 @@ Kept because a confidently wrong note costs more than no note.
 | "Item sell price is half the buy price" | the ratios are 2, 4, 6 and 15 |
 | "`DataTableGetIdType`'s ranges match each table's record count" | the weapon range is 101..118 and `tblWeapon` holds 101..117 and 121. Both sets have 18 members — the coincidence that let the check pass |
 | "`+0xc7b` is a chase flag" | an invented name; its readers are a motion-driven state machine |
+| "`tblItem` `+0x10` is *probably* the restore amount" | it IS, and the guess is retired: `UseInventoryFunc` @ `0x2deb78` reads `DataTableGetItem(id) + 0x10` and adds it to HP or MP |

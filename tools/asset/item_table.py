@@ -206,12 +206,25 @@ def main(argv):
         f.write("\nThe `kind` word is not identified — Candy, Ether, Hi-Ether, "
                 "Elixir and Crystal share kind 1 while Potion and Hi-Potion are "
                 "kind 2, which no reading here explains.\n\n")
-        f.write("`+0x10` is **strongly implied** to be the restore amount, and "
-                "that is an inference from the data rather than a read of any "
-                "consumer: Candy 8, Potion 16, Hi-Potion 32 double along the "
-                "tier, Ether 8 and Hi-Ether 16 do the same, and the only two "
-                "999s are Elixir and Crystal. No code that reads it has been "
-                "found, so it is labelled a guess.\n\n")
+        f.write("`+0x10` **is the effect amount**, and that is no longer an "
+                "inference. `ModeGame::UseInventoryFunc` @ `0x2deb78` reads it "
+                "directly: `DataTableGetItem(id) + 0x10` for an item (and "
+                "`DataTableGetMagic(id) + 0x08` for a spell), then dispatches "
+                "through a 29-case jump table at `.rodata 0xa6220` on "
+                "`id - 1`.\n\n")
+        f.write("Three effect routines read outright:\n\n")
+        f.write("| items | routine | what it does |\n|---|---|---|\n")
+        f.write("| 1, 2, 3 — Candy, Potion, Hi-Potion | `0x2dec40` | "
+                "if HP >= 1, `GameParameter+0x114 += value` |\n")
+        f.write("| 4, 5 — Ether, Hi-Ether | `0x2df22c` | "
+                "`GameParameter+0x118 += value` |\n")
+        f.write("| 6 — Elixir | `0x2df3f0` | if HP >= 1, HP := max HP and "
+                "MP := max MP |\n")
+        f.write("\nNeither heal clamps: `GameParameter::Update` does that on the "
+                "next frame, which is why it clamps at all. And Elixir never "
+                "reads its own `+0x10` — the 999 is a sentinel, not a "
+                "quantity.\n\n")
+        f.write("The remaining 26 routines are not read.\n\n")
         f.write("Buy and sell prices are NOT a fixed ratio — across the "
                 f"{len(buyable)} purchasable items the buy/sell ratio is 2, 4, "
                 "6 or 15.\n\n")
