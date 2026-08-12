@@ -1341,3 +1341,42 @@ walks an enemy into the player and holds it there, so every enemy attacks as
 fast as the player's i-frames allow. Against a level-1 player (19 HP, 7 defence)
 a werewolf's 40 attack is 33 damage a hit, and the run ends in seconds. That
 number is right; the behaviour producing it is not.
+
+
+## Enemy AI: the architecture, and how much of it is read
+
+`AppCharacterBase::UpdateAI` @ `0x2a894c` is the enemy AI, and it is large. Its
+shape, established:
+
+1. It switches **27 ways** on the enemy's AI type (`enemydat +0x64`, actor
+   `+0x3930`): `cmp w8, #0x1a`, `b.hi` to the default, dispatch through a `ldrh`
+   jump table at `.rodata 0x9dfb0`. Case bodies start at `0x2a8ea8`.
+2. Each case is short. It sets a **movement mode** at actor `+0x3934` and a
+   **chase flag byte** at actor `+0xc7b`, sometimes conditionally on a state
+   word at actor `+0x38e8`, and several cases roll `GameRandom(100)` against a
+   per-enemy probability at actor `+0x3894` to decide.
+3. A **second switch**, at `0x2a95b4`, branches on that movement mode (0..5 and
+   above) and does the actual work -- it reaches into `AppEventBoxServer::Enum`
+   and the route tables (`MakeRouteTable`, `MakeShortRoute`) from there.
+
+So "27 behaviours" is really *27 small selectors over a handful of movement
+modes*, which is far more tractable than it first looked. The mode switch is
+where the work is.
+
+Four cases read instruction by instruction:
+
+| type | enemies | what the case does |
+|---|---|---|
+| 0 | 59 | mode := 1, chase := 0, unconditionally |
+| 1 | 3 | mode := 2, chase := 1, unconditionally |
+| 2 | 8 | if state `+0x38e8` == 0: mode := 0, chase := 0; else elsewhere |
+| 4 | 1 | mode := 0, state := 0, chase := 0 |
+
+**The other 23 are not read.** A quick script that tried to extract all 27
+mechanically disagreed with the four above, so its table is not published: an
+extractor that contradicts a hand reading is a broken instrument, not a
+shortcut. Nothing here is implemented -- the port still runs its placeholder,
+which walks an enemy into the player and holds it there.
+
+The next step is the mode switch at `0x2a95b4`, not more case bodies: 59 of the
+107 enemies are type 0, and type 0 is one line.
