@@ -2154,3 +2154,44 @@ not black, so the background counted as content. Measuring the pixels that
 
 Those magnitudes are consistent with the sources: `sqex.png` is 5% opaque and
 the title logo 11%, letterboxed into a square window.
+
+
+### ModeTitle's own state machine
+
+`ModeTitle::Process` @ `0x306670` is 6,856 bytes and runs **22 sub-states** off a
+step word at `this+0x318`, dispatched through a jump table at `.rodata`
+`0xbd004` with branch base `0x306718`. The states advance each other with
+`ApplicationMode::SetNextSubMode` @ `0x2c0d0c` (one instruction,
+`str w1, [x0, #0x60]`), which is a second, finer machine sitting inside the
+mode machine.
+
+What the states do, by the calls in each handler's own block:
+
+| state | does |
+|---|---|
+| 0 | `ModeTitle::LoadTitleLogo` |
+| 1, 14, 15 | fades — `SetDispFade` / `IsDispFade` / `DispFadeFinish` |
+| 3 | **`GameBgmPlay(1)`** — the title theme is track 1 |
+| 5 | `GameSePlay`, fade clear |
+| 7, 12 | display sizing — `ApplicationDispH`, `VirtualDispW`, `ConvXPosAppWithPadding` |
+| 10 | `ModeTitle::LoadOpeningFont`, `FontTexSetDeviceMake` |
+| 13 | **`GameSaveDataHeaderLoad`**, `GameSaveDataIsFinAsync` — the Continue / New Game branch |
+
+So the title loads the save header to decide what to offer, which is the entry
+point to the save format already documented above.
+
+### Name entry
+
+The same class carries the new-game name entry. The strings resolve to:
+
+| key | en | ja |
+|---|---|---|
+| `SYS_DEFAULTNAME_HERO` | `Sumo` | ヒーロー |
+| `SYS_DEFAULTNAME_GIRL` | `Fuji` | ヒロイン |
+| `SYS_NAMEENTRY_INFO_2` | "Names may consist of up to 8 letters or numbers." | (lists the permitted kana) |
+
+so the limit is **8 characters**, and the defaults are the series' own Sumo and
+Fuji. The port already sources both from `SYS_DEFAULTNAME_*` rather than
+hardcoding them — checked rather than assumed, and it was already right.
+
+NOT REVERSED: the menu layout, the name-entry UI, and which sub-state runs it.

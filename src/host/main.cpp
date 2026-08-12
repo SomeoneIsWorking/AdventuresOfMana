@@ -2171,6 +2171,7 @@ int main(int argc, char** argv) {
             // archive, so running them by default would replace six seconds of
             // gameplay with six seconds of black and call it progress.
             mcf::ModeMachine modes;
+            bool title_bgm = false;
             if (!boot_chain) modes = {mcf::Mode::kGame, mcf::Mode::kNone, 0};
             uint64_t prev = SDL_GetTicks();
             float t = anim_t;
@@ -2201,6 +2202,14 @@ int main(int argc, char** argv) {
                     // 60fps is the engine's own rate --
                     // MainProcess::Initialize calls SetFrameParSecond(60).
                     modes.Step(dt * 60.f);
+                    if (modes.current == mcf::Mode::kTitle && !title_bgm) {
+                        // ModeTitle's state 3 @0x3070d4 calls GameBgmPlay(1),
+                        // so the title theme is track 1 -- the engine's number,
+                        // not a guess.
+                        title_bgm = true;
+                        sc.pending_bgm = 1;
+                        serviceAudio();
+                    }
                     if (modes.current == mcf::Mode::kTitle) {
                         // ModeTitle::Process @ 0x3070bc advances on the
                         // player's CHOICE, not a timer -- so the port waits for
