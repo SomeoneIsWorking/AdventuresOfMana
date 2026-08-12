@@ -1498,6 +1498,48 @@ assumed.
 The dominant int values across the corpus are 1, 120, 2, 3, 30, 60, 240, 180 --
 frame counts at 30 fps, matching the shape of the constructor defaults.
 
+#### The 24-byte state descriptor
+
+The block is not a flat bag of slots. It is built from a repeating **24-byte
+state descriptor**:
+
+```
++0x00 .. +0x0c   four int32 parameters
++0x10 .. +0x14   {base, range} -- the state's duration in frames,
+                 realised as base + GameRandom(range)
+```
+
+Four descriptors per 140-byte record, two records, and the eight bases are
+pinned by `SetAITblFromEnemyTbl` copying each offset into its matching actor
+slot rather than by pattern-matching the bytes:
+
+| record | state 0 | state 1 | state 2 | state 3 |
+|---|---|---|---|---|
+| 0 | `+0x80` | `+0x98` | `+0xb0` | `+0xc8` |
+| 1 | `+0x10c` | `+0x124` | `+0x13c` | `+0x154` |
+
+The stride is `0x18` throughout, and the two groups were derived independently —
+record 0's from the four-word copies at `+0x80/+0x98/+0xb0/+0xc8` plus the SIMD
+pair stores, record 1's from the copies at `+0x10c`..`+0x160` — and agree.
+
+Enemy 0 reads out as: state 0 `params (1,3,0,0) timer 60+rand(30)`, state 1
+`(3,1,0,0) 100+rand(50)`, state 3 `(0,0,0,0) 120+rand(120)`.
+
+**How many states are real is NOT settled.** `UpdateAI` stores the state word at
+13 sites; 12 resolve to the immediates 0, 1 and 3, and the 13th is a SIMD store
+that resets state and timer together. State 2 is never among them — yet the code
+compares against 2, and 167 of 214 records carry a populated state-2 descriptor.
+So the store scan is treated as **incomplete**, not as proof that state 2 is
+dead. "Only three states are real" is the conclusion the evidence does not
+support, and it is not drawn.
+
+The descriptor check in `enemydat.py` began as "a timer is 1..3600 frames" and a
+deliberate sabotage — shifting a base by 4 — **passed it**, because that stays
+true after a shift. The discriminator was then measured over the corpus instead
+of assumed: at the correct offsets 0 of 2688 params exceed 20 and no timer base
+lands in 1..14, while shifts of +4, -4 and +8 put 671, 416 and 1229 params over
+20. Both conditions are now the test, and all three shifts fail it.
+
 What the base constructor writes there is only a **default**, overwritten for
 any enemy:
 

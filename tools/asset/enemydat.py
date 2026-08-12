@@ -61,6 +61,28 @@ AI_LO, AI_HI = 0x80, 0x194
 # bytes and then "confirming" it against the same bytes proves nothing. These are
 # checked against the corpus by ai_check(), which must be able to disagree.
 AI_FLOAT_SLOTS = (0xF8, 0x100, 0x108, 0x184, 0x18C, 0x194)
+
+# The AI block is built out of a repeating 24-byte STATE DESCRIPTOR:
+#
+#     +0x00 .. +0x0c   four int32 parameters
+#     +0x10 .. +0x14   {base, range} -- the state's duration in frames,
+#                      realised as base + GameRandom(range)
+#
+# Two groups of four, one per 140-byte record, and the bases are not guessed:
+# each is pinned by SetAITblFromEnemyTbl copying that exact offset into the
+# matching actor slot. The four leading words of descriptor N land at actor
+# +0x379c + N*0x10 (record 0), and the pair lands in the record itself, where
+# UpdateAI indexes it as `rec + state*8`.
+DESC_BASES = ((0x80, 0x98, 0xB0, 0xC8),        # record 0
+              (0x10C, 0x124, 0x13C, 0x154))    # record 1
+DESC_SIZE = 0x18
+# UpdateAI stores the state word (+0x38e8) at 13 sites. 12 resolve to the
+# immediates 0, 1 and 3; the 13th is a SIMD store that resets it with its timer.
+# State 2 is NOT among them -- yet the code compares against 2 and the data
+# populates state-2 descriptors in most records. So the store scan is treated as
+# INCOMPLETE rather than as proof that state 2 is dead. Saying "only three
+# states are real" here would be a conclusion the evidence does not support.
+STATES_SEEN_STORED = (0, 1, 3)
 # 46 of the 57 source offsets the function reads are typed by a direct `ldr w`
 # or `ldr s`. The remaining 11 arrive through `ldr d`/`ldp`/`str q` SIMD moves
 # that carry no type, so they are reported as untyped rather than assumed int.
@@ -233,6 +255,52 @@ def main(argv):
         print(ln)
     if not ai_ok:
         ok = False
+
+    # The descriptors are the part of the block whose SHAPE is understood, so
+    # they get a real check: a duration must be a duration.
+    bad_desc = []
+    nonzero = 0
+    for r in range(len(rows)):
+        for rec, bases in enumerate(DESC_BASES):
+            for st, b in enumerate(bases):
+                base, rng = struct.unpack_from("<2i", raw, r * STRIDE + b + 0x10)
+                params = struct.unpack_from("<4i", raw, r * STRIDE + b)
+                if (base, rng) == (0, 0) and not any(params):
+                    continue
+                nonzero += 1
+                # This test was WEAKER at first and a deliberate sabotage --
+                # shifting a base by 4 -- sailed through it, because "1..3600
+                # is a plausible frame count" stays true after a shift. What
+                # actually separates a right base from a wrong one was measured
+                # over the corpus rather than assumed:
+                #
+                #   at the correct offset : 0 of 2688 params exceed 20, and no
+                #                           timer base lands in 1..14
+                #   shifted by +4/-4/+8   : 671 / 416 / 1229 params exceed 20
+                #
+                # so those two conditions are the discriminator, and both
+                # sabotage directions now fail as they must.
+                if max(params) > 20 or 1 <= base <= 14:
+                    bad_desc.append((rows[r]["id"], rec, st, params, base, rng))
+    total_desc = len(rows) * 8
+    print(f"  AI state descriptors: {DESC_SIZE}-byte, 4 per record x 2 records; "
+          f"{nonzero} of {total_desc} carry a nonzero timer")
+    if bad_desc:
+        print(f"    FAIL: {len(bad_desc)} timers are not plausible frame counts, "
+              f"so a descriptor base is wrong: {bad_desc[:5]}")
+        ok = False
+    else:
+        print(f"    all {nonzero} descriptors pass: every param <= 20 and no "
+              f"timer base in 1..14 (the measured discriminator)")
+    per_state = collections.Counter()
+    for r in range(len(rows)):
+        for rec, bases in enumerate(DESC_BASES):
+            for st, b in enumerate(bases):
+                if struct.unpack_from("<2i", raw, r * STRIDE + b + 0x10) != (0, 0):
+                    per_state[st] += 1
+    print("    populated per state: " + ", ".join(
+        f"{st}={per_state[st]}{'' if st in STATES_SEEN_STORED else ' (never stored by UpdateAI)'}"
+        for st in range(4)))
 
     if "--ai" in argv:
         # The frame-count pairs are what drive behaviour, so show their spread
