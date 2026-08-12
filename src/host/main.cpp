@@ -221,6 +221,8 @@ int main(int argc, char** argv) {
     bool explicit_model = false;
     std::string lang = "en";
     bool auto_advance = false;
+    bool auto_talk = false;
+    bool force_window = false;
     bool walk_to = false;
     float walk_x = 0, walk_z = 0;
     for (int i = 1; i < argc; ++i) {
@@ -235,6 +237,8 @@ int main(int argc, char** argv) {
         else if (a == "--string" && i + 1 < argc) string_id = argv[++i];
         else if (a == "--show-string" && i + 1 < argc) show_string = argv[++i];
         else if (a == "--auto-advance") auto_advance = true;
+        else if (a == "--auto-talk") auto_talk = true;
+        else if (a == "--window") force_window = true;
         else if (a == "--run-room" && i + 1 < argc) room = argv[++i];
         else if (a == "--render-room" && i + 1 < argc) render_room = argv[++i];
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
@@ -272,6 +276,7 @@ int main(int argc, char** argv) {
                 "\nTools:\n"
                 "  --model NAME [--anim FILE] [--time T]   view one model\n"
                 "  --screenshot OUT.png [--warmup N]       render N frames, save, exit\n"
+                "  --window            open a real window during a --screenshot run\n"
                 "  --fixed-step        step at a fixed 30 Hz (implied by --warmup)\n"
                 "  --collision-probe ROOM                  walk outward, report walls\n"
                 "  --script-census     run every shipping script and tally cmd calls\n"
@@ -281,7 +286,8 @@ int main(int argc, char** argv) {
                 "  --combat-selftest / --audio-selftest    self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
-                "  --auto-advance      dismiss dialogue automatically (headless)\n",
+                "  --auto-advance      dismiss dialogue automatically (headless)\n"
+                "  --auto-talk         talk to any NPC in reach (headless)\n",
                 argv[0], kDefaultRoom, archive.c_str());
             return 0;
         }
@@ -807,9 +813,15 @@ int main(int argc, char** argv) {
                          mdl.materials[i].name, mdl.materials[i].texture_index);
         lucent::info("assets", "  {} draw range(s)", mdl.draws.size());
 
-        if (shot.empty() && !SDL_getenv("DISPLAY") && !SDL_getenv("WAYLAND_DISPLAY"))
+        bool have_display = SDL_getenv("DISPLAY") || SDL_getenv("WAYLAND_DISPLAY");
+        if (shot.empty() && !have_display)
             lucent::warn("host", "no display detected; use --screenshot for headless");
-        if (!shot.empty() && !SDL_getenv("DISPLAY") && !SDL_getenv("WAYLAND_DISPLAY"))
+        // A --screenshot run is headless by nature: it renders N frames, writes
+        // a PNG and exits. Opening a real window for that steals focus and
+        // flashes on the user's desktop for no benefit, so it goes through
+        // SDL's offscreen driver whether or not a display exists. --window
+        // opts back in for the rare case of watching a capture run live.
+        if (!shot.empty() && !force_window)
             SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
 
         if (!SDL_Init(SDL_INIT_VIDEO))
@@ -827,6 +839,9 @@ int main(int argc, char** argv) {
         if (!ctx) throw mcf::Error(std::format("SDL_GL_CreateContext: {}", SDL_GetError()));
         lucent::info("host", "GL_VERSION  {}", (const char*)glGetString(GL_VERSION));
         lucent::info("host", "GL_RENDERER {}", (const char*)glGetString(GL_RENDERER));
+        // Say which driver we got. "windowless" is easy to believe and hard to
+        // notice when it silently stops being true.
+        lucent::info("host", "video driver: {}", SDL_GetCurrentVideoDriver());
 
         const bool skinned = mdl.Find(mcf::VertexUsage::kWeight) != nullptr;
         GLuint prog = glCreateProgram();
@@ -1030,10 +1045,12 @@ int main(int argc, char** argv) {
             // of chip centres for one with walkable floor, nearest the room
             // centre. What is faithful is that the engine places these, not the
             // script; parking them at the literal origin was simply wrong.
+            std::vector<std::pair<int, int>> taken_chips;
             for (auto& a : world.actors_mutable()) {
                 if (!a.random_place || !have_col) continue;
                 constexpr float kChip = 30.f;
                 float best[2]{0, 0};
+                std::pair<int, int> best_chip{-1, -1};
                 float best_d = 1e30f;
                 bool found = false;
                 float cx = room_org[0] + 150.f, cz = room_org[2] + 120.f;
@@ -1043,11 +1060,20 @@ int main(int argc, char** argv) {
                         float wz = room_org[2] + (float(gz) + 0.5f) * kChip;
                         float g;
                         if (!col.GetFloor(wx, wz, mcf::Collision::kFloorMask, &g)) continue;
+                        // One actor per chip, or a room's NPCs all stack on the
+                        // single chip nearest the centre.
+                        if (std::find(taken_chips.begin(), taken_chips.end(),
+                                      std::make_pair(gx, gz)) != taken_chips.end())
+                            continue;
                         float d = (wx - cx) * (wx - cx) + (wz - cz) * (wz - cz);
-                        if (d < best_d) { best_d = d; best[0] = wx; best[1] = wz; found = true; }
+                        if (d < best_d) {
+                            best_d = d; best[0] = wx; best[1] = wz; found = true;
+                            best_chip = {gx, gz};
+                        }
                     }
                 }
                 if (found) {
+                    taken_chips.push_back(best_chip);
                     a.pos[0] = best[0] - room_org[0];
                     a.pos[2] = best[1] - room_org[2];
                     lucent::info("world", "{}: engine-placed (script gave 0,0, extent {:.0f}) "
@@ -1461,6 +1487,37 @@ int main(int argc, char** argv) {
                     if (confirm_edge || auto_advance) {
                         sc.message_pending = false;
                         sc.last_message.clear();
+                    }
+                } else if (confirm_edge || (auto_talk && frames % 30 == 0)) {
+                    // Talking. A room script spawns an NPC with a handle and
+                    // defines a global of the SAME NAME as its conversation:
+                    //   npc_rand("BATTLEMAN", eNPC.BATTLEMAN, 6)
+                    //   function BATTLEMAN() talk_on(...) msgId(...) ... end
+                    // So "talk to the nearest NPC" is "start the coroutine named
+                    // after it". StartCoroutine already refuses a name that is
+                    // not a global function, which is what keeps NPCs with no
+                    // conversation silent.
+                    //
+                    // PORT CHOICE: the reach. The engine's own talk trigger is
+                    // not reversed, so this uses one chip (30 units), the game's
+                    // fundamental spatial unit, rather than an invented number.
+                    constexpr float kTalkReach = 30.f;
+                    const mcf::Actor* best = nullptr;
+                    float best_d = kTalkReach * kTalkReach;
+                    for (const auto& a : world.actors()) {
+                        if (!a.alive || a.kind != 'N' || a.handle == "MainPlayer") continue;
+                        float dx = a.pos[0] + room_org[0] - px;
+                        float dz = a.pos[2] + room_org[2] - pz;
+                        float d2 = dx * dx + dz * dz;
+                        if (d2 < best_d) { best_d = d2; best = &a; }
+                    }
+                    if (best) {
+                        if (sc.StartCoroutine(best->handle))
+                            lucent::info("world", "talking to '{}' ({:.0f} units away)",
+                                         best->handle, std::sqrt(best_d));
+                        else
+                            lucent::debug("world", "'{}' has no conversation: {}",
+                                          best->handle, sc.last_error());
                     }
                 }
                 bool attacking = attack_left > 0.f;

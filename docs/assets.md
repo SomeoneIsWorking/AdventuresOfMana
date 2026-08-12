@@ -975,3 +975,24 @@ from the codepoint map, not assumed. Japanese therefore has no glyphs; the game
 draws CJK with the Android system font, which is not in the archive. The port
 warns once per line when characters cannot be drawn, so a blank panel is not
 mistaken for a broken message window.
+
+
+## Dialogue control codes — NOT expanded
+
+393 of the 1906 strings carry `@` control codes, presumably speaker tags and
+substitutions:
+
+| form | count |
+|---|---|
+| `@N(nn)` | 215 |
+| `@H` | 154 |
+| `@G` | 62 |
+| `@I` | 6 |
+| `@P` | 3 |
+| `@i`, `@S` | 1 each |
+
+The port prints them literally, so a line reads `@N(36):\nAren't you...`. There
+are two accessors -- `GetIDString` and `GetIDStringCtrl` -- and the second's
+name suggests it is the one that processes these; neither has been reversed to
+the point of knowing what `@N(36)` resolves to. Expanding them on a guess would
+put invented names in the game's mouth, so they are left visible.
