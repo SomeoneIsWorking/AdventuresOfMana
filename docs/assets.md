@@ -1353,8 +1353,9 @@ shape, established:
    jump table at `.rodata 0x9dfb0`. Case bodies start at `0x2a8ea8`.
 2. Each case is short. It sets a **movement mode** at actor `+0x3934` and a
    **byte at actor `+0xc7b`**, sometimes conditionally on a state
-   word at actor `+0x38e8`, and several cases roll `GameRandom(100)` against a
-   per-enemy probability at actor `+0x3894` to decide.
+   word at actor `+0x38e8`, and several cases roll `GameRandom` to decide.
+   `+0x3894` is **not** a probability, as an earlier version of this said: it is
+   an index into the AI parameter block described below (`smaddl` by 140).
 3. A **second switch**, at `0x2a95b4`, branches on that movement mode (0..5 and
    above) and does the actual work -- it reaches into `AppEventBoxServer::Enum`
    and the route tables (`MakeRouteTable`, `MakeShortRoute`) from there.
@@ -1442,6 +1443,43 @@ boxes are **terrain regions**, and the body's job is entering and leaving them.
 What `vtable[0x2f0]` and `vtable[0x1c8]` do is **not read** — the 0.0f / 1.0f
 pairing invites reading the first as a speed multiplier, which is exactly the
 kind of guess this file exists to keep out.
+
+### `+0x3910` is a countdown, and what "expired" gated
+
+At the loop's exit, `0x2a9cd4` does `+0x3910 -= 1` unconditionally, once per
+`UpdateAI` call. So it is a **frame countdown**, and the `tbnz w8, #0x1f` the
+floor-type transitions test is the sign bit — the transitions fire when the
+timer has run out, not on an opaque flag.
+
+Directly after, when the floor type is 1, the mode at `+0x3934` is rewritten
+from the state word: `mode := (state != 0) ? 1 : 0`. This is why mode 1 is so
+common at runtime as well as in the table — 59 of 107 enemies start there by AI
+type, and the terrain path puts them back.
+
+### The AI parameter block at actor `+0x377c`
+
+The state timer is not a constant. At `0x2a9e84`:
+
+```
+rec  = actor + 0x377c + actor->[0x3894] * 140      // smaddl w8, #0x8c
+pair = rec + actor->[0x38e8] * 8                   // indexed by the state word
+{base, range} = *(int32[2])pair
+t = base + GameRandom(range)
+actor->[0x38ec] = actor->[0x38f0] = t              // clamped against w23
+```
+
+So each enemy carries its **own** parameter block — `x20 = x19 + 0x377c`, an
+actor offset, not a global table — laid out as 140-byte records selected by
+`+0x3894`, each holding 8-byte `{base, range}` pairs selected by the current
+state. That pair is what makes a state last a randomized number of frames.
+
+The block is not copied from `enemydat.bin`: `SetEnemyId`'s `memcpy` lands at
+`+0x3a24`, past it. It is filled at construction from constant quads in
+`.rodata` — `0x2a6500` and `0x2b4a54` are two different class initialisers
+loading different constants into the same offset. **Not read**: where those
+tables are, how many 140-byte records each holds, and which class gets which.
+Because they are static data, they are extractable, which makes this the most
+promising next step for the AI.
 
 Mode 8's body is the only other one read: it differences two counters at
 `+0x38c8` and `+0x38cc`, writes the `<=` result as a byte into a *different*
