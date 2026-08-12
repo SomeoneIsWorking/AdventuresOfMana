@@ -2928,15 +2928,22 @@ int main(int argc, char** argv) {
                                               a.handle, a.ai_state);
                             }
                         }
-                        // PORT CHOICE, and the only invented part of this: WHICH
-                        // state means "pursue". The mode bodies that would say
-                        // are not reversed (docs/re-frontier.md). State 0 is
-                        // taken as the active one because it is the state the
-                        // engine resets to, and because the states an enemy can
-                        // never leave (weight sum 0 -- 336 of 856 descriptors)
-                        // would be absurd as a permanent chase. Everything about
-                        // the TIMING is the engine's; only this mapping is not.
-                        if (a.ai_state != 0) { a.motion = kMotionWait; continue; }
+                        // STATE 2 is the pursue state, and this is the engine's
+                        // answer rather than a port choice now. The state
+                        // dispatch @ 0x2a96d8 sends state 2 to 0x2a9748, which
+                        // calls vtable[0x428] = UpdateAI_TargetChr() and then
+                        // walks the route tables at actor +0x3768 / +0x3770.
+                        // UpdateAI_TargetChr @ 0x2a8348 tests the caller's own
+                        // GetType(), and for type 4 (AppCharacterEnemy) it
+                        // SearchNears type 1 (player) and type 2 (party) and
+                        // takes the nearer. States 0 and 1 only roll a duration;
+                        // state 3 calls UpdateAI_TargetPos, which SearchNears
+                        // type 4 -- other ENEMIES, so it is spacing, not chase.
+                        //
+                        // This replaces the previous choice of state 0, which
+                        // was reasoned from state 0 being the reset state. That
+                        // reasoning was wrong.
+                        if (a.ai_state != 2) { a.motion = kMotionWait; continue; }
                     }
                     float step = a.move_speed * dt;
                     a.pos[0] += dx / d * step;

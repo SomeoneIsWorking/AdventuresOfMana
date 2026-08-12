@@ -1640,18 +1640,41 @@ shared tails, so a caller scan reports zero for all three. That is the same trap
 as counting callers by target address on a library whose own calls go through
 the PLT — a zero here means "not called this way", never "not called".
 
-#### This bears on a port choice
+#### State 2 is "pursue" — settled
 
-`docs/re-frontier.md` records **"which AI state means pursue" = state 0** as a
-port choice, reasoned from state 0 being the reset state. State 2 is the state
-that actually paths toward something, and state 3 is the one that calls
-`UpdateAI_TargetPos`. Both are better candidates than state 0.
+Two vtable slots do the targeting, and they target different things:
 
-The port choice is **not** changed here, because what the route table is built
-*toward* has not been read — naming state 2 "pursue" on this evidence would be
-the same leap that produced three wrong readings of the world table. It is
-recorded as evidence against the current choice, to be settled by reading what
-seeds `MakeRouteTable`.
+| slot | function | searches for |
+|---|---|---|
+| `+0x428` | `UpdateAI_TargetChr()` | **type 1 (player) and type 2 (party)** |
+| `+0x430` | `UpdateAI_TargetPos()` | **type 4 (other enemies)** |
+
+`UpdateAI_TargetChr` @ `0x2a8348` branches on the CALLER's own `GetType()`
+(`vtable[0x198]`): for type 4 — `AppCharacterEnemy` — it sets `actor[0x3904] = 10`,
+`SearchNear`s type 1, then type 2, and takes the nearer. Those type numbers are
+this project's own recorded faction table (player 1, party 2, NPC 3, enemy 4),
+so no new assumption is involved.
+
+So **state 2 acquires a player/party target and then walks the route table to
+it**: that is the chase. State 3 calls `UpdateAI_TargetPos`, which searches type
+4 — other enemies — so it is spacing or formation, not pursuit. States 0 and 1
+only roll a duration.
+
+`UpdateAI_TargetChr` and `UpdateAI_TargetPos` are also called unconditionally
+once per tick @ `0x2a8b74`/`0x2a8b84`, before the mode switch, so every enemy
+re-acquires both every frame regardless of state.
+
+**This retires the port choice.** The port previously treated state 0 as the
+active state, reasoned from state 0 being the state the engine resets to. That
+reasoning was wrong, and the last iteration's guess that state 3 might be the
+chase was wrong too — refuted by reading what it actually searches for. The port
+now pursues in state 2.
+
+`actor+0x3904` is the target-character selector and `actor+0x3908` the
+target-position selector. State 3 sets `+0x3908` from `record[0x78] + 10` when
+`record[0x78] <= 2`; state 2 sets `+0x3904` from a 4-entry table at `0x9d8f0`
+= `{1, 11, 12, 14}`, though `UpdateAI_TargetChr` overwrites it with 10 for
+type-4 callers, so what that table is for is **not** established.
 
 ### The tail of the modes 0-2 body
 
