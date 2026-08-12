@@ -1712,6 +1712,45 @@ not falsify the reading.
 So the cycle is **idle (state 0) / move (state 1) / chase (state 2) / space
 (state 3)**, at roughly 45 / 30 / 16 / 9 percent of the time.
 
+#### The route table
+
+Three vtable slots do the pathing, all named from the relocations:
+
+| slot | function |
+|---|---|
+| `+0x410` | `AppCharacterBase::_MakeRouteTable(int,int,int,int,int)` |
+| `+0x418` | `AppCharacterBase::MakeRouteTable(int,int,int,int,int)` |
+| `+0x420` | `AppCharacterBase::MakeShortRoute(int,int,int,int,int)` |
+
+`MakeRouteTable` @ `0x2a7ef4` frees any previous table, takes the room's chip
+dimensions from the world table (`w/30` by `h/30`), allocates
+`chips_w * chips_h` int32s at actor `+0x3768`, **memsets it to zero**, and fills
+it through `vtable[0x410]`. It then reads the destination cell and reports
+failure when it is still 0 — so **0 means "unreached"** and the field is a
+distance map whose zero cell is its own sentinel.
+
+`_MakeRouteTable` @ `0x2a7c5c` is the per-step passability test between two
+chips, and it names two more per-chip grids on `ModeGame`:
+
+```
+h  = heightmap[chips_w * row + col]     // float,       ModeGame + 0x9bb0
+if (fabs(h) > 10000.0)      fail        // the "no floor" sentinel
+if (fabs(h - h_to) >= 5.0)  fail        // a STEP-HEIGHT limit, in units
+a  = attr[...]                          // signed byte, ModeGame + 0x9ba8
+if (a >= 0)                 fail        // the high bit must be set
+... then the two chips' attribute bytes are compared with `eor`
+```
+
+So the engine's walkability is a height map plus an attribute byte per chip,
+with a **5-unit step limit** — a sixth of a chip. `ModeGame::GetHeightMapData`
+@ `0x2dd004` reads the same `+0x9bb0`.
+
+**Not implemented.** The port chases in a straight line rather than over a
+distance field. In an open room that is indistinguishable; around a wall it is
+not. Implementing it needs the per-chip height and attribute grids, which come
+from the room's `.gdt` — the file the port already parses for room size — so
+this is buildable, not blocked. It is simply not built.
+
 #### State 1's wander, and what `s10` is
 
 `0x2aa624` is the destination picker, and it is short enough to state exactly:

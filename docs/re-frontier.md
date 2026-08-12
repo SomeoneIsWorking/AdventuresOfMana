@@ -21,6 +21,7 @@ code rather than from memory.
 | what | the choice | why the engine's answer is unavailable |
 |---|---|---|
 | Engine-placed NPC positions | deterministic scan of chip centres for walkable floor nearest the room centre, one actor per chip | the chip attribute array and `GameRandom` are not reversed. What IS faithful: that the ENGINE places these, not the script (`AddNPC` @ `0x2c8a10` sets a flag when the script's x and z are both 0) |
+| Enemy pathing | straight-line chase | the engine walks a distance field: `MakeRouteTable` allocates `chips_w x chips_h` int32s at actor `+0x3768` and `_MakeRouteTable` gates each step on a per-chip height map (`ModeGame+0x9bb0`) and attribute byte (`+0x9ba8`) with a 5-unit step limit. Buildable from the `.gdt` the port already parses; not built |
 | Wander radius `s10` | not applied | it is a per-mode value (4/5/6 chips) and the port has no mode word. The widest candidate in the engine's own +-4 x +-3 window is 5 chips, so the gate only ever rejects when `s10` is 4, and then only the far corners |
 | Wander reachability | destination must be on the floor | the engine requires `_MakeRouteTable` to find a route; the port has no route table, so it cannot see a wall between here and there |
 | Talk reach | one chip, 30 units | the engine's own talk trigger is not reversed; 30 is the game's fundamental spatial unit rather than an invented number |
