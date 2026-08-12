@@ -1386,6 +1386,53 @@ extractor that contradicts a hand reading is a broken instrument, not a
 shortcut. Nothing here is implemented -- the port still runs its placeholder,
 which walks an enemy into the player and holds it there.
 
+### `UpdateAI`'s real extent, and a bound that was wrong
+
+`AppCharacterBase::UpdateAI` runs `0x2a894c`..`0x2abb54` -- **12,808 bytes**,
+3,202 instructions. Several scans in this file were originally run with a
+working bound of `0x2aa400`, which is 70% of the function; that was an arbitrary
+window, not a measured end. Re-running the affected scans against the real span:
+
+* the state-word store count is **unchanged at 13**, so everything concluded
+  from it stands;
+* but all three reads of the move speed at actor `+0xc64` live in the cut-off
+  region, and they are what the next section is about.
+
+The lesson is the recurring one -- the truncated bound did not announce itself,
+and only recounting against the real end showed which conclusions survived.
+
+### Modes 9 and 11, and a timer that is not rolled
+
+The dispatch table below covers modes 0..8 and lumps everything above into
+`0x2a9968`. That branch resolves further: `0x2aa720` reloads the mode and tests
+it against **11** and **9**, so the mode space is larger than 0..8.
+
+Mode 9 is a wander, and it is set up immediately before:
+
+```
++0x3948 = <a distance>
++0x394c = +1.0f
+if (GameRandom(...) == 0) +0x394c = -1.0f      ; 0xbf800000
+```
+
+so `+0x394c` is a random direction SIGN and `+0x3948` the distance to cover.
+Then the state timer is **computed rather than rolled**:
+
+```
+t = (+0x3948 * 30.0) / (s14 * move_speed * +0xc68 * +0x3918)
++0x38ec = +0x38f0 = (int)t
+```
+
+i.e. distance / speed = time in frames, written into the very same timer fields
+the `{base, range}` pair fills elsewhere. `s14` is the 1.0/2.0 factor set at
+`0x2a9d10` from `+0xc4c`, and the 30.0 is the chip.
+
+This matters for the port: **the `{base, range}` durations are not the only
+source of a state's length**. The port currently implements only the rolled
+form, which is correct for the states it was verified against but is not the
+whole mechanism. The distance-driven form is recorded and NOT implemented,
+because what feeds `+0x3948`, `+0xc68` and `+0x3918` is not read.
+
 ### The mode switch at `0x2a95b4`, dispatch only
 
 The dispatch is a chain of signed compares on the mode word at actor `+0x3934`,
