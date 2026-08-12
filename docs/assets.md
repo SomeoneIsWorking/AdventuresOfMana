@@ -1609,14 +1609,55 @@ because what feeds `+0x3948`, `+0xc68` and `+0x3918` is not read.
 The dispatch is a chain of signed compares on the mode word at actor `+0x3934`,
 and it groups the modes rather than giving each its own body:
 
-| mode | goes to | note |
+| mode | body | note |
 |---|---|---|
 | < 0 | `0x2a99dc` | the exit. `cmp w8, #3` / `b.hs` after the mode is known to be `<= 2` can only fire on a negative read as unsigned |
 | 0, 1, 2 | `0x2a95d0` | one shared body — **the one 59 of 107 enemies reach**, since AI type 0 sets mode 1 |
-| 3, 4, 5 | `0x2a98b0` | |
-| 6, 7 | `0x2a9980` | `sub w9, w8, #6` / `cmp w9, #2` / `b.lo` |
+| 3 | `0x2a9dec` | |
+| 4 | `0x2aa1c0` | |
+| 5 | `0x2a98c8` | |
+| 6, 7, 10, 11 | `0x2a9980` | one shared body |
 | 8 | `0x2a9658` | |
-| > 8 | `0x2a9968` | |
+| 9 | `0x2a9e20` | the distance-driven timer lives here |
+| else | `0x2a99dc` | exit |
+
+An earlier version of this table stopped at "3, 4, 5 -> `0x2a98b0`" and
+"> 8 -> `0x2a9968`". Both were **staging points, not bodies**: `0x2a98b0` is a
+further three-way compare that splits 3, 4 and 5 into separate bodies, and
+`0x2a9968` splits 9 from 10 and 11. So the switch has **seven** distinct bodies,
+not four, and 6/7/10/11 share one.
+
+**Modes 7 and 11 are dead.** Every store to the mode word `+0x3934` in the whole
+binary — 17 of them, all inside `UpdateAI`, none unresolved — writes one of
+0, 1, 2, 3, 4, 5, 6, 8, 9, 10. Nothing writes 7 or 11, and the only load outside
+`UpdateAI` is a read in `AppCharacterEnemy::Update`. So the dispatch handles
+twelve values of which ten can occur, and six distinct bodies are reachable.
+
+#### The shared preamble of modes 5, 6/7/10/11 and 8
+
+Those three entry points open with the same nine instructions (`0x2a98c8`,
+`0x2a9980`, `0x2a9658`), byte for byte:
+
+```
+w8 = actor[0x38c8]; w9 = actor[0x38cc]
+w8 = w9 - w8                       // subs, so the flags are on the difference
+party[0x8f4] = (w9 - w8 <= 0)      // a bool published outside the actor
+if (actor[0x38e0] == 0) {          // latch, first time only
+    actor[0x38e0] = w9 - w8
+    actor[0x38dc] = 0
+    actor[0xcc5]  = 1
+}
+```
+
+What the two counters at `+0x38c8` / `+0x38cc` count is **not** established, so
+the difference is recorded structurally rather than named. What is clear is the
+shape: a difference latched once, plus a boolean handed to the party object.
+
+After the preamble the bodies diverge. Mode 5 clears `+0xc7f`/`+0xc80`, sets
+`+0xc7c` := 1, and calls `vtable[0x240]` twice with 158 and 159, combining the
+two results as `(a + b) / 30 * 60`. Modes 6/7/10/11 clear the same fields and
+fall into the shared tail at `0x2a9e74` with 5.0, 2.0 and 1.0 in the same
+callee-saved registers the 0..2 body uses.
 
 The shared body for modes 0..2 opens by resetting state — `strh #0x101` into
 `+0xc7f` sets the two bytes at `+0xc7f` and `+0xc80` to 1, `+0xcc5` := 0,
