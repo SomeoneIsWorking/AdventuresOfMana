@@ -220,6 +220,7 @@ int main(int argc, char** argv) {
     bool combat_demo = false;
     bool explicit_model = false;
     std::string lang = "en";
+    bool auto_advance = false;
     bool walk_to = false;
     float walk_x = 0, walk_z = 0;
     for (int i = 1; i < argc; ++i) {
@@ -233,6 +234,7 @@ int main(int argc, char** argv) {
         else if (a == "--room-census") room_census = true;
         else if (a == "--string" && i + 1 < argc) string_id = argv[++i];
         else if (a == "--show-string" && i + 1 < argc) show_string = argv[++i];
+        else if (a == "--auto-advance") auto_advance = true;
         else if (a == "--run-room" && i + 1 < argc) room = argv[++i];
         else if (a == "--render-room" && i + 1 < argc) render_room = argv[++i];
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
@@ -278,7 +280,8 @@ int main(int argc, char** argv) {
                 "  --show-string ID    open the message window on that line\n"
                 "  --combat-selftest / --audio-selftest    self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
-                "  --walk-to X Z       walk toward a room-local point (headless)\n",
+                "  --walk-to X Z       walk toward a room-local point (headless)\n"
+                "  --auto-advance      dismiss dialogue automatically (headless)\n",
                 argv[0], kDefaultRoom, archive.c_str());
             return 0;
         }
@@ -658,6 +661,19 @@ int main(int argc, char** argv) {
             auto prelude = ar.Read("sk1/sk1.lua");
             lucent::info("lua", "prelude sk1.lua: {} bytes; {} scripts to run",
                          prelude.size(), scripts.size());
+            // Dialogue coverage. This census fires each script's own event
+            // handlers, which is where msgId actually runs, so it is the only
+            // place the number is meaningful.
+            mcf::StringTable cstr;
+            bool have_strings = false;
+            {
+                auto sp = std::format("sk1/str_{}.bin", lang);
+                have_strings = ar.Has(sp) && cstr.Load(ar.Read(sp));
+                if (!have_strings)
+                    lucent::warn("lua", "{} missing or malformed; dialogue coverage "
+                                 "will NOT be measured", sp);
+            }
+            long msgs = 0, msg_missing = 0;
 
             std::map<std::string, uint64_t> totals;
             size_t ok = 0, failed = 0, handlers = 0, handler_errs = 0;
@@ -673,6 +689,7 @@ int main(int argc, char** argv) {
                 // establishes the scenario globals (sccnt, scflagNN, ...) that
                 // the map scripts read. Skipping it made 102 scripts fail on
                 // "attempt to compare nil with number".
+                if (have_strings) sc.strings = &cstr;
                 if (!sc.CallFunction("SystemInit")) {
                     lucent::error("lua", "SystemInit failed: {}", sc.last_error());
                     break;
@@ -694,13 +711,24 @@ int main(int argc, char** argv) {
                         if (std::binary_search(before.begin(), before.end(), g)) continue;
                         ++handlers;
                         if (!sc.CallFunction(g)) ++handler_errs;
+                        // A handler that showed a line leaves the script waiting
+                        // for the player; clear it so the next handler can run.
+                        if (sc.message_pending) {
+                            sc.message_pending = false;
+                            sc.last_message.clear();
+                        }
                     }
                 }
                 for (const auto& [fn, rec] : sc.calls) totals[fn] += rec.count;
+                msgs += sc.messages_shown;
+                msg_missing += sc.message_ids_missing;
             }
             lucent::info("lua", "executed {} map scripts, {} failed", ok, failed);
             lucent::info("lua", "invoked {} event handlers, {} raised errors "
                          "(expected: many need live game state)", handlers, handler_errs);
+            if (have_strings)
+                lucent::info("lua", "dialogue: {} lines shown, {} of them used an id "
+                             "the string table does not have", msgs, msg_missing);
             for (const auto& e : errors) lucent::warn("lua", "  {}", e);
 
             std::vector<std::pair<std::string, uint64_t>> ranked(totals.begin(), totals.end());
@@ -1364,6 +1392,7 @@ int main(int argc, char** argv) {
             seedCombat();
 
             std::string last_warned_message;
+            bool confirm_prev = false;
             float eye_cur[3]{};
             bool cam_init = false;
             bool running = true;
@@ -1420,13 +1449,27 @@ int main(int argc, char** argv) {
                     float dx = tx - px, dz = tz - pz;
                     if (dx * dx + dz * dz > 4.f) { mx = dx; mz = dz; }
                 }
+                // Dismiss a message with the same key that attacks; while one
+                // is up that key must NOT also swing, or every conversation
+                // would be punctuated by sword strokes.
+                bool confirm = key && (key[SDL_SCANCODE_SPACE] ||
+                                       key[SDL_SCANCODE_Z] ||
+                                       key[SDL_SCANCODE_RETURN]);
+                bool confirm_edge = confirm && !confirm_prev;
+                confirm_prev = confirm;
+                if (sc.message_pending) {
+                    if (confirm_edge || auto_advance) {
+                        sc.message_pending = false;
+                        sc.last_message.clear();
+                    }
+                }
                 bool attacking = attack_left > 0.f;
                 if (combat_demo && !attacking && frames > 30) {
                     attack_left = kAttackFrames;   // swing continuously, for testing
                     attacking = true;
                 }
                 if (auto_attack && !attacking) { attack_left = kAttackFrames; attacking = true; }
-                if (key && (key[SDL_SCANCODE_SPACE] || key[SDL_SCANCODE_Z]) && !attacking) {
+                if (confirm && !sc.message_pending && !attacking) {
                     attack_left = kAttackFrames;
                     attacking = true;
                 }

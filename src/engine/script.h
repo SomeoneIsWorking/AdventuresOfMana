@@ -49,6 +49,9 @@ public:
     // The last line SetMessageWnd was handed, so dialogue is observable before
     // there is any UI to draw it in.
     std::string last_message;
+    // True while a line is on screen. The host clears it when the player
+    // dismisses the message, which is what lets the script's coroutine resume.
+    bool message_pending = false;
     long messages_shown = 0, message_ids_missing = 0;
     Audio* audio = nullptr;   // optional; when set, BgmPlay/SePlay sound
     // Audio the scripts asked for; the host services these because it owns the

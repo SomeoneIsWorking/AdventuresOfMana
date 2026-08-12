@@ -79,7 +79,13 @@ int CmdStub(lua_State* L) {
         int before = lua_gettop(L);
         if (Dispatch(L, def, *self->world)) return lua_gettop(L) - before;
     }
-    if (self && self->audio) {
+    // Host-serviced calls: audio, map transitions and TEXT. This used to be
+    // gated on `self->audio`, which silently disabled GetIDString and
+    // SetMessageWnd for every consumer that has no audio device -- the script
+    // census among them, so dialogue coverage measured a flat zero. Nothing in
+    // DispatchAudio dereferences the Audio pointer; the host reads the recorded
+    // requests instead.
+    if (self) {
         int before = lua_gettop(L);
         if (DispatchAudio(L, def, *self)) return lua_gettop(L) - before;
     }
@@ -260,6 +266,8 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
 // Audio requests recorded by the script layer and serviced by the host, which
 // owns the archive the sounds live in. The script layer must not reach into
 // asset storage itself.
+// Calls the HOST services rather than the actor system: audio requests, map
+// transitions, and the text/message path.
 bool DispatchAudio(lua_State* L, const CmdDef* def, Script& s) {
     std::string_view n = def->name;
     auto N = [&](int i) { return int(luaL_optnumber(L, i, 0)); };
@@ -280,6 +288,7 @@ bool DispatchAudio(lua_State* L, const CmdDef* def, Script& s) {
     }
     if (n == "SetMessageWnd") {
         s.last_message = lua_isstring(L, 1) ? lua_tostring(L, 1) : "";
+        s.message_pending = !s.last_message.empty();
         ++s.messages_shown;
         std::string shown;
         for (char c : s.last_message) { if (c == '\n') shown += "\\n"; else shown += c; }
@@ -406,6 +415,10 @@ bool Script::StartCoroutine(std::string_view fn) {
 }
 
 void Script::ResumeCoroutines() {
+    // sk1.lua's msgId is `SetMessageWnd(GetIDString(id)); coroutine.yield()`.
+    // The yield is the wait for the player to read the line, so resuming while
+    // a message is up would flash every line of a conversation in one frame.
+    if (message_pending) return;
     for (size_t i = 0; i < co_.size();) {
         lua_rawgeti(L_, LUA_REGISTRYINDEX, co_[i]);
         lua_State* th = lua_tothread(L_, -1);
