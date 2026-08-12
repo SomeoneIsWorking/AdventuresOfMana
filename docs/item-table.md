@@ -64,3 +64,24 @@ The id ranges every equipment table occupies, straight from the accessor's own b
 | 501..508 | 7 | magic | `tblMagic` |
 
 Anything else returns 0. Type 3 is never returned.
+
+`ITEM_NAME_<id>` is the name format for **every table**, not just the item one — `ITEM_NAME_101` is Broadsword, `ITEM_NAME_401` is Bronze Shield, `ITEM_NAME_501` is Cure.
+
+**These ranges are what the accessor CLASSIFIES, and they are not the set of ids that have records.** The weapon case proves it both ways: the range is 101..118, but `tblWeapon` holds 101..117 and **121** — so 118 is classified as a weapon and has neither a record nor a name, while 121 has a record and is classified as nothing. (Weapon 121 is all zeroes but for a `kind` of 6, so it looks like an unused slot.) The two counts happen to agree at 18 apiece, which is exactly the coincidence that would let a careless check pass.
+
+## `tblMagic`
+
+8 records of 12 bytes, stride and bounds from `DataTableGetMagic` @ `0x2c3c60`.
+
+| id | name | `+0x04` | `+0x08` |
+|---|---|---|---|
+| 501 | Cure | 2 | 0 |
+| 502 | Heal | 1 | 0 |
+| 503 | Sleep | 1 | 6000 |
+| 504 | Silence | 1 | 6000 |
+| 505 | Fire | 1 | 22 |
+| 506 | Blizzard | 2 | 0 |
+| 507 | Thunder | 2 | 44 |
+| 508 | Flare | 3 | 68 |
+
+Neither field is identified.
