@@ -20,7 +20,7 @@ done
 if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   echo "=== combat self-test ==="
   ./build/mana --combat-selftest >/dev/null || fail=1
-  echo "  (9 cases, hit and miss)"
+  echo "  (18 cases: 9 hit/miss geometry, 9 faction filter)"
 
   echo "=== player self-test ==="
   ./build/mana --player-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1

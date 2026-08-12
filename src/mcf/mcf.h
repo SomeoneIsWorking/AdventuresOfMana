@@ -432,6 +432,18 @@ struct PlayerStats {
     }
     // Update clamps every stat to 99 before using it.
     static int32_t Cap(int32_t v) { return v > 99 ? 99 : v < 0 ? 0 : v; }
+    static int32_t Clamp(int64_t v, int64_t hi) {
+        return int32_t(v < 0 ? 0 : v > hi ? hi : v);
+    }
+
+    // GameParameter::AddEXP @ 0x2c72f8 and ::AddRC @ 0x2c731c. Both clamp a
+    // negative result to zero (`bic w8, w8, w8, asr #31`) before capping.
+    void AddExp(int32_t n) { exp = Clamp(exp + n, 999999); }
+    void AddMoney(int32_t n) { money = Clamp(money + n, 65535); }
+    // True once the player has earned the next level. Process_LevelUp is driven
+    // by the level-up SCREEN, which the port does not have, so this only says
+    // that one is due.
+    bool level_up_due() const { return level < 99 && exp >= next_exp(); }
 
     // The four training regimens the game offers on a level-up, in the order
     // ModeGame::Process_LevelUp indexes tblLevelup with -- the same order as

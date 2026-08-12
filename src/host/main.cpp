@@ -385,7 +385,36 @@ int main(int argc, char** argv) {
                     lucent::info("combat", "  ok: {:<34} -> {}", c.name, got);
                 }
             }
-            lucent::info("combat", "SELFTEST: {} cases, {} failures", 9, bad);
+            // The faction filter, both directions. A filter that rejects
+            // everything and one that rejects nothing look identical if only
+            // the rejections are tested.
+            struct FCase { const char* name; const char* ah; char ak;
+                           const char* dh; char dk; bool want; };
+            const FCase fcases[] = {
+                {"player -> enemy", "MainPlayer", 'N', "e", 'E', true},
+                {"player -> boss",  "MainPlayer", 'N', "b", 'B', true},
+                {"party  -> enemy", "p", 'C',          "e", 'E', true},
+                {"enemy  -> player","e", 'E',  "MainPlayer", 'N', true},
+                {"enemy  -> enemy", "e1", 'E',        "e2", 'E', false},
+                {"boss   -> enemy", "b", 'B',          "e", 'E', false},
+                {"player -> npc",   "MainPlayer", 'N', "n", 'N', false},
+                {"player -> party", "MainPlayer", 'N', "p", 'C', false},
+                {"npc    -> player","n", 'N',  "MainPlayer", 'N', false},
+            };
+            for (const auto& f : fcases) {
+                mcf::Actor a, d;
+                a.handle = f.ah; a.kind = f.ak;
+                d.handle = f.dh; d.kind = f.dk;
+                bool got = mcf::CanDamage(a, d);
+                if (got != f.want) {
+                    lucent::error("combat", "SELFTEST FAIL: {} -> {} (want {})",
+                                  f.name, got, f.want);
+                    ++bad;
+                } else {
+                    lucent::info("combat", "  ok: {:<18} -> {}", f.name, got);
+                }
+            }
+            lucent::info("combat", "SELFTEST: {} cases, {} failures", 18, bad);
             return bad ? 1 : 0;
         }
 
@@ -1584,6 +1613,7 @@ int main(int argc, char** argv) {
             float player_iframes = 0.f;
             long player_damage_taken = 0, player_hits = 0;
             bool player_dead = false;
+            bool level_up_announced = false;
             int player_attack = ps.attack();
             if (!mcf::FindWeapon(ps.weapon))
                 lucent::warn("combat", "weapon {} not in tblWeapon; the player's "
@@ -1646,6 +1676,10 @@ int main(int argc, char** argv) {
                 long hits = 0;           // per-frame overlaps
                 long landed = 0;         // hits that counted (one per swing/target)
                 long kills = 0;
+                // Overlaps the engine's faction filter rejects. Reported, not
+                // silently dropped: if this were the whole hit count, combat
+                // would look "working" while nothing could ever land.
+                long blocked_by_faction = 0;
                 long atk_no_model = 0, def_no_model = 0, def_no_bone = 0;
                 long pairs_vs_player = 0;   // enemy attack volume vs the player
                 float closest_vs_player = 1e30f, closest_xz = 0, closest_y = 0;
@@ -1915,6 +1949,18 @@ int main(int argc, char** argv) {
                                     ++cs.hits;
 
                                     auto& atkA = acts[aidx];
+                                    // Both Damage overrides test the ATTACKER's
+                                    // GetType before anything else, so a hit
+                                    // between two actors of the same side is
+                                    // never damage. Without this, enemies fought
+                                    // each other -- and did it with the PLAYER's
+                                    // attack value, because the branch below
+                                    // assumed any non-player defender had been
+                                    // hit by the player.
+                                    if (!mcf::CanDamage(atkA, acts[didx])) {
+                                        ++cs.blocked_by_faction;
+                                        continue;
+                                    }
                                     // The player is gated by the engine's OWN
                                     // rule instead: AppCharacterPlayer::Damage
                                     // Process refuses while the i-frame timer
@@ -1982,20 +2028,45 @@ int main(int argc, char** argv) {
                                     // `sub w22, w28, w27` with w27 read from the
                                     // record's +0x0C. Floored at 1 so a tough
                                     // enemy is slow, not immortal.
-                                    int dmg = std::max(1, player_attack - d.defence);
+                                    // The attacker's OWN attack power. Only the
+                                    // player's comes from GameParameter; a party
+                                    // member carries its own.
+                                    int atk = mcf::CharType(atkA) == mcf::Actor::kPlayer
+                                                  ? player_attack : atkA.attack_power;
+                                    int dmg = std::max(1, atk - d.defence);
                                     d.hp -= dmg;
                                     if (d.hp > 0) {
                                         lucent::info("combat",
                                             "{} hits {} for {} ({} - {} def) -> {}/{} HP",
                                             atkA.handle, d.handle, dmg,
-                                            player_attack, d.defence, d.hp, d.max_hp);
+                                            atk, d.defence, d.hp, d.max_hp);
                                     } else {
                                         d.hp = 0;
                                         d.alive = false;
                                         ++cs.kills;
+                                        // The rewards are now CREDITED, through
+                                        // the engine's own AddEXP / AddRC caps,
+                                        // instead of only being printed.
+                                        ps.AddExp(d.exp);
+                                        ps.AddMoney(d.money);
                                         lucent::info("combat",
-                                            "{} killed {} (+{} EXP, +{} money)",
-                                            atkA.handle, d.handle, d.exp, d.money);
+                                            "{} killed {} (+{} EXP, +{} GP) -> "
+                                            "{}/{} EXP, {} GP",
+                                            atkA.handle, d.handle, d.exp, d.money,
+                                            ps.exp, ps.next_exp(), ps.money);
+                                        if (ps.level_up_due() && !level_up_announced) {
+                                            level_up_announced = true;
+                                            // NOT applied: Process_LevelUp runs
+                                            // when the player picks one of four
+                                            // training regimens, and choosing
+                                            // for them would be inventing a
+                                            // decision the game hands over.
+                                            lucent::info("player", "level {} is "
+                                                "earned ({} of {} EXP) -- the "
+                                                "regimen screen is not built, so "
+                                                "no level is taken",
+                                                ps.level + 1, ps.exp, ps.next_exp());
+                                        }
                                     }
                                 }
                             }
@@ -2229,11 +2300,13 @@ int main(int argc, char** argv) {
                          frames, audio.stat.decoded_sounds, audio.stat.decoded_frames,
                          audio.bgm_id());
             lucent::info("combat",
-                         "{} frame-overlaps -> {} landed hits -> {} kills; "
+                         "{} frame-overlaps ({} rejected by the faction filter) "
+                         "-> {} landed hits -> {} kills; "
                          "{} volume pairs over {} live-swing frames; "
                          "closest approach {} units; skipped {} attackers / {} "
                          "defenders with no loaded model, {} with no such bone",
-                         cs.hits, cs.landed, cs.kills, cs.pairs, cs.swing_frames,
+                         cs.hits, cs.blocked_by_faction, cs.landed, cs.kills,
+                         cs.pairs, cs.swing_frames,
                          cs.pairs ? std::format("{:.1f}", cs.closest) : "n/a",
                          cs.atk_no_model, cs.def_no_model, cs.def_no_bone);
             lucent::info("combat",

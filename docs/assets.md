@@ -1171,3 +1171,33 @@ Warrior and Monk, so the check is not decoration.
 Still missing, and not faked: there is no save/load path, so the port always
 starts a new game at level 1 and nothing calls `LevelUp` yet -- EXP is tracked
 but the level-up *screen* (choosing a regimen) is UI that has not been built.
+
+
+## Who may damage whom
+
+`AppCharacterBase::GetType()` is the engine's faction tag, and each subclass
+returns a literal:
+
+| class | `GetType()` |
+|---|---|
+| `AppCharacterPlayer` @ `0x2b8034` | 1 |
+| `AppCharacterParty` @ `0x2b5784` | 2 |
+| `AppCharacterNPC` @ `0x2b5118` | 3 |
+| `AppCharacterEnemy` @ `0x2b49d4` | 4 |
+
+Both `Damage` overrides test the ATTACKER's type before anything else. They
+fetch the attacker with `CollisionBase::GetParentPointer` on the incoming
+`CollisionParam` and call its `GetType` through vtable slot `+0x198`:
+
+- `AppCharacterEnemy::Damage` @ `0x2b2b00` returns unless the type is **1 or 2**
+- `AppCharacterPlayer::Damage` @ `0x2b5b7c` returns unless the type is **4**
+
+So an enemy cannot damage another enemy, and only an enemy can damage the
+player. That is a filter read off the binary, not a house rule about how a game
+"should" behave.
+
+This mattered: without it the port had enemies fighting each other, and doing it
+with the PLAYER's attack value, because the damage branch assumed any non-player
+defender had been hit by the player. The combat summary now prints how many
+overlaps the filter rejected, since a filter that silently ate every hit would
+otherwise look the same as one that worked.

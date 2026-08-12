@@ -97,6 +97,10 @@ struct Actor {
     // Which spawner made this, because that selects the model prefix:
     // 'N' AddNPC, 'E' AddEnemy, 'B' AddBoss, 'C' AddParty.
     char kind = 'N';
+    // AppCharacterBase::GetType(), the engine's own faction tag: 1 Player,
+    // 2 Party, 3 NPC, 4 Enemy. Damage is filtered on it -- see CharType() and
+    // CanDamage() below.
+    enum Type { kPlayer = 1, kParty = 2, kNpc = 3, kEnemy = 4 };
     float pos[3]{};
     float rot_y = 0;
     int motion = 0;              // eMOTION index; also the .smot numeric prefix
@@ -137,6 +141,29 @@ struct EventBox {
     bool no_touch = false;   // SetEventBoxNoTouchEvent
     bool inside = false;     // edge-triggered: fire on entry, not every frame
 };
+
+// The engine's faction tag for a spawned actor. The player is the one actor the
+// scripts address as "MainPlayer"; everything else follows its spawner.
+inline int CharType(const Actor& a) {
+    if (a.handle == "MainPlayer") return Actor::kPlayer;
+    switch (a.kind) {
+        case 'E': case 'B': return Actor::kEnemy;
+        case 'C': return Actor::kParty;
+        default: return Actor::kNpc;
+    }
+}
+
+// Whether `attacker` may damage `defender`, straight out of the two Damage
+// overrides. AppCharacterEnemy::Damage @ 0x2b2b00 reads the attacker's GetType
+// and returns unless it is 1 or 2; AppCharacterPlayer::Damage @ 0x2b5b7c
+// returns unless it is 4. So enemies cannot hurt each other and the player
+// cannot hurt a party member -- a filter, not a house rule.
+inline bool CanDamage(const Actor& attacker, const Actor& defender) {
+    int at = CharType(attacker), dt = CharType(defender);
+    if (dt == Actor::kEnemy) return at == Actor::kPlayer || at == Actor::kParty;
+    if (dt == Actor::kPlayer) return at == Actor::kEnemy;
+    return false;   // NPCs and party members: no Damage override reached here
+}
 
 // SetFade(kind, milliseconds) starts a fade; scripts then block in a coroutine
 // on IsFadeFinish(). Stubbing IsFadeFinish to true would 'work' but would also
