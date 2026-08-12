@@ -5,3 +5,5 @@ build/
 *.so
 assets/
 compile_commands.json
+__pycache__/
+*.pyc
