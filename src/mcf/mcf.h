@@ -432,6 +432,16 @@ struct PlayerStats {
     }
     // Update clamps every stat to 99 before using it.
     static int32_t Cap(int32_t v) { return v > 99 ? 99 : v < 0 ? 0 : v; }
+
+    // The four training regimens the game offers on a level-up, in the order
+    // ModeGame::Process_LevelUp indexes tblLevelup with -- the same order as
+    // SYS_LEVELUP_TYPE_1..4.
+    enum Regimen { kWarrior = 0, kMonk = 1, kMage = 2, kSage = 3 };
+    static const char* RegimenName(int r);
+    // Applies one level-up: +1 level, the chosen row of tblLevelup added to the
+    // stats, then HP and MP refilled -- Process_LevelUp @ 0x2e0100 writes max
+    // HP and max MP straight back into the current values after calling Update.
+    void LevelUp(int regimen);
 };
 
 // tblHelm / tblArmor defence, indexed by DataTableGetDefence @ 0x2c3bd8.

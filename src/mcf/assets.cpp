@@ -669,6 +669,50 @@ int32_t PlayerStats::defence() const {
     return Cap(stamina) + 1 + EquipDefence(helm) + EquipDefence(armor);
 }
 
+// tblLevelup, 64 bytes = four 16-byte rows (the symbol's own size; the stride is
+// DataTableGetLevelUp's `lsl #4` @ 0x2c375c). Verbatim from .data.
+static const int32_t kLevelUp[4][4] = {
+    {1, 2, 0, 1},   // Warrior
+    {2, 1, 0, 1},   // Monk
+    {1, 0, 2, 1},   // Mage
+    {1, 0, 1, 2},   // Sage
+};
+
+const char* PlayerStats::RegimenName(int r) {
+    switch (r) {
+        case kWarrior: return "Warrior";
+        case kMonk:    return "Monk";
+        case kMage:    return "Mage";
+        case kSage:    return "Sage";
+    }
+    return "?";
+}
+
+void PlayerStats::LevelUp(int regimen) {
+    if (regimen < 0 || regimen > 3) {
+        lucent::warn("player", "level-up regimen {} is outside 0..3; ignored", regimen);
+        return;
+    }
+    if (level >= 99) {
+        lucent::info("player", "already at level 99");
+        return;
+    }
+    ++level;
+    const int32_t* r = kLevelUp[regimen];
+    // Process_LevelUp does NOT add the row as stored. It runs it through
+    // `rev64 v1.4s, v0.4s` + `mov v1.d[1], v0.d[1]`, which swaps the first two
+    // lanes and leaves the last two -- so the row is written in a different
+    // order from the stat array it is added to.
+    power   += r[1];
+    stamina += r[0];
+    wisdom  += r[2];
+    will    += r[3];
+    // Update recomputes the maxima, then Process_LevelUp copies them into the
+    // current values: a level-up is also a full heal.
+    hp = max_hp();
+    mp = max_mp();
+}
+
 RoomSize FindRoomSize(const Archive& ar, const std::string& room) {
     RoomSize rs;
     // Best source: the room's own ground-attribute grid. Load_GroundAttribute @

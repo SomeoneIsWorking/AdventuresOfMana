@@ -1125,6 +1125,49 @@ a bit mask at `+0x10` (1, 3, 7, 15, 23, 31, 55, 87, 127), so a shield blocks
 kinds of damage rather than reducing it. What the bits mean is not established.
 See `docs/weapon-table.md`.
 
-Still missing, and not faked: there is no save/load path, so this is always a
-new game at level 1, and how stats grow (`tblLevelup`, a 16-byte-record table
-reached by `DataTableGetLevelUp` @ `0x2c375c`) is not decoded.
+### Levelling up (`tblLevelup`)
+
+`tblLevelup` is **64 bytes** -- the dynamic symbol's own size -- i.e. four rows
+of 16, the stride being `DataTableGetLevelUp`'s `lsl #4` @ `0x2c375c`. Four rows,
+because the game asks the player to pick a training regimen on each level-up.
+`ModeGame::Process_LevelUp` @ `0x2e0100` does the whole thing:
+
+1. level += 1
+2. load the chosen row and **swap its first two lanes** --
+   `rev64 v1.4s, v0.4s` then `mov v1.d[1], v0.d[1]` gives `[w1,w0,w2,w3]`
+3. add that to the four base stats at `+0x148`
+4. call `Update`, then copy max HP and max MP into the current values: **a
+   level-up is a full heal**
+5. at level 99, fire achievement `AC0033`
+
+| choice | row as stored | after the swap | `SYS_LEVELUP_TYPE_n` |
+|---|---|---|---|
+| 0 | 1, 2, 0, 1 | power +2, stamina +1, will +1 | Warrior |
+| 1 | 2, 1, 0, 1 | stamina +2, power +1, will +1 | Monk |
+| 2 | 1, 0, 2, 1 | wisdom +2, stamina +1, will +1 | Mage |
+| 3 | 1, 0, 1, 2 | will +2, stamina +1, wisdom +1 | Sage |
+
+That lane swap is the one thing here that could plausibly be off by one, and the
+game's own help text settles it independently of the disassembly:
+
+| id | text | stat it must raise |
+|---|---|---|
+| `SYS_HELP_LEVELUP_FIGHTER` | "improving physical **ATK**" | power |
+| `SYS_HELP_LEVELUP_MONK` | "improving **DEF** and increasing **HP**" | stamina |
+| `SYS_HELP_LEVELUP_WIZARD` | "increasing magical ATK and **MP**" | wisdom |
+| `SYS_HELP_LEVELUP_WISEMAN` | "increasing **limit gauge** build speed" | will |
+
+Every one agrees with the swapped reading and none with the unswapped one, and
+this closes two other loops at the same time: Monk's text naming *both* DEF and
+HP is exactly why `Update` derives both from stamina, and Sage's text explains
+why nothing in `Update` reads `will` at all -- it feeds the limit gauge, the
+field `Init` zeroes at `GameParameter+0x158`, which is `oG+0x1b8`, the charge
+meter this project had already noticed scaling the player's damage.
+
+`--player-selftest` asserts each regimen raises the stat its own help text names
+and raises it more than any rival does. Deleting the lane swap fails exactly
+Warrior and Monk, so the check is not decoration.
+
+Still missing, and not faked: there is no save/load path, so the port always
+starts a new game at level 1 and nothing calls `LevelUp` yet -- EXP is tracked
+but the level-up *screen* (choosing a regimen) is UI that has not been built.

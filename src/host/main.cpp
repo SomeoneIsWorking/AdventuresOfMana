@@ -441,7 +441,64 @@ int main(int argc, char** argv) {
                     lucent::info("player", "  ok: {:<38} -> {}", c.what, c.got);
                 }
             }
-            lucent::info("player", "SELFTEST: {} cases, {} failures", 12, bad);
+            // tblLevelup's rows are added through a lane swap, so which
+            // regimen raises which stat is exactly the thing that could be off
+            // by one. The game's own help text is an INDEPENDENT source for the
+            // answer, and it is asserted here rather than admired:
+            //   SYS_HELP_LEVELUP_FIGHTER  "improving physical ATK"
+            //   SYS_HELP_LEVELUP_MONK     "improving DEF and increasing HP"
+            //   SYS_HELP_LEVELUP_WIZARD   "increasing magical ATK and MP"
+            //   SYS_HELP_LEVELUP_WISEMAN  "increasing limit gauge build speed"
+            // Each regimen must move the stat its own text names, and must move
+            // it MORE than the other three do.
+            struct Reg { int r; const char* claim; int32_t mcf::PlayerStats::* stat; };
+            const Reg regimens[] = {
+                {mcf::PlayerStats::kWarrior, "physical ATK -> power",
+                 &mcf::PlayerStats::power},
+                {mcf::PlayerStats::kMonk,    "DEF and HP   -> stamina",
+                 &mcf::PlayerStats::stamina},
+                {mcf::PlayerStats::kMage,    "magic and MP -> wisdom",
+                 &mcf::PlayerStats::wisdom},
+                {mcf::PlayerStats::kSage,    "limit gauge  -> will",
+                 &mcf::PlayerStats::will},
+            };
+            for (const auto& reg : regimens) {
+                int32_t best = -1, mine = -1;
+                for (const auto& other : regimens) {
+                    mcf::PlayerStats r;
+                    int32_t before = r.*(reg.stat);
+                    r.LevelUp(other.r);
+                    int32_t gain = r.*(reg.stat) - before;
+                    if (other.r == reg.r) mine = gain;
+                    else best = std::max(best, gain);
+                }
+                if (mine <= best) {
+                    lucent::error("player", "SELFTEST FAIL: {} raises its stat by "
+                                  "{}, but another regimen raises it by {}",
+                                  mcf::PlayerStats::RegimenName(reg.r), mine, best);
+                    ++bad;
+                } else {
+                    lucent::info("player", "  ok: {:<8} {} +{} (best rival +{})",
+                                 mcf::PlayerStats::RegimenName(reg.r), reg.claim,
+                                 mine, best);
+                }
+            }
+            {   // A level-up is also a full heal, and it advances the level.
+                mcf::PlayerStats r;
+                r.hp = 1; r.mp = 0;
+                r.LevelUp(mcf::PlayerStats::kMonk);
+                if (r.level != 2 || r.hp != r.max_hp() || r.mp != r.max_mp()) {
+                    lucent::error("player", "SELFTEST FAIL: level {} HP {}/{} MP "
+                                  "{}/{} after a level-up", r.level, r.hp,
+                                  r.max_hp(), r.mp, r.max_mp());
+                    ++bad;
+                } else {
+                    lucent::info("player", "  ok: level-up refills -> level {} "
+                                 "HP {}/{} MP {}/{}", r.level, r.hp, r.max_hp(),
+                                 r.mp, r.max_mp());
+                }
+            }
+            lucent::info("player", "SELFTEST: {} cases, {} failures", 17, bad);
             return bad ? 1 : 0;
         }
 
