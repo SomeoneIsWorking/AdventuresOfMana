@@ -2,6 +2,7 @@
 // docs/assets.md; mirrors tools/asset/{mpk,stex,smdl}.py.
 #include "mcf/mcf.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cmath>
 #include <cstring>
@@ -632,7 +633,92 @@ bool Font::Load(const std::vector<uint8_t>& file) {
     map_.resize(map_n);
     for (uint32_t i = 0; i < map_n; ++i)
         std::memcpy(&map_[i], file.data() + map_off + size_t(i) * 2, 2);
+    line_ = 0;
+    for (const Glyph& g : glyphs_)
+        line_ = std::max(line_, uint32_t(int(g.top) + int(g.h)));
     return true;
+}
+
+// UTF8_OctToUInt @ 0x3db5f0's decoder, enough to name the code point an entry
+// carries. Returns 0 on a malformed lead byte, which cannot be a real glyph.
+static uint32_t Utf8Cp(const uint8_t* p, size_t n) {
+    if (!n) return 0;
+    uint8_t c = p[0];
+    if (c < 0x80) return c;
+    if ((c & 0xE0) == 0xC0 && n >= 2) return uint32_t(c & 0x1F) << 6 | (p[1] & 0x3F);
+    if ((c & 0xF0) == 0xE0 && n >= 3)
+        return uint32_t(c & 0x0F) << 12 | uint32_t(p[1] & 0x3F) << 6 | (p[2] & 0x3F);
+    if ((c & 0xF8) == 0xF0 && n >= 4)
+        return uint32_t(c & 0x07) << 18 | uint32_t(p[1] & 0x3F) << 12 |
+               uint32_t(p[2] & 0x3F) << 6 | (p[3] & 0x3F);
+    return 0;
+}
+
+std::vector<uint32_t> Utf8Codepoints(const std::string& s) {
+    std::vector<uint32_t> out;
+    for (size_t i = 0; i < s.size();) {
+        const uint8_t* p = reinterpret_cast<const uint8_t*>(s.data()) + i;
+        size_t n = s.size() - i;
+        uint8_t c = *p;
+        size_t len = c < 0x80 ? 1 : (c & 0xE0) == 0xC0 ? 2
+                   : (c & 0xF0) == 0xE0 ? 3 : (c & 0xF8) == 0xF0 ? 4 : 1;
+        uint32_t cp = Utf8Cp(p, n);
+        // A malformed sequence yields 0, which no font maps -- it is reported
+        // as a missing glyph at the call site rather than skipped silently.
+        out.push_back(cp);
+        i += len > n ? n : len;
+    }
+    return out;
+}
+
+bool Font::LoadFontBin(const std::vector<uint8_t>& file) {
+    constexpr size_t kRec = 0xa04;      // one atlas row: 128 entries + a count
+    constexpr size_t kEnt = 0x14;
+    constexpr size_t kMaxEnt = 128;
+    if (file.size() < 0x18) return false;
+    uint32_t pitch = RdU32(file, 0x04);
+    uint32_t recs = RdU32(file, 0x0c);
+    uint32_t pages = RdU32(file, 0x10);
+    uint32_t dim = RdU32(file, 0x14);
+    if (!pitch || !recs || !pages || !dim) return false;
+    size_t body = 0x18 + size_t(pages) * recs * kRec;
+    // The ctor allocates exactly this much and memcpys it, so a file that is
+    // not exactly this size is not the format -- refuse rather than read what
+    // happens to be there.
+    if (body + size_t(pages) * dim * dim != file.size()) return false;
+    // One page is all the port draws with; the shipping fonts have one each.
+    if (pages != 1) return false;
+
+    w_ = dim;
+    h_ = dim;
+    line_ = pitch;
+    atlas_.assign(file.begin() + long(body), file.end());
+    glyphs_.clear();
+    map_.assign(0x10000, 0xFFFF);
+    for (uint32_t r = 0; r < recs; ++r) {
+        size_t o = 0x18 + size_t(r) * kRec;
+        uint32_t n = RdU32(file, uint32_t(o + 0xa00));
+        if (n > kMaxEnt) return false;
+        int x = 0;
+        for (uint32_t i = 0; i < n; ++i) {
+            const uint8_t* e = file.data() + o + size_t(i) * kEnt;
+            uint32_t cp = Utf8Cp(e, 8);
+            int adv = int(int32_t(RdU32(file, uint32_t(o + i * kEnt + 0x10))));
+            if (adv < 0 || adv > 255 || pitch > 255) return false;
+            if (cp && cp < map_.size() && map_[cp] == 0xFFFF &&
+                glyphs_.size() < 0xFFFF) {
+                Glyph g;
+                g.x = uint16_t(x);
+                g.y = uint16_t(r * pitch);
+                g.w = uint8_t(adv);
+                g.h = uint8_t(pitch);
+                map_[cp] = uint16_t(glyphs_.size());
+                glyphs_.push_back(g);
+            }
+            x += adv + 2;              // the gap drawCharacter adds
+        }
+    }
+    return !glyphs_.empty();
 }
 
 const Glyph* Font::Find(uint32_t cp) const {
@@ -644,7 +730,7 @@ const Glyph* Font::Find(uint32_t cp) const {
 
 int Font::Measure(const std::string& s) const {
     int w = 0, best = 0;
-    for (unsigned char c : s) {
+    for (uint32_t c : Utf8Codepoints(s)) {
         if (c == '\n') { best = std::max(best, w); w = 0; continue; }
         if (const Glyph* g = Find(c)) w += g->Advance();
     }

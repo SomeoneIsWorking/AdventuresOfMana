@@ -365,14 +365,56 @@ struct Glyph {
     int Advance() const { return int(w) + left + right; }
 };
 
+// A UTF-8 string as code points, the unit both fonts are keyed by. Drawing a
+// string BYTE by byte was what dropped the copyright sign and every kana: a
+// multi-byte character became two or three lookups that could not match.
+std::vector<uint32_t> Utf8Codepoints(const std::string& s);
+
 class Font {
 public:
     bool Load(const std::vector<uint8_t>& file);
+    // sk1/font_<lang>.bin -- the OTHER font the game ships, and the one it
+    // actually draws UI text with. `FontFileLoad` @ 0x2c2608 reads
+    // `sk1/font_%s.bin` and `.txt`, hands the .bin to FontTexCreate ->
+    // FTData::FTData(platform, void*) @ 0x338588, and the .txt to FontTexFix.
+    //
+    // The ctor states the layout outright, and the sizes it computes account
+    // for every byte of all four shipping fonts:
+    //
+    //     +0x00 u32   (0 in all four)
+    //     +0x04 u32   base font size, in pixels -- also the ROW PITCH
+    //     +0x08 u32   (same value again in all four)
+    //     +0x0c u32   records per page      (this+0xf8)
+    //     +0x10 u32   pages                 (this+0xfc, 1 in all four)
+    //     +0x14 u32   texture dimension     (this+0xec, square, 8-bit)
+    //     +0x18       pages * records * 0xa04 bytes of records
+    //     ...         pages * dim * dim bytes of 8-bit coverage
+    //
+    // A record is one ROW of the atlas: 128 entries of 0x14 bytes followed by
+    // a u32 count at +0xa00. An entry is the character's UTF-8 bytes (NUL
+    // padded, 8 bytes), two runtime cache fields, and its width at +0x10.
+    //
+    // The x position is NOT stored -- FTData::drawCharacter @ 0x339780
+    // recomputes it by summing `width + 2` over the preceding entries of the
+    // same record (`movi v0.4s, #0x2` @ 0x339a34 in the vector path,
+    // `add w10, w10, #0x2` @ 0x339ad8 in the scalar tail). So:
+    //
+    //     x = sum over i < index of (width_i + 2),   y = record * pitch
+    //
+    // Glyph ink can spill into that 2px gap -- '#' is 19 wide in a cell of 17
+    // -- so the cell is the ADVANCE, not a bounding box, and a glyph drawn at
+    // cell width loses at most a pixel of overhang.
+    bool LoadFontBin(const std::vector<uint8_t>& file);
     const Glyph* Find(uint32_t codepoint) const;
     // 8-bit coverage, `width * height` bytes.
     const std::vector<uint8_t>& atlas() const { return atlas_; }
     uint32_t width() const { return w_; }
     uint32_t height() const { return h_; }
+    // Pixel height of one line of text. For BasicFont it is measured over the
+    // glyphs (`top + h`, the lowest any glyph reaches below the line origin);
+    // for a font_*.bin it is the file's own row pitch. The two fonts differ by
+    // nearly 2x, so every caller scales by this rather than assuming one.
+    uint32_t line_height() const { return line_; }
     size_t glyphs() const { return glyphs_.size(); }
     // Pixel width of an ASCII string, using the engine's advance rule.
     int Measure(const std::string& utf8) const;
@@ -382,6 +424,7 @@ private:
     std::vector<uint8_t> atlas_;
     std::vector<Glyph> glyphs_;
     std::vector<uint16_t> map_;     // codepoint -> glyph index, 0xFFFF = none
+    uint32_t line_ = 0;
 };
 
 // ---------------------------------------------------------------------------

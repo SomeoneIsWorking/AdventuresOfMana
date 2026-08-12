@@ -1800,17 +1800,35 @@ It builds the attribute byte:
 
 Bits `0x04`–`0x20` are never set. The occupancy probe is a **sphere of radius
 12** (`mov w10, #0x41400000` @ `0x2dce44` — 12.0f, not 5.0f) centred at
-`(X, groundHeight + 12, Z)`; the `5` in the same neighbourhood is the collision
-**mask** argument to `IsCollisionPushBack`, a different value. That wall test
+`(X, groundHeight + 12, Z)`; the `5` in the same neighbourhood is
+`IsCollisionPushBack`'s FOURTH argument, which is **not** a mask either — a
+later read of the body @ `0x3300a8` gives it as an ITERATION COUNT (`cbz w20`
+skips both passes, `cmp w24, w20` bounds each refinement loop) with the mesh
+mask hardcoded to `0xa`. That reading has NOT been adversarially verified: the
+verifier agent for it died before reporting. That wall test
 only runs when the floor class is non-zero (`cbz w22` @ `0x2dce88`). The height
 out-parameter gets the real ground height only when bit 7 is set **and** the low
 two bits are non-zero; otherwise it gets the sentinel `baseY + 10000.0f`, which
 is what `_MakeRouteTable`'s `|h| > 9999` test rejects.
 
-Two limits on that negative, carried deliberately: `MapServer::IsCollisionFloor`
-and `IsCollisionPushBack` were **not** decoded, so if the collision mesh is
-itself loaded from the `.gdt` then the `.gdt` reaches the grid indirectly and a
-static read cannot see it. `Load_GroundAttribute` sizes the `.gdt` with `frintp` (**ceil**) while every
+The one route by which the `.gdt` could still have reached the grid indirectly
+is now read, and it does not: `MapServer::IsCollisionFloor` @ `0x32fdfc` walks a
+`std::list<SiCollisionMesh*>` at `MapServer+0x18` and calls
+`SiCollisionMesh::GetFloor` on each, returning on the first hit; the meshes are
+built from **`%s.scol`** (the format string at `0x98879`), loaded by
+`ModeGame::Process_Room` @ `0x2e4c88`..`0x2e4d94` and by
+`MapServer::AddCollisionFromFile` @ `0x32f644`. Those are the only two sites
+that construct a `SiCollisionMesh` and feed it bytes — four `bl`s to the ctor
+and `SetBinary` PLT stubs across the whole disassembly. The masks are bitmasks
+ANDed against a per-polygon attribute word at polygon `+0x24` (`tst w8, w20`
+@ `0x3636ac` in `GetFloor`, the same shape @ `0x362ec4` in `IsCollision`).
+
+So the `.gdt` is a *cache* of chip attributes computed FROM the `.scol` mesh —
+`ModeGame::Save_GroundAttribute` @ `0x2e7c24` writes one — and the dependency
+runs `.scol` -> runtime query -> `.gdt`, never the other way.
+
+**This paragraph is NOT adversarially verified.** The agent that was to refute
+it died, so unlike the rest of this section it rests on a single reading. `Load_GroundAttribute` sizes the `.gdt` with `frintp` (**ceil**) while every
 chip-grid reader uses `fcvtzs` (**truncate**), which would split the two for any
 room whose size is not a multiple of 30 — but **counted over the world table's
 1000 rooms, that is 0 of them**. Every shipping room's width and depth is a

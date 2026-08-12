@@ -1597,8 +1597,23 @@ int main(int argc, char** argv) {
             mcf::Font font;
             GLuint fontTex = 0, textVbo = 0;
             {
-                const char* fp = "sk1/BasicFont.sfont";
-                if (!ar.Has(fp) || !font.Load(ar.Read(fp))) {
+                // The engine draws UI text with sk1/font_<lang>.bin, not with
+                // BasicFont: FontFileLoad @ 0x2c2608 builds the FTData from it.
+                // BasicFont covers ASCII 32..126 only, which is why the
+                // copyright sign, the em dash and every kana were dropped;
+                // font_en covers 543 characters and font_ja 1209. BasicFont
+                // stays as the fallback rather than being deleted, because it
+                // is a real shipping font and a missing font_*.bin should
+                // degrade to worse text, not to no text.
+                std::string fp = std::string("sk1/font_") + (lang == "ja" ? "ja" : "en") + ".bin";
+                bool ok = ar.Has(fp) && font.LoadFontBin(ar.Read(fp));
+                if (!ok) {
+                    lucent::warn("text", "{} missing or malformed; falling back "
+                                 "to BasicFont (ASCII 32..126 only)", fp);
+                    fp = "sk1/BasicFont.sfont";
+                    ok = ar.Has(fp) && font.Load(ar.Read(fp));
+                }
+                if (!ok) {
                     lucent::warn("text", "{} missing or malformed; dialogue will "
                                  "be logged but not drawn", fp);
                 } else {
@@ -1619,6 +1634,14 @@ int main(int argc, char** argv) {
                 }
                 glGenBuffers(1, &textVbo);
             }
+            // Every UI site here was laid out against BasicFont, whose tallest
+            // glyph reaches 17px below the line origin. A font_*.bin line is
+            // 28px, so text drawn at the same `scale` would be 1.6x too big and
+            // would overflow the boxes. Normalising by the ratio keeps the
+            // layout fixed and leaves BasicFont at exactly 1.0.
+            const float kDesignLine = 17.f;
+            const float font_scale =
+                font.line_height() ? kDesignLine / float(font.line_height()) : 1.f;
             GLuint progText = LinkProgram(kVText, kFText);
             GLuint fadeVbo = 0;
             glGenBuffers(1, &fadeVbo);
@@ -1711,7 +1734,7 @@ int main(int argc, char** argv) {
                                   float scale, bool centre,
                                   float r, float g, float b, float a) -> float {
                 float wpx = 0.f;
-                for (unsigned char ch : s)
+                for (uint32_t ch : mcf::Utf8Codepoints(s))
                     if (const mcf::Glyph* gl = font.Find(ch))
                         wpx += float(gl->Advance()) * scale;
                 if (s.empty() || !font.height()) return wpx;
@@ -1720,7 +1743,7 @@ int main(int argc, char** argv) {
                 std::vector<float> verts;
                 auto sx = [&](float px) { return px / float(W) * 2.f - 1.f; };
                 auto sy = [&](float py) { return 1.f - py / float(H) * 2.f; };
-                for (unsigned char ch : s) {
+                for (uint32_t ch : mcf::Utf8Codepoints(s)) {
                     const mcf::Glyph* gl = font.Find(ch);
                     if (!gl) {
                         // A dropped byte is a hole in the text, so say so once
@@ -2645,13 +2668,14 @@ int main(int argc, char** argv) {
                                 return s ? *s : std::string(id);
                             };
                             const float cx = float(W) * 0.5f;
-                            const float kScale = 2.f;      // as the HUD uses
-                            const float sc = kScale * 1.4f;
+                            const float kScale = 2.f;                // layout, as the HUD uses
+                            const float kGlyph = kScale * font_scale;
+                            const float sc = kGlyph * 1.4f;
                             // The copyright belongs to the title screen
                             // proper, not to the crawl or the name screen.
                             if ((!crawling || crawl_done) && (!naming || naming_done))
                                 drawUiText(say(mcf::TitleMenu::kCopyrightId),
-                                           cx, float(H) - 22.f * kScale, kScale,
+                                           cx, float(H) - 22.f * kScale, kGlyph,
                                            true, 1.f, 1.f, 1.f, 0.75f);
                             if (crawling && !crawl_done) {
                                 // App space is 544 tall; scale to the window so
@@ -2674,14 +2698,14 @@ int main(int argc, char** argv) {
                                 drawUiText(say(mcf::OpeningCrawl::kSkipId) +
                                                "  [Shift]",
                                            cx, float(H) - 40.f,
-                                           kScale, true, 1, 1, 1, 0.7f);
+                                           kGlyph, true, 1, 1, 1, 0.7f);
                             } else if (naming && !naming_done) {
                                 // Every word here is the game's own.
                                 drawUiText(say("SYS_NAMEENTRY_INFO_1"),
-                                           cx, float(H) * 0.30f, kScale, true,
+                                           cx, float(H) * 0.30f, kGlyph, true,
                                            1, 1, 1, 1);
                                 drawUiText(say("SYS_NAMEENTRY_INFO_2"),
-                                           cx, float(H) * 0.35f, kScale, true,
+                                           cx, float(H) * 0.35f, kGlyph, true,
                                            1, 1, 1, 0.8f);
                                 const char* lbl[2] = {
                                     "SYS_NAMEENTRY_HERO_NAME_TITLE",
@@ -2703,10 +2727,10 @@ int main(int argc, char** argv) {
                                 if (const char* eid =
                                         mcf::NameEntry::ErrorId(name_err))
                                     drawUiText(say(eid), cx, float(H) * 0.68f,
-                                               kScale, true, 1.f, 0.45f, 0.4f, 1.f);
+                                               kGlyph, true, 1.f, 0.45f, 0.4f, 1.f);
                                 drawUiText(say("SYS_NAMEENTRY_BUTTON_DECIDE") +
                                                "  [Enter]   Tab: switch",
-                                           cx, float(H) * 0.78f, kScale, true,
+                                           cx, float(H) * 0.78f, kGlyph, true,
                                            1, 1, 1, 0.7f);
                             } else if (title.phase == mcf::TitleMenu::Phase::kAttract) {
                                 // The engine fades this prompt (LerpL over
@@ -3523,7 +3547,10 @@ int main(int argc, char** argv) {
                 // real one and is not reversed, so this is a plain corner
                 // readout, not a fake of the game's UI.
                 if (fontTex && show_hud) {
-                    const float kScale = 2.f;
+                    const float kScale = 2.f;                 // line pitch and boxes
+                    // Glyph metrics scale separately: the two fonts have
+                    // different cell heights and font_scale equalises them.
+                    const float kGlyph = kScale * font_scale;
                     const float kMargin = 16.f;
                     auto label = [&](const char* id, const char* fallback) {
                         const std::string* t = strings.Find(id);
@@ -3588,9 +3615,9 @@ int main(int argc, char** argv) {
                     float widest = 0.f;
                     for (const auto& r : rows) {
                         float w = 0.f;
-                        for (unsigned char ch : r)
+                        for (uint32_t ch : mcf::Utf8Codepoints(r))
                             if (const mcf::Glyph* g = font.Find(ch))
-                                w += float(g->Advance()) * kScale;
+                                w += float(g->Advance()) * kGlyph;
                         widest = std::max(widest, w);
                     }
                     float boxW = widest + 16.f, boxH = lineH * float(rows.size()) + 12.f;
@@ -3607,18 +3634,18 @@ int main(int argc, char** argv) {
                     float ty = kMargin + 6.f;
                     for (const auto& row : rows) {
                         float tx = kMargin + 8.f;
-                        for (unsigned char ch : row) {
+                        for (uint32_t ch : mcf::Utf8Codepoints(row)) {
                             const mcf::Glyph* g = font.Find(ch);
                             if (!g) continue;
                             if (g->w && g->h) {
-                                float gx = tx + float(g->left) * kScale;
-                                float gy = ty + float(g->top) * kScale;
-                                push(gx, gy, gx + float(g->w) * kScale,
-                                     gy + float(g->h) * kScale,
+                                float gx = tx + float(g->left) * kGlyph;
+                                float gy = ty + float(g->top) * kGlyph;
+                                push(gx, gy, gx + float(g->w) * kGlyph,
+                                     gy + float(g->h) * kGlyph,
                                      float(g->x) / aw, float(g->y) / ah,
                                      float(g->x + g->w) / aw, float(g->y + g->h) / ah);
                             }
-                            tx += float(g->Advance()) * kScale;
+                            tx += float(g->Advance()) * kGlyph;
                         }
                         ty += lineH;
                     }
@@ -3635,7 +3662,10 @@ int main(int argc, char** argv) {
                 // matching SYS_HELP_LEVELUP_* strings, so what the player is
                 // told about each choice is what the game tells them.
                 if (fontTex && level_up_open) {
-                    const float kScale = 2.f;
+                    const float kScale = 2.f;                 // line pitch and boxes
+                    // Glyph metrics scale separately: the two fonts have
+                    // different cell heights and font_scale equalises them.
+                    const float kGlyph = kScale * font_scale;
                     const float kMargin = 40.f;
                     auto str = [&](const char* id, const char* fallback) {
                         const std::string* t = strings.Find(id);
@@ -3715,18 +3745,18 @@ int main(int argc, char** argv) {
                     float ty = boxY + 12.f;
                     for (const auto& row : rows) {
                         float tx = kMargin + 16.f;
-                        for (unsigned char ch : row) {
+                        for (uint32_t ch : mcf::Utf8Codepoints(row)) {
                             const mcf::Glyph* g = font.Find(ch);
                             if (!g) continue;
                             if (g->w && g->h) {
-                                float gx = tx + float(g->left) * kScale;
-                                float gy = ty + float(g->top) * kScale;
-                                push(gx, gy, gx + float(g->w) * kScale,
-                                     gy + float(g->h) * kScale,
+                                float gx = tx + float(g->left) * kGlyph;
+                                float gy = ty + float(g->top) * kGlyph;
+                                push(gx, gy, gx + float(g->w) * kGlyph,
+                                     gy + float(g->h) * kGlyph,
                                      float(g->x) / aw, float(g->y) / ah,
                                      float(g->x + g->w) / aw, float(g->y + g->h) / ah);
                             }
-                            tx += float(g->Advance()) * kScale;
+                            tx += float(g->Advance()) * kGlyph;
                         }
                         ty += lineH;
                     }
@@ -3737,7 +3767,10 @@ int main(int argc, char** argv) {
                 }
 
                 if (fontTex && !sc.last_message.empty()) {
-                    const float kScale = 2.f;         // the atlas is 128x128, 9px caps
+                    const float kScale = 2.f;                 // line pitch and boxes
+                    // Glyph metrics scale separately: the two fonts have
+                    // different cell heights and font_scale equalises them.
+                    const float kGlyph = kScale * font_scale;
                     const int kPadX = 14, kPadY = 10;
                     const float kMargin = 16.f;
                     std::vector<float> verts;         // x,y,u,v per vertex
@@ -3761,7 +3794,7 @@ int main(int argc, char** argv) {
                         float x = 0;
                         for (unsigned char c : t)
                             if (const mcf::Glyph* g = font.Find(c))
-                                x += float(g->Advance()) * kScale;
+                                x += float(g->Advance()) * kGlyph;
                         return x;
                     };
                     for (size_t i = 0; i <= sc.last_message.size(); ++i) {
@@ -3821,18 +3854,18 @@ int main(int argc, char** argv) {
                     float ty = boxY + kPadY;
                     for (const auto& line : lines) {
                         float tx = kMargin + kPadX;
-                        for (unsigned char ch : line) {
+                        for (uint32_t ch : mcf::Utf8Codepoints(line)) {
                             const mcf::Glyph* g = font.Find(ch);
                             if (!g) continue;
                             if (g->w && g->h) {
-                                float gx = tx + float(g->left) * kScale;
-                                float gy = ty + float(g->top) * kScale;
-                                push(gx, gy, gx + float(g->w) * kScale,
-                                     gy + float(g->h) * kScale,
+                                float gx = tx + float(g->left) * kGlyph;
+                                float gy = ty + float(g->top) * kGlyph;
+                                push(gx, gy, gx + float(g->w) * kGlyph,
+                                     gy + float(g->h) * kGlyph,
                                      float(g->x) / aw, float(g->y) / ah,
                                      float(g->x + g->w) / aw, float(g->y + g->h) / ah);
                             }
-                            tx += float(g->Advance()) * kScale;
+                            tx += float(g->Advance()) * kGlyph;
                         }
                         ty += lineH;
                     }
