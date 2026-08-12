@@ -31,7 +31,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Model format (`.smdl`/`Smd3`) | **DONE — 1375/1375 parse, geometry rendered; material blend flag (word 9) drives alpha blending** | `tools/asset/smdl.py`, `render_smdl.py` |
 | Motion format (`.smot`/`Smot`) | **DONE — 1721/1721 parse; quaternions verified. 98 of 60,803 time arrays unexplained** | `tools/asset/smot.py` |
 | Collision format (`.scol`/`SCol`) | **DONE — cells + triangles reversed; floor queries work** | `tools/asset/scol.py`, `Collision::GetFloor` |
-| Room data tables (`.odt`/`.gdt`/`.edt`) | **Layouts from the engine's own loaders; 1328/1328 files parse. Map objects RENDER in-game** (3284/3284 ids resolve to models); all 3284 object placements verified against room mesh bounds | `tools/asset/roomdata.py`, `tools/asset/object_table.py` |
+| Room data tables (`.odt`/`.gdt`/`.edt`) | **Layouts from the engine's own loaders; 1328/1328 files parse. Room extent comes from the `.gdt` header** (the engine's own number), so rooms are no longer assumed to be one 300x240 cell -- actor placement went 85/116 -> **116/116** on the floor. Map objects RENDER in-game** (3284/3284 ids resolve to models); all 3284 object placements verified against room mesh bounds | `tools/asset/roomdata.py`, `tools/asset/object_table.py` |
 | C++ asset layer | **DONE for MPK/.stex/.smdl** — port of the verified Python | `src/mcf/` |
 | Desktop host (window + GLES2) | **Textured characters + rooms; GPU skinning + .smot playback** | `src/host/main.cpp` |
 | Lua bridge | **Lua 5.3 + all 200 `cmd` bindings; 714/715 scripts run** (stubs record calls) | `src/engine/script.cpp` |

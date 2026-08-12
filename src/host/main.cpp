@@ -630,7 +630,8 @@ int main(int argc, char** argv) {
                           script_fail = 0, actors = 0, boxes = 0, objects = 0,
                           obj_unknown = 0, actor_no_model = 0, with_odt = 0,
                           invisible = 0, col_fail = 0, on_floor = 0,
-                          off_floor = 0, engine_placed = 0, on_floor_aabb = 0; } c;
+                          off_floor = 0, engine_placed = 0, on_floor_aabb = 0;
+                     long size_src[3] = {0, 0, 0}; } c;
             std::map<std::string, int> missing_models;
             for (const auto& r : rooms) {
                 ++c.rooms;
@@ -651,14 +652,16 @@ int main(int argc, char** argv) {
 
                 c.actors += long(w.actors().size());
                 c.boxes += long(w.boxes.size());
-                // Room origin. Two candidates, measured against each other:
-                //   (a) the filename grid times a fixed 300x240
-                //   (b) the room's own collision AABB plus its uniform 15-unit
-                //       margin, which does not assume every room is one cell
-                float ox = float(std::atoi(r.substr(6, 2).c_str())) * 300.f;
-                float oz = float(std::atoi(r.substr(9, 2).c_str())) * 240.f;
-                float bx = ox, bz = oz;
-                if (has_col) { bx = rc.aabb_lo[0] + 15.f; bz = rc.aabb_lo[2] + 15.f; }
+                // Room origin. The engine's rule is size.w * grid_x (see
+                // mcf::FindRoomSize); the fixed 300x240 it replaced is kept as
+                // the control, because a new rule that is not compared with the
+                // old one is not measured.
+                float gx = float(std::atoi(r.substr(6, 2).c_str()));
+                float gy = float(std::atoi(r.substr(9, 2).c_str()));
+                mcf::RoomSize rsz = mcf::FindRoomSize(ar, r);
+                ++c.size_src[rsz.source];
+                float ox = gx * rsz.w, oz = gy * rsz.h;
+                float bx = gx * 300.f, bz = gy * 240.f;
                 for (const auto& a : w.actors()) {
                     // Every spawned actor should stand on floor. An actor over
                     // nothing keeps its script Y and floats -- the bug that hid
@@ -717,9 +720,14 @@ int main(int argc, char** argv) {
                          "so their script position is not expected to be walkable; "
                          "{} collision meshes failed to parse",
                          c.on_floor, c.off_floor, c.engine_placed, c.col_fail);
-            lucent::info("census", "  origin rule comparison: grid*300x240 puts {} "
-                         "actors on floor; collision-AABB+15 puts {} (of {} tested)",
+            lucent::info("census", "  origin rule comparison: per-room size puts {} "
+                         "actors on floor; a fixed 300x240 puts {} (of {} tested)",
                          c.on_floor, c.on_floor_aabb, c.on_floor + c.off_floor);
+            lucent::info("census", "  room size source: {} from .gdt (engine-attested), "
+                         "{} from the collision AABB (inferred), {} defaulted to 300x240",
+                         c.size_src[mcf::RoomSize::kGdt],
+                         c.size_src[mcf::RoomSize::kAabb],
+                         c.size_src[mcf::RoomSize::kDefault]);
             lucent::info("census", "  {} rooms have an .odt; {} objects, {} unresolved ids",
                          c.with_odt, c.objects, c.obj_unknown);
             for (const auto& [nm, n] : missing_models)
@@ -1073,16 +1081,20 @@ int main(int argc, char** argv) {
             // 15-unit collision margin giving 330x270 boxes), so the FILENAME
             // is the anchor -- not anything measured off the geometry.
             room_org[0] = room_org[1] = room_org[2] = 0.f;
+            mcf::RoomSize room_size;
             {
                 auto us = room_name.rfind('_');
                 auto us2 = room_name.rfind('_', us - 1);
                 if (us != std::string::npos && us2 != std::string::npos) {
                     int gx = std::atoi(room_name.substr(us2 + 1, us - us2 - 1).c_str());
                     int gy = std::atoi(room_name.substr(us + 1).c_str());
-                    room_org[0] = float(gx) * 300.f;
-                    room_org[2] = float(gy) * 240.f;
-                    lucent::info("world", "room grid ({},{}) -> origin ({:.0f},0,{:.0f})",
-                                 gx, gy, room_org[0], room_org[2]);
+                    room_size = mcf::FindRoomSize(ar, room_name);
+                    room_org[0] = float(gx) * room_size.w;
+                    room_org[2] = float(gy) * room_size.h;
+                    lucent::info("world", "room grid ({},{}), size {:.0f}x{:.0f} "
+                                 "from {} -> origin ({:.0f},0,{:.0f})", gx, gy,
+                                 room_size.w, room_size.h, room_size.source_name(),
+                                 room_org[0], room_org[2]);
                 }
             }
 
@@ -1125,9 +1137,14 @@ int main(int argc, char** argv) {
                 std::pair<int, int> best_chip{-1, -1};
                 float best_d = 1e30f;
                 bool found = false;
-                float cx = room_org[0] + 150.f, cz = room_org[2] + 120.f;
-                for (int gz = 0; gz < 8; ++gz) {
-                    for (int gx = 0; gx < 10; ++gx) {
+                float cx = room_org[0] + room_size.w * 0.5f;
+                float cz = room_org[2] + room_size.h * 0.5f;
+                // The scan covers the ROOM, whose size is not a constant --
+                // a 330x270 room is 11x9 chips, not 10x8.
+                const int chips_x = int(room_size.w / kChip);
+                const int chips_z = int(room_size.h / kChip);
+                for (int gz = 0; gz < chips_z; ++gz) {
+                    for (int gx = 0; gx < chips_x; ++gx) {
                         float wx = room_org[0] + (float(gx) + 0.5f) * kChip;
                         float wz = room_org[2] + (float(gz) + 0.5f) * kChip;
                         float g;

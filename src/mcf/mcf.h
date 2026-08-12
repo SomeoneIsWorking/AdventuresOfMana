@@ -344,6 +344,29 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Room extent. ModeGame::RoomLocalToWorldX/Z @ 0x2e3584 turn a script's
+// room-local coordinate into a world one as `size.w * grid_x + local`, and
+// MakeRoomMinMax @ 0x2e61b8 gives the room the box
+// [w*gx, w*(gx+1)] x [h*gy, h*(gy+1)]. The size is per ROOM, not a constant:
+// the engine reads it from a table indexed by the room's own class. See
+// docs/assets.md.
+// ---------------------------------------------------------------------------
+struct RoomSize {
+    float w = 300.f, h = 240.f;
+    enum Source {
+        kGdt,       // measured from the room's own .gdt -- engine-attested
+        kAabb,      // inferred from the collision AABB -- see docs/assets.md
+        kDefault,   // neither file is present
+    } source = kDefault;
+    const char* source_name() const {
+        return source == kGdt ? ".gdt" : source == kAabb ? "collision AABB" : "default";
+    }
+};
+// Never throws: a room with no size data gets the 300x240 default, flagged as
+// such, so a caller can report which rooms it is guessing about.
+RoomSize FindRoomSize(const Archive& ar, const std::string& room);
+
+// ---------------------------------------------------------------------------
 // Text control codes. 393 of the 1906 strings carry them, e.g.
 // "@N(36):\nAren't you...". CnvFormatString @ 0x2c33b4 expands them, and every
 // window that shows text runs its string through it first (SetMessageWnd @

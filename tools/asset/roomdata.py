@@ -199,7 +199,82 @@ def main(argv):
         else:
             print(f"  selftest: an object displaced to x={moved:.0f} IS rejected "
                   f"(room spans x {lo_x:.0f}..{hi_x:.0f}), so the check can fail")
+    rc |= room_size_check(root)
     return rc
+
+
+def room_size_check(root):
+    """The room extent, and whether the fallback for rooms without a .gdt lies.
+
+    ModeGame::RoomLocalToWorldX @ 0x2e3584 places a room at `size.w * grid_x`,
+    and the size is per room. The .gdt header IS that size (cols * 7.5), because
+    Load_GroundAttribute computes the grid from the size and refuses a file
+    whose header disagrees. 337 of the 993 rooms ship no .gdt, so the port falls
+    back to picking between the two known sizes by which one puts the room's
+    collision AABB at size*grid_index.
+
+    A fallback that is only ever run where the truth is unknown is untestable,
+    so it is run HERE on the rooms that DO have a .gdt and scored against them.
+    """
+    import scol  # noqa: E402  -- sibling module
+
+    gdts = sorted(glob.glob(os.path.join(root, "M*_*_*.gdt")))
+    cols_all = sorted(glob.glob(os.path.join(root, "M*_*_*.scol")))
+    if not gdts or not cols_all:
+        print(f"FAIL: {root} holds {len(gdts)} .gdt and {len(cols_all)} .scol -- "
+              f"the room-size check scanned NOTHING", file=sys.stderr)
+        return 2
+
+    def fallback(name, lo):
+        m = re.match(r"M\d+_(\d+)_(\d+)$", name)
+        gx, gy = int(m.group(1)), int(m.group(2))
+        w = 330.0 if (gx > 0 and abs(lo[0] - 330.0 * gx) < 1) else 300.0
+        h = 270.0 if (gy > 0 and abs(lo[2] - 270.0 * gy) < 1) else 240.0
+        return gx, gy, w, h
+
+    sizes = {}
+    agree = disagree = 0
+    bad = []
+    for f in gdts:
+        name = os.path.basename(f)[:-4]
+        cols, rows, cw, ch, _ = parse_gdt(open(f, "rb").read())
+        w, h = cols * cw, rows * ch
+        sizes[(w, h)] = sizes.get((w, h), 0) + 1
+        sf = os.path.join(root, name + ".scol")
+        if not os.path.exists(sf):
+            continue
+        lo, _hi = scol.parse(open(sf, "rb").read())["aabb"]
+        gx, gy, fw, fh = fallback(name, lo)
+        # Judge only the axes the fallback can decide: a grid index of 0 makes
+        # both candidate sizes give the same origin, so it decides nothing.
+        ok = ((gx == 0 or w not in (300.0, 330.0) or fw == w) and
+              (gy == 0 or h not in (240.0, 270.0) or fh == h))
+        if ok:
+            agree += 1
+        else:
+            disagree += 1
+            bad.append(f"{name}: .gdt {w:.0f}x{h:.0f}, fallback {fw:.0f}x{fh:.0f}")
+
+    print(f"room size: {len(gdts)} rooms carry a .gdt, "
+          f"{len(cols_all) - len(gdts)} do not")
+    print("  sizes: " + ", ".join(f"{w:.0f}x{h:.0f} x{n}"
+                                  for (w, h), n in sorted(sizes.items())))
+    print(f"  AABB fallback vs the .gdt truth: {agree} agree, {disagree} disagree")
+    for b in bad[:6]:
+        print(f"    {b}")
+    # Both classes, not just the positive one: the fallback must also say NO.
+    probe = os.path.basename(gdts[0])[:-4]
+    m = re.match(r"M\d+_(\d+)_(\d+)$", probe)
+    gx = max(1, int(m.group(1)))
+    _, _, fw, _ = fallback(f"M0000_{gx:02d}_01", (330.0 * gx, 0.0, 999999.0))
+    _, _, fw2, _ = fallback(f"M0000_{gx:02d}_01", (300.0 * gx, 0.0, 999999.0))
+    if fw != 330.0 or fw2 != 300.0:
+        print("  SELFTEST FAILED: the fallback does not distinguish a 330-wide "
+              "room from a 300-wide one; its agreement score means nothing")
+        return 1
+    print(f"  selftest: fed a low corner at 330*{gx} it answers 330, at 300*{gx} "
+          f"it answers 300, so it can tell the two apart")
+    return 0
 
 
 if __name__ == "__main__":

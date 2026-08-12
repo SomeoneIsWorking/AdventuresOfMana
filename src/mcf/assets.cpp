@@ -649,6 +649,54 @@ const std::string* StringTable::Find(const std::string& id) const {
     return it == by_id_.end() ? nullptr : &it->second;
 }
 
+RoomSize FindRoomSize(const Archive& ar, const std::string& room) {
+    RoomSize rs;
+    // Best source: the room's own ground-attribute grid. Load_GroundAttribute @
+    // 0x2e6cec computes the grid from the room size (`ceil(size / 30)` chips,
+    // four cells per chip, cell = the literal 7.5) and REFUSES the file unless
+    // its header matches what it computed -- so the header is the size.
+    auto gp = std::format("sk1/{}.gdt", room);
+    if (ar.Has(gp)) {
+        auto b = ar.Read(gp);
+        if (b.size() >= 0x14) {
+            std::span<const uint8_t> s(b);
+            uint32_t ver = RdU32(s, 0), cols = RdU32(s, 4), rows = RdU32(s, 8);
+            float cw, ch;
+            std::memcpy(&cw, b.data() + 0x0C, 4);
+            std::memcpy(&ch, b.data() + 0x10, 4);
+            if (ver == 1 && cw == 7.5f && ch == 7.5f && cols && rows) {
+                rs.w = float(cols) * cw;
+                rs.h = float(rows) * ch;
+                rs.source = RoomSize::kGdt;
+                return rs;
+            }
+        }
+    }
+    // No .gdt. No attested source for this room's size has been found, so the
+    // fallback is an inference and is scored as one. Both known sizes put the
+    // room's low corner at size*grid_index; where the room's collision AABB
+    // agrees with exactly one of them, that one is taken. A grid index of 0
+    // decides nothing (both give 0), and neither does a room whose geometry
+    // does not reach its own corner, so those keep the 300x240 default.
+    auto sp = std::format("sk1/{}.scol", room);
+    if (ar.Has(sp)) {
+        try {
+            Collision c = ParseScol(ar.Read(sp));
+            int gx = 0, gy = 0;
+            auto us = room.rfind('_'), us2 = room.rfind('_', us - 1);
+            if (us != std::string::npos && us2 != std::string::npos) {
+                gx = std::atoi(room.substr(us2 + 1, us - us2 - 1).c_str());
+                gy = std::atoi(room.substr(us + 1).c_str());
+            }
+            if (gx > 0 && std::fabs(c.aabb_lo[0] - 330.f * float(gx)) < 1.f) rs.w = 330.f;
+            if (gy > 0 && std::fabs(c.aabb_lo[2] - 270.f * float(gy)) < 1.f) rs.h = 270.f;
+            rs.source = RoomSize::kAabb;
+        } catch (const std::exception&) {
+        }
+    }
+    return rs;
+}
+
 // UTF8_OctBytes @ 0x3db5f0: how many bytes the lead byte claims. The engine
 // copies plain text a whole code point at a time, so a multi-byte character can
 // never be split across the '@' scan.

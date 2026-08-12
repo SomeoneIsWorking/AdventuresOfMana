@@ -1019,3 +1019,59 @@ that must not -- and then sweeps the whole table, reporting how many strings
 still contain a `@` after expansion. That residue is 1 of 393: the
 `SYS_INFO_ITEM_AUTOSTACK` string `"@i (@1)"`, whose `@1` indexes the caller's
 argument array, and every caller reached from the dialogue path passes NULL.
+
+
+## Room extent, and where a room sits in the world
+
+A room's world position is NOT a fixed 300x240 cell. `ModeGame::RoomLocalToWorldX`
+@ `0x2e3584` is the whole rule:
+
+```
+size   = this->size_table[ this->rooms[width*gy + gx].size_class ]   // stride 16
+world  = size.w * gx + local      // RoomLocalToWorldZ: size.h * gy + local
+```
+
+`MakeRoomMinMax` @ `0x2e61b8` gives the same room the box
+`[w*gx, w*(gx+1)] x [h*gy, h*(gy+1)]`, and `RoomSizeW`/`RoomSizeH` @ `0x2e3654`
+return the two fields. `AddNPC` @ `0x2c8a10` runs the script's x and z through
+`RoomLocalToWorld{X,Z}` before spawning, so script coordinates are room-local and
+this is the conversion.
+
+**The size is readable per room, from the room's own `.gdt`.**
+`ModeGame::Load_GroundAttribute` @ `0x2e6cec` computes the ground-attribute grid
+from the room size -- `ceil(size / 30)` chips, four cells per chip, cell = the
+literal `7.5` (`fmov v0.2s, #7.5`) -- and then REFUSES the file unless its header
+matches what it computed, comparing all four of cols, rows, cell width and cell
+height. So `w = cols * 7.5` and `h = rows * 7.5` is the engine's own number, not
+a measurement of the geometry. Across the 657 `.gdt` files:
+
+| size | rooms |
+|---|---|
+| 300 x 240 | 385 |
+| 330 x 270 | 271 |
+| 600 x 240 | 1 (`M0023_05_00`) |
+
+**335 rooms ship no `.gdt`**, and the table the engine indexes lives in
+`ModeGame` at `+0x9dc` (sizes, stride 16) and `+0xa64` (per-room records, stride
+136, map width at `+0xa5c`); what fills it has not been found. For those rooms
+the port infers the size, and says so: it takes whichever of the two common
+sizes puts the room's collision AABB at exactly `size * grid_index`, defaulting
+to 300x240 when the grid index is 0 (which decides nothing) or neither matches.
+
+That inference is scored where the truth is known rather than only where it is
+not: run on the 656 rooms that have BOTH a `.gdt` and a `.scol`, it agrees with
+the `.gdt` in **654** and disagrees in two (`M0000_03_03`, `M0020_04_04`).
+`tools/asset/roomdata.py` runs that comparison, and a self-test feeds it one
+corner at `330*gx` and one at `300*gx` to prove it can answer either way.
+
+The independent check is actor placement: every script-placed actor should stand
+on walkable floor. With a fixed 300x240 cell, 85 of 116 did. With the per-room
+size, **116 of 116** do -- and the 16 that the earlier `.dat`-class guess still
+got wrong (shop and inn interiors, whose rooms are 300 wide despite their class)
+are among them.
+
+Two dead ends worth not repeating: the first byte of the room's `.dat` looks
+like a size class and predicts the `.gdt` size in 655 of 656 rooms, but it is
+wrong for exactly the shop interiors, so it was dropped. And using the collision
+AABB as the ORIGIN (rather than to choose between two sizes) was falsified
+earlier -- see the note above on the +15 margin.
