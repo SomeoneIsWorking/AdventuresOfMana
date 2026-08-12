@@ -2294,6 +2294,37 @@ arm @ `0x2d2b8c` is:
 so **a new game starts at world 1, cell (0,0)** = `sk1/M0001_00_00`. The port had
 guessed `M0000_00_00`; that is a real room, but not the one the game starts in.
 
+##### `_GameSaveAccess`: what is established, and what is not
+
+`_GameSaveAccess` @ `0x30c820`..`0x312cbc` is the flat serializer, and it runs
+both directions: a flag byte at `0x422368` picks load (buffer -> field) or save
+(field -> buffer), with the buffer base at `0x422388` and the cursor at
+`0x422374`. Each field is a near-identical block that clamps a chunk size
+against the remaining buffer and `memcpy`s.
+
+Established, and each cross-checked against something outside this function:
+
+| what | where | corroborated by |
+|---|---|---|
+| hero name | `SaveAccessStr(oG+0x68)` @ `0x30c874` | the same field `ModeTitle`'s New Game setup `strcpy`s `SYS_DEFAULTNAME_HERO` into |
+| heroine name | `SaveAccessStr(oG+0xe8)` @ `0x30c87c` | likewise, `SYS_DEFAULTNAME_GIRL` |
+| first field run | `oG+0x168`, then `0x170`..`0x1bc` in 4-byte steps, then `0x1c0/0x1c2/0x1c4/0x1c6` as 2-byte fields | ends exactly where the inventory begins |
+| inventory | `add x22, x23, #0x1c8` with stride `0xc` @ `0x30dea0` | `oG+0x1c8` **is** `GameParameter+0x168`, and stride 12 is the recorded 3-int32 slot |
+| acquisition counter | `oG+0x3c8` @ `0x30e834` | `GameParameter+0x368`, the recorded counter |
+| current cell | `ModeGame+0x9b20`, `+0x9b18`, `+0x9b1c`, `+0x9b24` | `{col, row, world}`, from `ModeGame`'s ctor |
+
+**Not established, and deliberately not guessed.** A mechanical pass over the
+109 `memcpy` sites resolves the field address for only **76** of them (70%);
+the other 33 compute their address inside a loop or through a register this
+scan does not follow. A 70% map is not a map: it would silently omit a third of
+the stream, and a save format is order-dependent, so one missing field
+mis-aligns everything after it. No field list is published here beyond the rows
+above, and the port still cannot load a save.
+
+The `oG` vs `GameParameter` distinction is the live hazard in this area: they
+differ by `0x60`, so `oG+0x168` and `GameParameter+0x168` are both real,
+different fields. The table above is in `oG` terms throughout.
+
 ##### The title screen
 
 `ModeTitle` keeps two counters: a load phase at `+0x318` (0..4, driving
