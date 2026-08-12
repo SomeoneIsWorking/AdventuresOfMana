@@ -1364,6 +1364,34 @@ So "27 behaviours" is really *27 small selectors over a handful of movement
 modes*, which is far more tractable than it first looked. The mode switch is
 where the work is.
 
+The dispatch itself is now located exactly: `ldr w8, [x19, #0x3930]` (the AI
+type), `cmp w8, #0x1a` with `b.hi` to the mode switch, then a jump table at
+`.rodata` `0x9dfb0` with branch base `0x2a8ea8` — so cases 0..26, 27 distinct
+handlers, and an out-of-range type falls through to the mode switch unchanged.
+
+**The AI type does NOT map statically to a mode.** An extraction that followed
+each handler's fall-through path reported a tidy 27/27 answer, with 13 types
+"setting mode 6". That result is an artifact and is not published as a table: an
+audit counting conditional branches on each traced path shows **24 of the 27
+cross at least one** before reaching the store, so the trace picked one path out
+of several. Seven of the supposed mode-6 types converge on a single store at
+`0x2a9580`, which is the shape of a shared tail, not of seven agreeing cases.
+
+Only three handlers reach their mode store with no conditional on the way, and
+only those are safe to state:
+
+| AI type | enemies | mode | store |
+|---|---|---|---|
+| 0 | 59 | 1 | `0x2a8eac` |
+| 1 | 3 | 2 | `0x2a9170` |
+| 4 | 1 | 0 | `0x2a8f74` |
+
+The 27 handlers write the mode through only **14 distinct store sites**, which is
+why per-case reading is required: the cases share tails, and a scanner that stops
+at the first store it reaches will attribute a shared tail's value to a case that
+never takes that path. This is the same failure that produced a three-state
+machine earlier, and the conditional-branch count is what exposed it both times.
+
 Four cases read instruction by instruction:
 
 | type | enemies | what the case does |
