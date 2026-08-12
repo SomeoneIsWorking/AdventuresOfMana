@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <map>
 #include <string>
+
+#include "mcf/mcf.h"   // EnemyStats::AiMachine, held by value below
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -115,6 +117,15 @@ struct Actor {
     // 27 behaviours is reversed.
     float move_speed = 0.f;
     int ai_type = 0;
+    // The AI state machine, RE-VERIFIED -- see mcf::NextAiState. `ai_record`
+    // is the toggle at actor +0x3894, `ai_state` the word at +0x38e8 and
+    // `ai_timer` the countdown at +0x38ec, in frames. The engine resets the
+    // pair to {0, -1}, so a fresh actor rolls its first duration immediately.
+    int ai_record = 0;
+    int ai_state = 0;
+    float ai_timer = -1.f;
+    mcf::EnemyStats::AiMachine ai[2];
+    bool has_ai = false;
     // Attack volumes hit every frame they overlap. The engine applies a hit
     // once per swing, so each swing gets an id and a target is only damaged
     // once per id. Without this a 24-frame swing dealt damage 24 times.

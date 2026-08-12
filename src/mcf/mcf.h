@@ -284,7 +284,52 @@ struct EnemyStats {
                               // AppCharacterBase::UpdateAI. Recorded, not acted
                               // on: the 27 behaviours are not reversed.
     int32_t throw_id = 0;     // +0x6c -> actor +0x3938, read by WeaponThrow
+
+    // The AI state machine, from the record's +0x80..+0x194 block. See below.
+    struct AiState {
+        int32_t weight[4]{};      // transition weight to states 0..3
+        int32_t base = 0, range = 0;   // duration = base + GameRandom(range)
+        int32_t weight_sum() const {
+            return weight[0] + weight[1] + weight[2] + weight[3];
+        }
+        // UpdateAI's `cmp w23, #1 / b.lt`: a state with no weight never rolls,
+        // so the enemy stays in it.
+        bool terminal() const { return weight_sum() < 1; }
+    };
+    struct AiMachine { AiState state[4]; };
+    // Two of them. UpdateAI selects with the toggle at actor +0x3894.
+    AiMachine ai[2];
 };
+
+// ---------------------------------------------------------------------------
+// The enemy AI state machine, RE-VERIFIED.
+//
+// `AppCharacterBase::SetAITblFromEnemyTbl` @ 0x2a6cb0 copies enemydat's
+// +0x80..+0x194 into the actor at +0x377c, as two 140-byte records of four
+// 24-byte state descriptors:
+//
+//     +0x00..+0x0c   four int32 transition weights
+//     +0x10..+0x14   {base, range} -- duration in frames
+//
+// Descriptor bases are +0x80/+0x98/+0xb0/+0xc8 (record 0) and
+// +0x10c/+0x124/+0x13c/+0x154 (record 1), each pinned by the copy rather than
+// by pattern-matching.
+//
+// UpdateAI @ 0x2a8d50 chooses the next state by weighted roulette over the
+// CURRENT state's weights:
+//
+//     sum = w0+w1+w2+w3            (addv s0, v0.4s)
+//     if (sum < 1) the state stands
+//     roll = GameRandom(sum)
+//     roll -= w0; if (roll < 0) -> 0
+//     roll -= w1; if (roll < 0) -> 1
+//     roll -= w2; if (roll < 0) -> 2
+//     -> (roll < w3) ? 3 : unchanged
+//
+// `NextAiState` is that selection, verbatim. `roll` is the caller's
+// GameRandom(sum), so the port's RNG substitution stays in one place.
+// ---------------------------------------------------------------------------
+int NextAiState(const EnemyStats::AiMachine& m, int state, int32_t roll);
 
 // Parses the whole file. Returns empty if the size is not a multiple of 408,
 // which is the same size check the engine's own division implies.

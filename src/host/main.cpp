@@ -224,6 +224,7 @@ int main(int argc, char** argv) {
     bool text_selftest = false;
     bool player_selftest = false;
     bool inventory_selftest = false;
+    bool ai_selftest = false;
     bool show_hud = true;
     int auto_levelup = -1;
     int grant_exp = 0;
@@ -260,6 +261,7 @@ int main(int argc, char** argv) {
         else if (a == "--text-selftest") text_selftest = true;
         else if (a == "--player-selftest") player_selftest = true;
         else if (a == "--inventory-selftest") inventory_selftest = true;
+        else if (a == "--ai-selftest") ai_selftest = true;
         else if (a == "--no-hud") show_hud = false;
         else if (a == "--auto-levelup" && i + 1 < argc) auto_levelup = std::atoi(argv[++i]);
         else if (a == "--grant-exp" && i + 1 < argc) grant_exp = std::atoi(argv[++i]);
@@ -303,7 +305,7 @@ int main(int argc, char** argv) {
                 "  --string ID         resolve a dialogue id in every language\n"
                 "  --show-string ID    open the message window on that line\n"
                 "  --combat-selftest / --audio-selftest / --text-selftest / --player-selftest\n"
-                "  --inventory-selftest\n"
+                "  --inventory-selftest / --ai-selftest\n"
                 "                                         self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
@@ -596,6 +598,111 @@ int main(int argc, char** argv) {
                 }
             }
             lucent::info("player", "SELFTEST: {} cases, {} failures", 22, bad);
+            return bad ? 1 : 0;
+        }
+
+        if (ai_selftest) {
+            const char* kEnemyDat = "sk1/enemydat.bin";
+            if (!ar.Has(kEnemyDat)) {
+                lucent::error("ai", "{} is not in the archive; NOTHING was "
+                              "tested", kEnemyDat);
+                return 1;
+            }
+            auto rows = mcf::ParseEnemyDat(ar.Read(kEnemyDat));
+            if (rows.empty()) {
+                lucent::error("ai", "{} did not parse; NOTHING was tested",
+                              kEnemyDat);
+                return 1;
+            }
+            int bad = 0;
+            // The defining property of weighted roulette: sweeping every roll
+            // in [0, sum) must select state i exactly weight[i] times. This is
+            // checked against every shipping machine rather than a toy one, and
+            // it fails if any arm of the subtract-chain is wrong -- a swapped
+            // pair, an off-by-one bound, or a `<=` for a `<`.
+            int checked = 0, terminal = 0;
+            for (const auto& e : rows) {
+                for (int r = 0; r < 2; ++r) {
+                    for (int s = 0; s < 4; ++s) {
+                        const auto& st = e.ai[r].state[s];
+                        int32_t sum = st.weight_sum();
+                        if (sum < 1) {
+                            // Terminal: no roll may move it, including rolls
+                            // that would be valid for a non-terminal state.
+                            ++terminal;
+                            for (int32_t roll = 0; roll < 8; ++roll)
+                                if (mcf::NextAiState(e.ai[r], s, roll) != s) {
+                                    lucent::error("ai", "SELFTEST FAIL: enemy {} "
+                                                  "rec{} state {} has weight sum 0 "
+                                                  "but roll {} moved it",
+                                                  e.id, r, s, roll);
+                                    ++bad;
+                                    break;
+                                }
+                            continue;
+                        }
+                        int hits[4] = {0, 0, 0, 0};
+                        int stayed = 0;
+                        for (int32_t roll = 0; roll < sum; ++roll) {
+                            int next = mcf::NextAiState(e.ai[r], s, roll);
+                            if (next < 0 || next > 3) { ++bad; break; }
+                            ++hits[next];
+                            if (next == s) ++stayed;
+                        }
+                        (void)stayed;
+                        for (int i = 0; i < 4; ++i) {
+                            // hits[i] counts landing on i, which for i == s also
+                            // includes the weight-driven self-transition, so the
+                            // comparison is against the weight either way.
+                            if (hits[i] != st.weight[i]) {
+                                lucent::error("ai", "SELFTEST FAIL: enemy {} rec{} "
+                                              "state {} -> {} selected {} times "
+                                              "over {} rolls, weight is {}",
+                                              e.id, r, s, i, hits[i], sum,
+                                              st.weight[i]);
+                                ++bad;
+                            }
+                        }
+                        ++checked;
+                    }
+                }
+            }
+            // NOTE on the terminal count: it is a census, not coverage. The
+            // subtract-chain returns the state unchanged for an all-zero
+            // descriptor even without the explicit early-out, so this arm passes
+            // whether or not that guard exists -- confirmed by deleting it and
+            // seeing 0 failures. It is reported so the number is not mistaken
+            // for a test of the guard.
+            lucent::info("ai", "  ok: {} rolling descriptors sweep-checked; "
+                         "{} terminal ones held (census, not coverage -- see the "
+                         "note at this call site)", checked, terminal);
+            // The other class -- cases that MUST behave a particular way, built
+            // by hand so the test does not depend only on shipping data.
+            struct C { int32_t w[4]; int state; int32_t roll; int want; const char* what; };
+            const C cases[] = {
+                {{1, 0, 0, 0}, 0, 0, 0, "all weight on 0 stays at 0"},
+                {{0, 1, 0, 0}, 0, 0, 1, "all weight on 1 moves to 1"},
+                {{0, 0, 0, 1}, 0, 0, 3, "all weight on 3 reaches the last arm"},
+                {{0, 0, 1, 0}, 3, 0, 2, "from state 3, weight on 2 moves to 2"},
+                {{2, 3, 0, 0}, 0, 1, 0, "roll 1 of 5 falls in the first weight"},
+                {{2, 3, 0, 0}, 0, 2, 1, "roll 2 of 5 falls in the second"},
+                {{2, 3, 0, 0}, 0, 4, 1, "roll 4 of 5 is still the second"},
+                {{0, 0, 0, 0}, 1, 0, 1, "a terminal state never moves"},
+            };
+            for (const auto& c : cases) {
+                mcf::EnemyStats::AiMachine m{};
+                for (int i = 0; i < 4; ++i) m.state[c.state].weight[i] = c.w[i];
+                int got = mcf::NextAiState(m, c.state, c.roll);
+                if (got != c.want) {
+                    lucent::error("ai", "SELFTEST FAIL: {} -> {} (want {})",
+                                  c.what, got, c.want);
+                    ++bad;
+                } else {
+                    lucent::info("ai", "  ok: {:<44} -> {}", c.what, got);
+                }
+            }
+            lucent::info("ai", "SELFTEST: {} machines, {} hand cases, {} failures",
+                         checked + terminal, std::size(cases), bad);
             return bad ? 1 : 0;
         }
 
@@ -1835,6 +1942,9 @@ int main(int argc, char** argv) {
                     a.exp = it->second.exp;
                     a.move_speed = it->second.move_speed;
                     a.ai_type = it->second.ai_type;
+                    a.ai[0] = it->second.ai[0];
+                    a.ai[1] = it->second.ai[1];
+                    a.has_ai = true;
                     a.money = it->second.money;
                     ++with_stats;
                 }
@@ -2090,6 +2200,50 @@ int main(int argc, char** argv) {
                     // units/s dominate, against the invented 30 this replaces.
                     // Nine of the 107 enemies have 0 and simply do not move.
                     if (a.move_speed <= 0.f) { a.motion = kMotionWait; continue; }
+
+                    // --- The AI state machine ---------------------------------
+                    // RE-VERIFIED: the countdown, the weighted transition and
+                    // the per-state durations are the engine's, from this
+                    // enemy's own enemydat record. UpdateAI decrements the timer
+                    // once per call and rolls a new state when it expires.
+                    if (a.has_ai) {
+                        a.ai_timer -= dt * 30.f;          // frames, at 30fps
+                        if (a.ai_timer <= 0.f) {
+                            const auto& m = a.ai[a.ai_record];
+                            const int prev_state = a.ai_state;
+                            const auto& cur = m.state[a.ai_state];
+                            int32_t sum = cur.weight_sum();
+                            if (sum >= 1)
+                                a.ai_state = mcf::NextAiState(m, a.ai_state,
+                                                              game_random(sum));
+                            if (a.ai_state != prev_state)
+                                lucent::debug("ai", "{} (id {}) state {} -> {} "
+                                              "after its timer ran out",
+                                              a.handle, a.type_id, prev_state,
+                                              a.ai_state);
+                            const auto& now = m.state[a.ai_state];
+                            a.ai_timer = float(now.base) +
+                                         (now.range > 0 ? float(game_random(now.range)) : 0.f);
+                            // A machine with no durations at all would spin here
+                            // every frame; the corpus has none, but a zero timer
+                            // is the one value that must not be trusted silently.
+                            if (a.ai_timer <= 0.f) {
+                                a.ai_timer = 1.f;
+                                lucent::debug("ai", "enemy {} state {} has a zero "
+                                              "duration; holding one frame",
+                                              a.handle, a.ai_state);
+                            }
+                        }
+                        // PORT CHOICE, and the only invented part of this: WHICH
+                        // state means "pursue". The mode bodies that would say
+                        // are not reversed (docs/re-frontier.md). State 0 is
+                        // taken as the active one because it is the state the
+                        // engine resets to, and because the states an enemy can
+                        // never leave (weight sum 0 -- 336 of 856 descriptors)
+                        // would be absurd as a permanent chase. Everything about
+                        // the TIMING is the engine's; only this mapping is not.
+                        if (a.ai_state != 0) { a.motion = kMotionWait; continue; }
+                    }
                     float step = a.move_speed * dt;
                     a.pos[0] += dx / d * step;
                     a.pos[2] += dz / d * step;

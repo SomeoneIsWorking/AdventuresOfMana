@@ -555,9 +555,46 @@ std::vector<EnemyStats> ParseEnemyDat(const std::vector<uint8_t>& file) {
         std::memcpy(&e.move_speed, file.data() + o + 0x68, 4);
         e.ai_type = RdS32(file, o + 0x64);
         e.throw_id = RdS32(file, o + 0x6c);
+        // The AI state machine. The eight descriptor bases are the offsets
+        // SetAITblFromEnemyTbl @ 0x2a6cb0 copies into the actor's two 140-byte
+        // records; they are transcribed from that function, not spaced by a
+        // guessed stride.
+        static constexpr size_t kDesc[2][4] = {
+            {0x80, 0x98, 0xB0, 0xC8}, {0x10C, 0x124, 0x13C, 0x154}};
+        for (int r = 0; r < 2; ++r) {
+            for (int s = 0; s < 4; ++s) {
+                auto& st = e.ai[r].state[s];
+                size_t b = o + kDesc[r][s];
+                for (int w = 0; w < 4; ++w) st.weight[w] = RdS32(file, b + w * 4);
+                st.base = RdS32(file, b + 0x10);
+                st.range = RdS32(file, b + 0x14);
+            }
+        }
         out.push_back(e);
     }
     return out;
+}
+
+int NextAiState(const EnemyStats::AiMachine& m, int state, int32_t roll) {
+    if (state < 0 || state > 3) return state;
+    const auto& st = m.state[state];
+    // `cmp w23, #1 / b.lt` -- with no weight there is no roll and no change.
+    // This early-out is REDUNDANT for any roll >= 0, and deliberately kept: with
+    // all weights zero the chain below subtracts nothing and ends at
+    // `roll < weight[3]`, i.e. `roll < 0`, which is false, so it already returns
+    // the state unchanged. Deleting this line was tried as a sabotage and the
+    // self-test could not tell -- so it is documentation of the engine's own
+    // `b.lt`, plus a guard against a negative roll, and NOT something the test
+    // covers. Saying so beats leaving a line that looks tested and is not.
+    if (st.terminal()) return state;
+    // The engine's subtract-chain, in its order. Note the LAST arm is a `<`
+    // test that leaves the state unchanged when it fails, rather than a
+    // fourth subtract -- so a roll can legitimately produce no transition.
+    int32_t r = roll;
+    if ((r -= st.weight[0]) < 0) return 0;
+    if ((r -= st.weight[1]) < 0) return 1;
+    if ((r -= st.weight[2]) < 0) return 2;
+    return r < st.weight[3] ? 3 : state;
 }
 
 bool Font::Load(const std::vector<uint8_t>& file) {

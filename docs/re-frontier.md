@@ -22,6 +22,7 @@ code rather than from memory.
 |---|---|---|
 | Start room | `M0000_00_00` | a new game's start room comes from the save/new-game path; `GameParameter::Init` grants the starting equipment but no map, and `MapJump` is only ever called from Lua |
 | Engine-placed NPC positions | deterministic scan of chip centres for walkable floor nearest the room centre, one actor per chip | the chip attribute array and `GameRandom` are not reversed. What IS faithful: that the ENGINE places these, not the script (`AddNPC` @ `0x2c8a10` sets a flag when the script's x and z are both 0) |
+| Which AI state means "pursue" | state 0 | the mode bodies that would say are not reversed. State 0 is the state the engine resets to, and the states an enemy can never leave (weight sum 0, 336 of 856 descriptors) would be absurd as a permanent chase. Everything about the TIMING is the engine's; only this mapping is not |
 | Talk reach | one chip, 30 units | the engine's own talk trigger is not reversed; 30 is the game's fundamental spatial unit rather than an invented number |
 | Player i-frame duration | 30 frames | `AppCharacterPlayer::DamageProcess` reloads it from a per-character field the port cannot source. The RULE — that damage is refused while the timer runs — is the engine's |
 | HUD layout | corner readout | `ModeGame::Draw_StatusData` @ `0x2f1098` draws the real one and is not reversed. Every WORD is the game's (`SYS_COMMON_STATUS_LABEL_*`) |
