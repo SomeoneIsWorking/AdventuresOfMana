@@ -2226,20 +2226,30 @@ That choice is *not* confirmed by the standalone `"M0000_00_00"` literal at
 recording because it is exactly the sort of coincidence that would otherwise
 read as confirmation.
 
-#### An unresolved run near `0xbd678`
+#### The unreferenced map-name table at `0xbd678`
 
-There is a run of 14 records at `0xbd678`, stride `0x88`, each
-`{u32 = 4}{"sk1/M0000_XX_00"}` for XX = 01..14, and all 14 rooms exist in the
-archive. **What reads it is not established** — neither the run's base nor the
-individual strings have an `adrp`+`add` reference anywhere, which is a statement
-about that scan (it cannot see indexed access through a register base) rather
-than proof the data is dead.
+Layout, finally pinned from raw bytes rather than inferred: records of stride
+`0x88`, each `{u32}{"sk1/M####_##_##"}` — the `u32` first, the string at `+4`,
+the rest zero padding. **271 records**, all world `M0000`, running
+`M0000_01_00` through `M0000_15_16`; the `u32` takes values 0, 1, 2, 4, 6, 8, 9
+and 10, with 0 in 204 of them. `"M0000_00_00"` sits immediately before at
+`0xbd5f8` in a *different* shape (bare name, no `sk1/` prefix, no `u32`) and is
+the literal `SceneWeapon::Initialize` uses.
 
-It is recorded as an observation, not a finding, because two earlier readings of
-this same region were wrong: first a "272-record 16x17 world grid", which came
-from starting 0x80 too early and sampling at a stride that drifted a whole
-record every 16 entries. The raw bytes killed it. Nothing should be built on
-this run until its reader is found.
+271 + that one is 272, which is exactly 16 x 17 — the shape of a grid whose
+names run `_00_00` to `_15_16`.
+
+**Nothing references it.** A search for `adrp`+`add` pairs landing anywhere in
+the whole 36KB span `0xbd5f8`..`0xc6670` returns **0**. That bounds the claim to
+what the method can see — it cannot follow an index computed into a register
+base — but the table's purpose is *not* established and nothing should be built
+on it.
+
+Getting here cost three readings, two of them wrong: a "272-record grid with
+fields at +0x60/+0x84" (base off by `0x80`, stride drifting a full record every
+16 entries, and `+0x84` was ASCII `"sk1/"` misread as a float), then a
+"14-record list" (the scan required the leading `u32` to be 4, and it varies).
+Only dumping the bytes across a record boundary settled it.
 
 
 ### `ModeGame`'s constructor: the authoritative game-start order

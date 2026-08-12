@@ -20,7 +20,7 @@ code rather than from memory.
 
 | what | the choice | why the engine's answer is unavailable |
 |---|---|---|
-| Start room | `M0000_00_00` | a new game's start room comes from the save/new-game path; `GameParameter::Init` grants the starting equipment but no map, and `MapJump` is only ever called from Lua |
+| Start room | `M0000_00_00` | narrowed but still open. `ModeGame`'s constructor calls `GameSaveDataLoad` *after* `GameParameter::Init`, so the map is a `GameParameter` field. `MapJump` has exactly **one** caller in the whole binary — the Lua binding `luaopen_cmd` — so native code never calls it, and no `M%04d_%02d_%02d`-style format string exists, so names are not built from its three ints either |
 | Engine-placed NPC positions | deterministic scan of chip centres for walkable floor nearest the room centre, one actor per chip | the chip attribute array and `GameRandom` are not reversed. What IS faithful: that the ENGINE places these, not the script (`AddNPC` @ `0x2c8a10` sets a flag when the script's x and z are both 0) |
 | Which AI state means "pursue" | state 0 | the mode bodies that would say are not reversed. State 0 is the state the engine resets to, and the states an enemy can never leave (weight sum 0, 336 of 856 descriptors) would be absurd as a permanent chase. Everything about the TIMING is the engine's; only this mapping is not |
 | Talk reach | one chip, 30 units | the engine's own talk trigger is not reversed; 30 is the game's fundamental spatial unit rather than an invented number |
