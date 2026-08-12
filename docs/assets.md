@@ -828,25 +828,20 @@ The port applies that formula with the real defence and a real weapon attack
   @ `0x2c6d14` grants it via `AddItem(0x65, 1)` on a new game, along with 201,
   301 and 401 (the other starting equipment slots). What is unmodelled is the
   player ever changing weapons, not which one they start with.
-- **The charge meter, which is the bigger of the two gaps.** The caller HAS now
-  been located -- `AppCharacterPlayer::Update` and `ModeGame::UseInventory` both
-  reach it through vtable slot `+0x4b8` -- and the float it passes as the attack
-  power is **not a static stat**. It is `[oG][+0x1b8]`, an accumulator that
-  `ModeGame::Process` charges every frame:
-
-      f32 @ +0x1b8  +=  (i32 @ +0x1a4 * k * 100 / 1000.0f) * rate
-
-  That is the series' charge-attack meter: the player winds up and damage scales
-  with how full the meter is. **The port models a flat attack per swing, which
-  is structurally the wrong shape**, not merely a wrong constant. The weapon
-  record's `+0x24` (8 in every record) is passed alongside as a separate int
-  argument, so it is not the attack value either.
-- **The base stat behind the charge**, `[oG][+0x1a4]`, is written by the
-  save/level system rather than by a plain store, and following it requires the
-  save format. `tblLevelup` is only 4 records of 16 bytes -- a stat growth
-  CYCLE, not a per-level table.
-- **The floor at 1 damage** is a port choice, so a tough enemy is slow rather
-  than immortal. Whether the engine clamps is not established.
+- **The charge meter.** `[oG][+0x1b8]` is a float the player winds up, and it
+  DOES scale damage -- see the formula below -- but the port does not drive it
+  yet, and an empty meter is the neutral 1x, which is also what
+  `GameParameter::Init` leaves it at. An earlier version of this note claimed
+  the meter WAS the attack power passed to the attack volume. **That was
+  wrong.** `AppCharacterPlayer::SetCollisionAttackParam` @ `0x2b7e8c` stores the
+  meter at param `+0x2c` and the attack power separately at `+0x30`, straight
+  out of `GameParameter+0x124`, with the magical attack at `+0x34`.
+- **Enemy weaknesses.** Bytes at the enemy record's `+0xa5c`..`+0xa5f` gate the
+  quartered defence below, each against an attack-type id (`0x7b`, `0x7c`, 9,
+  10). The ids are not decoded, so the port never sets `weak`.
+- ~~**The floor at 1 damage** is a port choice.~~ **It is the engine's.**
+  `cmp w8, #1` followed by `csinc w22, w8, wzr, gt` @ `0x2b349c` clamps damage
+  up to 1, so an outmatched attacker is slow rather than harmless.
 
 The consequence is visible and left visible: the starting weapon (attack 4-8)
 against the werewolf's defence of 15 deals the floor of 1, so a 60 HP enemy
@@ -1161,8 +1156,8 @@ Every one agrees with the swapped reading and none with the unswapped one, and
 this closes two other loops at the same time: Monk's text naming *both* DEF and
 HP is exactly why `Update` derives both from stamina, and Sage's text explains
 why nothing in `Update` reads `will` at all -- it feeds the limit gauge, the
-field `Init` zeroes at `GameParameter+0x158`, which is `oG+0x1b8`, the charge
-meter this project had already noticed scaling the player's damage.
+field `Init` zeroes at `GameParameter+0x158`, which is `oG+0x1b8` -- the charge
+meter, which scales damage (see "The damage formula" below).
 
 `--player-selftest` asserts each regimen raises the stat its own help text names
 and raises it more than any rival does. Deleting the lane swap fails exactly
@@ -1201,3 +1196,53 @@ with the PLAYER's attack value, because the damage branch assumed any non-player
 defender had been hit by the player. The combat summary now prints how many
 overlaps the filter rejected, since a filter that silently ate every hit would
 otherwise look the same as one that worked.
+
+
+## The damage formula
+
+`AppCharacterEnemy::Damage` @ `0x2b2b00` computes it in one run at
+`0x2b3418`..`0x2b34a0`:
+
+```
+def_eff = weak_to_this_attack ? defence / 4 : defence   // asr #2, +3 bias
+base    = (attack - def_eff + magic) * (gauge + 16000) / 16000
+damage  = base + base * GameRandom(25) / 100            // +0..24%
+damage  = max(1, damage)                                // cmp #1 / csinc
+```
+
+- `attack` is `w28` and `defence` is `w27`, loaded from the enemy actor's own
+  `+0x3a30` -- the same block that holds its EXP at `+0x3a34` and money at
+  `+0x3a38`.
+- `magic` is the attack param's `+0x34`, which
+  `SetCollisionAttackParam` @ `0x2b7e8c` fills from `GameParameter+0x140`, the
+  effective **wisdom** stat. The physical attack sits beside it at `+0x30`.
+- `gauge` is the attack param's `+0x2c`, read from `oG+0x1b8`. An empty meter
+  is 1x and a full one (16000) is 2x. `ModeGame::Render` draws it and
+  `UseInventoryFunc` fills it to 16000, so 16000 is the top.
+- The **quartered defence** is conditional: four bytes at the enemy record's
+  `+0xa5c`..`+0xa5f` each pair with an attack-type id, and a match quarters the
+  defence. The ids are not decoded.
+- The **floor at 1** is the engine's, which retires an old note calling it a
+  port choice.
+- A global byte (at `+0xc35a` off the same base as several other debug flags)
+  replaces the computed damage with the target's **current HP** -- a one-hit
+  kill switch. Not implemented.
+
+On the kill, `0x2b34b4`..`0x2b3524` rolls the rewards the same way:
+
+```
+AddEXP( exp   + exp   * GameRandom(11) / 100 )
+AddRC ( money + money * GameRandom(11) / 100 )
+```
+
+And if the attack param's `+0x28` is `0x6d` (109), the player's HP at
+`GameParameter+0x114` gains `damage / 4` -- a life-steal attack type. Not
+implemented; the port has no attack-type ids.
+
+`GameRandom` @ `0x3da480` is **not** reversed. The port uses a fixed-seed
+`mt19937` with the same range contract, so the SHAPE of every roll is the
+engine's and the sequence is not; headless runs stay reproducible.
+`--combat-selftest` checks each term of the formula separately, so a simpler
+formula cannot pass: magic must add, a full gauge must double, half a gauge must
+be 1.5x, a weakness must quarter the defence, and a hopeless attack must still
+land 1.

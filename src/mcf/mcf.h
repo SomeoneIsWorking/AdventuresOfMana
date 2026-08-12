@@ -456,6 +456,36 @@ struct PlayerStats {
     void LevelUp(int regimen);
 };
 
+// ---------------------------------------------------------------------------
+// Damage. AppCharacterEnemy::Damage @ 0x2b2b00 computes it in one run of
+// arithmetic at 0x2b3418..0x2b34a0. See docs/assets.md.
+//
+//     def_eff = weak_to_this_attack ? defence / 4 : defence
+//     base    = (attack - def_eff + magic) * (gauge + 16000) / 16000
+//     damage  = max(1, base + base * rand(0..24) / 100)
+//
+// `gauge` is the charge meter at oG+0x1b8, so an empty meter is 1x and a full
+// one (16000) is 2x. `magic` is the attacker's magical attack, which
+// SetCollisionAttackParam @ 0x2b7e8c stores next to the physical one.
+// ---------------------------------------------------------------------------
+struct DamageInput {
+    int32_t attack = 0;
+    int32_t defence = 0;
+    int32_t magic = 0;
+    float gauge = 0.f;      // oG+0x1b8; the port has no charge meter yet
+    bool weak = false;      // the attack matches one of the enemy's weaknesses
+    int32_t roll = 0;       // GameRandom(25): 0..24
+};
+// The floor at 1 is the ENGINE's, not a port choice: `cmp w8, #1` followed by
+// `csinc w22, w8, wzr, gt` @ 0x2b349c.
+int32_t ComputeDamage(const DamageInput& in);
+
+// The same shape rewards the kill: AddEXP(exp + exp*GameRandom(11)/100) and
+// AddRC(money + money*GameRandom(11)/100) @ 0x2b34b4..0x2b3524.
+inline int32_t RewardWithBonus(int32_t base, int32_t roll) {
+    return base + int32_t(int64_t(base) * roll / 100);
+}
+
 // tblHelm / tblArmor defence, indexed by DataTableGetDefence @ 0x2c3bd8.
 // Returns 0 for an id not in either table.
 int32_t EquipDefence(int32_t id);

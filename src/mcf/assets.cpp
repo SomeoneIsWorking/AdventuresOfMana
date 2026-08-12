@@ -649,6 +649,17 @@ const std::string* StringTable::Find(const std::string& id) const {
     return it == by_id_.end() ? nullptr : &it->second;
 }
 
+int32_t ComputeDamage(const DamageInput& in) {
+    // `add w8, w27, #3; cmp w27, #0; csel w8, w8, w27, lt; asr w27, w8, #2` --
+    // a round-toward-zero divide by 4, applied only on a weakness.
+    int32_t def = in.weak ? ((in.defence < 0 ? in.defence + 3 : in.defence) >> 2)
+                          : in.defence;
+    int64_t base = int64_t(in.attack) - def + in.magic;
+    base = base * (int64_t(in.gauge) + 16000) / 16000;
+    int64_t dmg = base + base * in.roll / 100;
+    return int32_t(dmg > 1 ? dmg : 1);
+}
+
 int32_t PlayerStats::attack() const {
     int32_t a = Cap(power);
     // tblWeapon stores an attack RANGE and which end feeds the player's attack

@@ -12,6 +12,7 @@
 #include <format>
 #include <numbers>
 #include <filesystem>
+#include <random>
 #include <map>
 #include <string>
 #include <vector>
@@ -414,7 +415,40 @@ int main(int argc, char** argv) {
                     lucent::info("combat", "  ok: {:<18} -> {}", f.name, got);
                 }
             }
-            lucent::info("combat", "SELFTEST: {} cases, {} failures", 18, bad);
+            // The damage formula. Every term must be able to MOVE the result,
+            // or a simpler formula would pass the same cases.
+            struct DCase { const char* name; mcf::DamageInput in; int32_t want; };
+            const DCase dcases[] = {
+                {"plain attack - defence",   {20, 5, 0, 0.f, false, 0}, 15},
+                {"magic is added",           {20, 5, 4, 0.f, false, 0}, 19},
+                {"a full gauge doubles it",  {20, 5, 0, 16000.f, false, 0}, 30},
+                {"half a gauge is 1.5x",     {20, 5, 0, 8000.f, false, 0}, 22},
+                {"weakness quarters defence",{20, 8, 0, 0.f, true, 0}, 18},
+                {"a 24% roll adds 24%",      {100, 0, 0, 0.f, false, 24}, 124},
+                {"outmatched is floored at 1",{6, 15, 2, 0.f, false, 0}, 1},
+                {"a huge defence still lands 1",{1, 9999, 0, 0.f, false, 24}, 1},
+            };
+            for (const auto& c : dcases) {
+                int32_t got = mcf::ComputeDamage(c.in);
+                if (got != c.want) {
+                    lucent::error("combat", "SELFTEST FAIL: {} -> {} (want {})",
+                                  c.name, got, c.want);
+                    ++bad;
+                } else {
+                    lucent::info("combat", "  ok: {:<30} -> {}", c.name, got);
+                }
+            }
+            for (auto [base, roll, want] : {std::tuple{48, 0, 48}, {48, 10, 52},
+                                            {40, 5, 42}, {0, 10, 0}}) {
+                int32_t got = mcf::RewardWithBonus(base, roll);
+                if (got != want) {
+                    lucent::error("combat", "SELFTEST FAIL: reward {} +{}% -> {} "
+                                  "(want {})", base, roll, got, want);
+                    ++bad;
+                }
+            }
+            lucent::info("combat", "  ok: kill rewards carry a 0..10%% bonus");
+            lucent::info("combat", "SELFTEST: {} cases, {} failures", 30, bad);
             return bad ? 1 : 0;
         }
 
@@ -1614,6 +1648,14 @@ int main(int argc, char** argv) {
             long player_damage_taken = 0, player_hits = 0;
             bool player_dead = false;
             bool level_up_announced = false;
+            // GameRandom @ 0x3da480 is NOT reversed, so this is a stand-in with
+            // the same range contract, seeded fixed so a headless run is
+            // reproducible. The SHAPE of the roll is the engine's; the sequence
+            // is not.
+            std::mt19937 rng(12345);
+            auto game_random = [&rng](int n) {
+                return std::uniform_int_distribution<int>(0, n - 1)(rng);
+            };
             int player_attack = ps.attack();
             if (!mcf::FindWeapon(ps.weapon))
                 lucent::warn("combat", "weapon {} not in tblWeapon; the player's "
@@ -2023,17 +2065,34 @@ int main(int argc, char** argv) {
                                             atkA.handle, d.handle);
                                         continue;
                                     }
-                                    // The engine's formula: attack - defence.
-                                    // AppCharacterEnemy::Damage does
-                                    // `sub w22, w28, w27` with w27 read from the
-                                    // record's +0x0C. Floored at 1 so a tough
-                                    // enemy is slow, not immortal.
+                                    // AppCharacterEnemy::Damage's real formula
+                                    // (mcf::ComputeDamage), not a subtraction:
+                                    // the magical attack is added, the charge
+                                    // meter scales the result, and a 0..24%
+                                    // roll is added on top. The floor at 1 is
+                                    // the ENGINE's, not a port choice.
                                     // The attacker's OWN attack power. Only the
                                     // player's comes from GameParameter; a party
                                     // member carries its own.
                                     int atk = mcf::CharType(atkA) == mcf::Actor::kPlayer
                                                   ? player_attack : atkA.attack_power;
-                                    int dmg = std::max(1, atk - d.defence);
+                                    mcf::DamageInput dmg_in;
+                                    dmg_in.attack = atk;
+                                    dmg_in.defence = d.defence;
+                                    // Only the player's magical attack is
+                                    // known: GameParameter's wisdom, which
+                                    // SetCollisionAttackParam passes alongside
+                                    // the physical one.
+                                    if (mcf::CharType(atkA) == mcf::Actor::kPlayer)
+                                        dmg_in.magic = mcf::PlayerStats::Cap(ps.wisdom);
+                                    // gauge stays 0: the charge meter is
+                                    // understood but not driven yet, and 0 is
+                                    // the value Init gives a new game.
+                                    dmg_in.roll = int32_t(game_random(25));
+                                    // weak stays false: the enemy weakness bytes
+                                    // at record +0xa5c..+0xa5f are located but
+                                    // their attack-type ids are not decoded.
+                                    int dmg = mcf::ComputeDamage(dmg_in);
                                     d.hp -= dmg;
                                     if (d.hp > 0) {
                                         lucent::info("combat",
@@ -2047,12 +2106,18 @@ int main(int argc, char** argv) {
                                         // The rewards are now CREDITED, through
                                         // the engine's own AddEXP / AddRC caps,
                                         // instead of only being printed.
-                                        ps.AddExp(d.exp);
-                                        ps.AddMoney(d.money);
+                                        // The kill rewards carry the same
+                                        // shape of bonus, with a 0..10% roll.
+                                        int gain_exp = mcf::RewardWithBonus(
+                                            d.exp, int32_t(game_random(11)));
+                                        int gain_gp = mcf::RewardWithBonus(
+                                            d.money, int32_t(game_random(11)));
+                                        ps.AddExp(gain_exp);
+                                        ps.AddMoney(gain_gp);
                                         lucent::info("combat",
                                             "{} killed {} (+{} EXP, +{} GP) -> "
                                             "{}/{} EXP, {} GP",
-                                            atkA.handle, d.handle, d.exp, d.money,
+                                            atkA.handle, d.handle, gain_exp, gain_gp,
                                             ps.exp, ps.next_exp(), ps.money);
                                         if (ps.level_up_due() && !level_up_announced) {
                                             level_up_announced = true;
