@@ -440,10 +440,14 @@ struct PlayerStats {
     // negative result to zero (`bic w8, w8, w8, asr #31`) before capping.
     void AddExp(int32_t n) { exp = Clamp(exp + n, 999999); }
     void AddMoney(int32_t n) { money = Clamp(money + n, 65535); }
-    // True once the player has earned the next level. Process_LevelUp is driven
-    // by the level-up SCREEN, which the port does not have, so this only says
-    // that one is due.
-    bool level_up_due() const { return level < 99 && exp >= next_exp(); }
+    // ModeGame::CheckLevelUp @ 0x2e000c, minus the two conditions the port has
+    // no state for (a fade in progress, and the player's own control state):
+    // alive, enough EXP, and not past level 98. Process_LevelUp is driven by
+    // the level-up SCREEN, which the port does not have, so this only says one
+    // is due.
+    bool level_up_due() const {
+        return hp >= 1 && exp >= next_exp() && level <= 98;
+    }
 
     // The four training regimens the game offers on a level-up, in the order
     // ModeGame::Process_LevelUp indexes tblLevelup with -- the same order as

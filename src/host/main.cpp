@@ -564,7 +564,29 @@ int main(int argc, char** argv) {
                                  r.mp, r.max_mp());
                 }
             }
-            lucent::info("player", "SELFTEST: {} cases, {} failures", 17, bad);
+            {   // CheckLevelUp's own conditions, each one able to veto.
+                struct L { const char* what; int hp, exp, level; bool want; };
+                const L ls[] = {
+                    {"enough EXP and alive",      19, 16, 1, true},
+                    {"one EXP short",             19, 15, 1, false},
+                    {"exactly at the threshold",  19, 16, 1, true},
+                    {"down at 0 HP",               0, 999, 1, false},
+                    {"already level 99",          19, 999999, 99, false},
+                };
+                for (const auto& c : ls) {
+                    mcf::PlayerStats r;
+                    r.hp = c.hp; r.exp = c.exp; r.level = c.level;
+                    if (r.level_up_due() != c.want) {
+                        lucent::error("player", "SELFTEST FAIL: level_up_due for {} "
+                                      "-> {} (want {})", c.what, !c.want, c.want);
+                        ++bad;
+                    } else {
+                        lucent::info("player", "  ok: level-up due? {:<24} -> {}",
+                                     c.what, c.want);
+                    }
+                }
+            }
+            lucent::info("player", "SELFTEST: {} cases, {} failures", 22, bad);
             return bad ? 1 : 0;
         }
 
@@ -2247,7 +2269,12 @@ int main(int argc, char** argv) {
                         std::format("{} {:<3} {} {:<3} {} {}",
                                     label("SYS_COMMON_STATUS_LABEL_8", "ATK"), ps.attack(),
                                     label("SYS_COMMON_STATUS_LABEL_9", "DEF"), ps.defence(),
-                                    label("SYS_COMMON_STATUS_LABEL_1", "Lv"), ps.level),
+                                    label("SYS_COMMON_STATUS_LABEL_1", "Lv"),
+                                    ps.level_up_due()
+                                        ? std::format("{} {}", ps.level,
+                                                      label("SYS_COMMON_BUTTON_LEVELUP",
+                                                            "Lv Up!"))
+                                        : std::format("{}", ps.level)),
                     };
                     std::vector<float> verts;
                     auto push = [&](float x0, float y0, float x1, float y1,
