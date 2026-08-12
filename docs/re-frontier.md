@@ -35,7 +35,7 @@ code rather than from memory.
 | what | what is known | what is missing |
 |---|---|---|
 | **Enemy AI** | the architecture: a 27-way switch on the AI type sets a movement mode at actor `+0x3934` and a byte at `+0xc7b`, feeding a second switch at `0x2a95b4` that works through event boxes and route tables. 4 of the 27 cases read | the mode switch itself. This is the biggest gap and the one that most changes how the game plays |
-| **Save / load** | `_GameSaveAccess` @ `0x30c820` walks `GameParameter` through `SaveAccess*` | the whole format. The port always starts a new game at level 1 |
+| **Save / load** | the SHAPE: a flat ordered byte stream, one `memcpy` per field, no tags or lengths; the two names first through `SaveAccessStr`, then a contiguous run of twenty 4-byte fields that is exactly the decoded `GameParameter` block | everything after field 20, where the fields stop being uniform 4-byte copies. The port always starts a new game at level 1 |
 | Charge meter gate | it fills at `will * 100/s`, tops at 16000, a swing spends it, and it multiplies damage | `AppCharacterPlayer::IsUpSpGauge` @ `0x2b6228` decides WHEN it may fill. The port leaves the meter at the 0 a new game has — the neutral 1x |
 | Enemy weaknesses | four gating bytes at the enemy record's `+0xa5c`..`+0xa5f`, each paired with an attack-type id, quarter the defence on a match | the attack-type ids. The port never sets `weak` |
 | Life steal | attack param `+0x28 == 0x6d` heals the attacker `damage / 4` | the attack-type ids again |

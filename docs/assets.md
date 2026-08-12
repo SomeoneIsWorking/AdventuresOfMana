@@ -1407,3 +1407,49 @@ no title screen, so it ends the run and says so rather than inventing a screen.
 Verified in both languages -- "You fall to the ground..." and
 "ヒーロー　は　力尽きた…", the latter with `@H` expanded from the default hero
 name.
+
+
+## The save format, as far as it is read
+
+`_GameSaveAccess(int)` @ `0x30c820` is the whole serializer, and it is a **flat,
+ordered byte stream** -- no encoding, no tags, no lengths. Every field is one
+inlined `memcpy` between the save buffer and `oG + <offset>`, with a running
+offset in the buffer and a clamp against the buffer's remaining length:
+
+```
+size   = min(4, remaining)
+memcpy(oG + OFF, buffer + pos, size)     // or the reverse, on save
+pos   += size
+```
+
+It opens with the two names through `SaveAccessStr` -- `oG+0x68` (hero) and
+`oG+0xe8` (girl) -- and then walks a contiguous run of 4-byte fields:
+
+| order | address | GameParameter | field |
+|---|---|---|---|
+| 1 | `oG+0x168` | `+0x108` | (unidentified) |
+| 2 | `oG+0x170` | `+0x110` | level |
+| 3 | `oG+0x174` | `+0x114` | HP |
+| 4 | `oG+0x178` | `+0x118` | MP |
+| 5 | `oG+0x17c` | `+0x11c` | max HP |
+| 6 | `oG+0x180` | `+0x120` | max MP |
+| 7 | `oG+0x184` | `+0x124` | attack |
+| 8 | `oG+0x188` | `+0x128` | defence |
+| 9 | `oG+0x18c` | `+0x12c` | EXP |
+| 10 | `oG+0x190` | `+0x130` | EXP for next level |
+| 11 | `oG+0x194` | `+0x134` | money |
+| 12-15 | `oG+0x198`..`+0x1a4` | `+0x138`..`+0x144` | the four effective stats |
+| 16-19 | `oG+0x1a8`..`+0x1b4` | `+0x148`..`+0x154` | the four base stats |
+| 20 | `oG+0x1b8` | `+0x158` | the charge meter |
+
+That run is exactly the `GameParameter` block decoded from `Init` and `Update`,
+in address order, which corroborates that layout from a completely different
+function.
+
+**Read only this far, and deliberately.** After field 20 the fields stop being
+uniform 4-byte copies -- 2-byte and 1-byte fields appear, and the offsets jump
+backwards into `oG+0x10`, `+0xd0`, `+0xd8` -- and the script that walked the
+`memcpy` sites could no longer recover the sizes. A mechanically-extracted table
+I have not hand-checked is exactly the instrument that lied about the enemy AI
+cases earlier in this project, so the rest is not published. What IS established
+is the shape: a save file is the fields, in order, raw.
