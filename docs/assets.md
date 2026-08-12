@@ -1352,7 +1352,7 @@ shape, established:
    `+0x3930`): `cmp w8, #0x1a`, `b.hi` to the default, dispatch through a `ldrh`
    jump table at `.rodata 0x9dfb0`. Case bodies start at `0x2a8ea8`.
 2. Each case is short. It sets a **movement mode** at actor `+0x3934` and a
-   **chase flag byte** at actor `+0xc7b`, sometimes conditionally on a state
+   **byte at actor `+0xc7b`**, sometimes conditionally on a state
    word at actor `+0x38e8`, and several cases roll `GameRandom(100)` against a
    per-enemy probability at actor `+0x3894` to decide.
 3. A **second switch**, at `0x2a95b4`, branches on that movement mode (0..5 and
@@ -1367,10 +1367,17 @@ Four cases read instruction by instruction:
 
 | type | enemies | what the case does |
 |---|---|---|
-| 0 | 59 | mode := 1, chase := 0, unconditionally |
-| 1 | 3 | mode := 2, chase := 1, unconditionally |
-| 2 | 8 | if state `+0x38e8` == 0: mode := 0, chase := 0; else elsewhere |
-| 4 | 1 | mode := 0, state := 0, chase := 0 |
+| 0 | 59 | mode := 1, `+0xc7b` := 0, unconditionally |
+| 1 | 3 | mode := 2, `+0xc7b` := 1, unconditionally |
+| 2 | 8 | if state `+0x38e8` == 0: mode := 0, `+0xc7b` := 0; else elsewhere |
+| 4 | 1 | mode := 0, state := 0, `+0xc7b` := 0 |
+
+**`+0xc7b` is NOT a "chase flag".** An earlier version of this note called it
+one, on the strength of nothing but the shape of the cases. Its two readers, at
+`0x2aadd0` and `0x2ab38c`, both sit inside a motion-driven state machine keyed on
+motion ids 10, 11 and 12 and on `LerpNf` interpolation, and one of them chooses
+between two motion changes through vtable slot `+0x220`. What the byte means is
+**not established**; naming it was an invention and is retracted.
 
 **The other 23 are not read.** A quick script that tried to extract all 27
 mechanically disagreed with the four above, so its table is not published: an
