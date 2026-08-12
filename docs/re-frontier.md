@@ -20,7 +20,6 @@ code rather than from memory.
 
 | what | the choice | why the engine's answer is unavailable |
 |---|---|---|
-| Start room | `M0000_00_00` | narrowed further. The engine names a room by **grid position**, not by string: `Process_Room` indexes the world table at `row * cols + col` and copies the name out. So the open question is now the three integers (world, col, row) a new game starts at, which `GameSaveDataLoad` restores. `M0000_00_00` is cell 0 of world 0, so it is a defensible guess, but it is still a guess |
 | Engine-placed NPC positions | deterministic scan of chip centres for walkable floor nearest the room centre, one actor per chip | the chip attribute array and `GameRandom` are not reversed. What IS faithful: that the ENGINE places these, not the script (`AddNPC` @ `0x2c8a10` sets a flag when the script's x and z are both 0) |
 | Which AI state means "pursue" | state 0 | the mode bodies that would say are not reversed. State 0 is the state the engine resets to, and the states an enemy can never leave (weight sum 0, 336 of 856 descriptors) would be absurd as a permanent chase. Everything about the TIMING is the engine's; only this mapping is not |
 | Talk reach | one chip, 30 units | the engine's own talk trigger is not reversed; 30 is the game's fundamental spatial unit rather than an invented number |
@@ -57,6 +56,7 @@ Kept because a confidently wrong note costs more than no note.
 | "303 objects are outside their room cell" | the TEST was wrong: 140 of 993 rooms span several cells. 3284/3284 objects are inside their room mesh |
 | "The charge meter IS the attack power passed to the attack volume" | it is a MULTIPLIER; `SetCollisionAttackParam` stores it at param `+0x2c` and the attack power separately at `+0x30` |
 | "The damage floor at 1 is a port choice" | it is the engine's |
+| "The start room is a port choice; `M0000_00_00`" | it is the engine's, and the guess was **wrong**. `ModeGame`'s ctor stores `{col, row, world}` at `ModeGame+0x9b18`; the new-game arm @ `0x2d2b8c` writes world = 1 and zeroes col and row, so a new game starts at world 1 cell (0,0) = `sk1/M0001_00_00` |
 | "Room size where no `.gdt` exists is a port choice" | it is the engine's. `RoomSizeW` @ `0x2e3654` reads a size index from the cell record and looks it up in a per-world 8-entry table. Scores **656/656** against the `.gdt` ground truth the inference scored 654 on, and covers 344 rooms that have no `.gdt` |
 | "A 272-record 16x17 world grid at `0xbd678`" (then retracted as an artifact) | the retraction was **wrong**, and the original reading was right for the wrong reasons. It IS a 16x17 grid of 272 cells — but the base is `0xbd5ec`, not `0xbd678`, and the record is `{int32 size_index; int32; char name[] at +8}` |
 | "`M0000_00_00` at `0xbd5f8` is a separate literal in a different shape (no `sk1/` prefix)" | it is the tail of `"sk1/M0000_00_00"` at `0xbd5f4`, which is cell 0's own name. The linker merged the shorter literal into the longer one's tail; reading from `0xbd5f8` starts 4 bytes into the string |

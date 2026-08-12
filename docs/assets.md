@@ -2270,6 +2270,30 @@ gate, so the size check alone would have certified a wrong layout.
 This supersedes the old inference: the room census now takes 988 of 993 room
 sizes from the engine's own table.
 
+##### Where a block comes from, and where the game starts
+
+`ModeGame::ModeGame` @ `0x2d2c50` does `memcpy(this + 0x9d8, table[world],
+0x910c)`, where `table` is an array of POINTERS whose relocations name their
+targets: `roomInfo_00` .. `roomInfo_31`, the first at `0xbd560` and each `0x910c`
+after the last. So the world count, base and stride are the binary's own
+statement, not a stride measured and hoped to hold. `MapJump` @ `0x2c88a4` does
+the same memcpy, which is how its three integers are `(world, col, row)`.
+
+The current cell is three `int32`s at `ModeGame+0x9b18` -- `x26 = this + 0x9b18`
+@ `0x2d232c` -- laid out `{col, row, world}`, and `_GameSaveAccess` serialises
+them (`+0x9b20`, `+0x9b18`, `+0x9b1c`, `+0x9b24`), so the save carries the cell
+directly.
+
+The constructor branches on `oG[0x28c0]`, the pending save slot. The **new-game**
+arm @ `0x2d2b8c` is:
+
+    str w22, [x26, #0x8]     // world = 1  (`mov w22, #1` @ 0x2d2ac4, and w22 is
+    str xzr, [x26]           //  not reassigned between there and here)
+                             // col = 0, row = 0 -- one 64-bit zero store
+
+so **a new game starts at world 1, cell (0,0)** = `sk1/M0001_00_00`. The port had
+guessed `M0000_00_00`; that is a real room, but not the one the game starts in.
+
 ##### Three wrong readings of this table, and what caused each
 
 Kept because this region defeated inference three times and the failure modes

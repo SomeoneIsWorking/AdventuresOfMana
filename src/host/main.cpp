@@ -202,11 +202,19 @@ GLuint LinkProgram(const char* vs, const char* fs) {
 int main(int argc, char** argv) {
     lucent::config::set_prefix("MANA_");
 
-    // PORT CHOICE, not a reversed value. A new game's starting room is set by
-    // the save/new-game path, which is not reversed: GameParameter::Init grants
-    // the starting equipment but no map, and MapJump is only ever called from
-    // Lua. Rooms connect by walking, so any real room is a usable entry point.
-    static constexpr const char* kDefaultRoom = "M0000_00_00";
+    // The engine's own starting room, no longer a port choice. ModeGame's
+    // constructor keeps the current cell in three int32s at ModeGame+0x9b18:
+    // {col, row, world} (x26 = this + 0x9b18 @ 0x2d232c). It branches on
+    // oG[0x28c0], the pending save slot, and the new-game arm @ 0x2d2b8c does
+    //
+    //     str w22, [x26, #0x8]     // world = 1  (w22 is `mov w22, #1` @ 0x2d2ac4,
+    //     str xzr, [x26]           //             not reassigned in between)
+    //                              // col = 0, row = 0 -- one 64-bit zero store
+    //
+    // so a new game starts at world 1, cell (0,0). The world table names that
+    // cell sk1/M0001_00_00. The port previously guessed M0000_00_00, which is a
+    // real room but not the one the game starts in.
+    static constexpr const char* kDefaultRoom = "M0001_00_00";
     // The game's assets are not in the repo and never can be. They come from a
     // directory holding the APK's own `assets/` tree, given by $MANA_ASSETS or,
     // failing that, dropped in at scratch/raw/assets -- both, so neither a

@@ -18,15 +18,25 @@ lookup:
 So a cell record is `{int32 size_index; int32 unknown; char name[0x78]}` and the
 name is at +8 -- which is what `Process_Room` @ 0x2e4a40 passes to `__strcpy_chk`.
 
-Two offsets fix the block layout exactly. In memory the size table is at +0x9dc
-and the cell table at +0xa64, so the header is 0xa64-0x9dc = 0x88 bytes: eight
-16-byte size entries (0x80) then `int32 cols` at +0x80 and `int32 rows` at +0x84.
-A block is therefore 0x88 of header plus at most 272 records of 0x88 -- and
-273*0x88 = 0x9108, four bytes under the 0x910C stride measured between blocks, so
-each block carries four bytes of tail padding.
+The blocks do not have to be located by inference: `ModeGame::ModeGame` @
+0x2d2c50 does `memcpy(this + 0x9d8, table[world], 0x910c)` from an array of
+POINTERS, and those pointers are relocations against named symbols. There are
+exactly 32 of them, `roomInfo_00` .. `roomInfo_31`, the first at 0xbd560 and each
+0x910c after the last -- so the count, the base and the stride are all the
+binary's own statement rather than a stride I measured and hoped held.
 
-The `.rodata` copy starts at 0xbd564 and there are 32 world blocks. 272 is the
-largest grid (M0000 is 16x17), which is why every block is padded to that size.
+The memcpy destination fixes the block layout, because the two member offsets
+are known: the size table is at +0x9dc and the cell table at +0xa64, and the
+block lands at +0x9d8. So relative to the block:
+
+    +0x00   int32 version          (1 in all 32 worlds, as in the .gdt header)
+    +0x04   8 size entries x 16    (float w, float h, float, float)
+    +0x84   int32 cols
+    +0x88   int32 rows
+    +0x8c   up to 272 cell records of 0x88
+    ...     padding to 0x910c
+
+272 is the largest grid (M0000 is 16x17), which is why every block is that size.
 
 Validation, both directions, printed by --check:
   - every non-empty cell's name must encode its own world id and (col,row);
@@ -43,6 +53,7 @@ import collections
 import os
 import re
 import struct
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -51,27 +62,43 @@ import mpk  # noqa: E402
 SO = "scratch/raw/libmcfandroid.so"
 ARCHIVE = "scratch/raw/assets/sk1/sk1.mpk"
 
-BASE = 0xBD564      # first world block (header), in .rodata
-STRIDE = 0x910C     # measured between consecutive blocks
-REC = 0x88          # cell record, and the header, are the same size
-WORLDS = 32
-MAX_CELLS = 272     # (STRIDE - REC) // REC, and M0000 is exactly 16x17
+BLOCK = 0x910C      # sizeof(roomInfo), and the memcpy size in ModeGame's ctor
+REC = 0x88          # a cell record
+CELLS_OFF = 0x8C    # first cell record, relative to the block
+MAX_CELLS = 272     # M0000 is exactly 16x17; every block is padded to fit it
 
 
-def load_blocks(data):
+def world_blocks(so_path):
+    """-> {world id: file offset}, from the roomInfo_NN relocation symbols.
+
+    Refuses rather than guessing: if the symbols are not there we do NOT fall
+    back to a base+stride scan, because a scan that silently finds nothing and a
+    scan that silently finds the wrong thing look identical from here.
+    """
+    out = {}
+    r = subprocess.run(["llvm-readelf", "-r", so_path],
+                       capture_output=True, text=True)
+    for m in re.finditer(r"([0-9a-f]{16})\s+roomInfo_(\d+)\b", r.stdout):
+        out[int(m.group(2))] = int(m.group(1), 16)
+    return out
+
+
+def load_blocks(data, blocks):
     """-> [(world_id, cols, rows, [size entries], {cell index: (size_idx, name)})]"""
     out = []
-    for wi in range(WORLDS):
-        h = BASE + wi * STRIDE
-        if h + STRIDE > len(data):
+    for wi in sorted(blocks):
+        h = blocks[wi]
+        if h + BLOCK > len(data):
             raise ValueError(f"world {wi} block at {h:#x} runs past the file")
-        sizes = [struct.unpack_from("<4f", data, h + i * 16) for i in range(8)]
-        cols, rows = struct.unpack_from("<ii", data, h + 0x80)
+        if struct.unpack_from("<i", data, h)[0] != 1:
+            raise ValueError(f"world {wi}: version is not 1")
+        sizes = [struct.unpack_from("<4f", data, h + 4 + i * 16) for i in range(8)]
+        cols, rows = struct.unpack_from("<ii", data, h + 0x84)
         if not (1 <= cols and 1 <= rows and cols * rows <= MAX_CELLS):
             raise ValueError(f"world {wi}: implausible grid {cols}x{rows}")
         cells = {}
         for c in range(cols * rows):
-            o = h + REC + c * REC
+            o = h + CELLS_OFF + c * REC
             name = data[o + 8:o + REC].split(b"\0")[0].decode("latin1")
             if not name:
                 continue                      # an empty cell -- a hole in the grid
@@ -206,7 +233,22 @@ def main(argv):
         print(f"FAIL: {SO} not found -- extracted NOTHING", file=sys.stderr)
         return 2
     data = open(SO, "rb").read()
-    blocks = load_blocks(data)
+    found = world_blocks(SO)
+    if not found:
+        print(f"FAIL: no roomInfo_NN relocation symbols in {SO} -- extracted NOTHING",
+              file=sys.stderr)
+        return 2
+    ids = sorted(found)
+    if ids != list(range(len(ids))):
+        print(f"FAIL: roomInfo symbols are not 0..N-1: {ids}", file=sys.stderr)
+        return 2
+    strides = {found[i + 1] - found[i] for i in ids[:-1]}
+    print(f"{len(ids)} roomInfo_NN symbols, first at {found[0]:#x}, "
+          f"stride(s) {sorted(hex(x) for x in strides)} (sizeof block = {BLOCK:#x})")
+    if strides != {BLOCK}:
+        print(f"FAIL: blocks are not {BLOCK:#x} apart", file=sys.stderr)
+        return 2
+    blocks = load_blocks(data, found)
     ok = check(blocks)
     if "--check" in argv:
         print("WORLD MAP OK" if ok else "WORLD MAP FAILURES ABOVE")
