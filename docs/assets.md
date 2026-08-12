@@ -1385,8 +1385,36 @@ extractor that contradicts a hand reading is a broken instrument, not a
 shortcut. Nothing here is implemented -- the port still runs its placeholder,
 which walks an enemy into the player and holds it there.
 
-The next step is the mode switch at `0x2a95b4`, not more case bodies: 59 of the
-107 enemies are type 0, and type 0 is one line.
+### The mode switch at `0x2a95b4`, dispatch only
+
+The dispatch is a chain of signed compares on the mode word at actor `+0x3934`,
+and it groups the modes rather than giving each its own body:
+
+| mode | goes to | note |
+|---|---|---|
+| < 0 | `0x2a99dc` | the exit. `cmp w8, #3` / `b.hs` after the mode is known to be `<= 2` can only fire on a negative read as unsigned |
+| 0, 1, 2 | `0x2a95d0` | one shared body — **the one 59 of 107 enemies reach**, since AI type 0 sets mode 1 |
+| 3, 4, 5 | `0x2a98b0` | |
+| 6, 7 | `0x2a9980` | `sub w9, w8, #6` / `cmp w9, #2` / `b.lo` |
+| 8 | `0x2a9658` | |
+| > 8 | `0x2a9968` | |
+
+The shared body for modes 0..2 opens by resetting state — `strh #0x101` into
+`+0xc7f` sets the two bytes at `+0xc7f` and `+0xc80` to 1, `+0xcc5` := 0,
+`+0x36f4` := 0.0f, `+0x36fc` := 1.0f — and additionally clears `+0xc7c` for
+modes 0 and 1 only, which is the one place the three modes diverge. It then
+enumerates the room's event boxes through `AppEventBoxServer::EnumInit` / `Enum`
+with the literals 30.0, 15.0 and -10.0 held in registers across the loop. 30 is
+one chip, so the reach is chip-scaled like everything else spatial in this game.
+
+Mode 8's body is the only other one read: it differences two counters at
+`+0x38c8` and `+0x38cc`, writes the `<=` result as a byte into a *different*
+object at its `+0x8f4`, and on first entry latches the difference into `+0x38e0`,
+clears `+0x38dc` and sets `+0xcc5`.
+
+What the loop body at `0x2a9ac4` actually does with each event box is **not
+read**, and that is where the behaviour lives. Nothing here is implemented; the
+port still runs its placeholder.
 
 
 ## Game over
