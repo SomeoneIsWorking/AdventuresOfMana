@@ -1446,10 +1446,31 @@ That run is exactly the `GameParameter` block decoded from `Init` and `Update`,
 in address order, which corroborates that layout from a completely different
 function.
 
-**Read only this far, and deliberately.** After field 20 the fields stop being
-uniform 4-byte copies -- 2-byte and 1-byte fields appear, and the offsets jump
-backwards into `oG+0x10`, `+0xd0`, `+0xd8` -- and the script that walked the
-`memcpy` sites could no longer recover the sizes. A mechanically-extracted table
-I have not hand-checked is exactly the instrument that lied about the enemy AI
-cases earlier in this project, so the rest is not published. What IS established
-is the shape: a save file is the fields, in order, raw.
+**Correction to an earlier version of this note.** It said the fields "stop
+being uniform 4-byte copies" after field 20 and "jump backwards into `oG+0x10`,
+`+0xd0`, `+0xd8`". They do not. That was an artifact of disassembling past the
+end of `_GameSaveAccess` and reading a different function's code as if it were
+part of the walk. Keying the extractor on the `csel w21, wSIZE, wREMAIN, ne`
+that actually selects the copy size -- rather than guessing which register held
+it -- recovers the whole thing cleanly:
+
+| what | address | GameParameter | size |
+|---|---|---|---|
+| hero name | `oG+0x68` | `+0x08` | `SaveAccessStr` |
+| girl name | `oG+0xe8` | `+0x88` | `SaveAccessStr` |
+| (unidentified) | `oG+0x168` | `+0x108` | 4 |
+| level .. `+0x15c` | `oG+0x170`..`+0x1bc` | `+0x110`..`+0x15c` | 20 x 4 |
+| (unidentified) | `oG+0x1c0`..`+0x1c6` | `+0x160`..`+0x166` | 4 x 2 |
+
+That is **92 bytes** of `GameParameter` after the two names -- the contiguous
+span `oG+0x168`..`+0x1c7`, minus a 4-byte hole at `oG+0x16c` that is not
+serialized at all.
+
+The function contains the walk **twice**, once per direction (save and load),
+which is why an offset-ordered scan appears to restart: run 0 covers
+`0x30c874`..`0x30ce48` and run 1 `0x30cf04`..`0x30dbcc`. Both list the same
+fields in the same order.
+
+What is still unread is everything the save holds beyond this header -- the
+inventory, the map flags, the per-room enemy-dead bits (`ClearRoomEnemyDead`
+touches `+0x414`..`+0x438`) and the 8 KB block `Init` memsets at `+0x444`.
