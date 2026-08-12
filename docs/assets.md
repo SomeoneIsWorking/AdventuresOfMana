@@ -1427,6 +1427,56 @@ i.e. distance / speed = time in frames, written into the very same timer fields
 the `{base, range}` pair fills elsewhere. `s14` is the 1.0/2.0 factor set at
 `0x2a9d10` from `+0xc4c`, and the 30.0 is the chip.
 
+#### Chasing the distance timer's three inputs
+
+Of the three, one resolves and one is a well-bounded dead end.
+
+**`+0x3918` = 1.0f**, written once in `AppCharacterBase`'s constructor
+(`mov w26, #0x3f800000` at `0x2a63a0`). A default multiplier.
+
+**`+0x3948`** is written only inside `UpdateAI` itself, so it is local to the
+wander setup rather than sourced from data.
+
+**`+0xc68` has no writer that could be found**, and the search is worth stating
+with its denominators because a bare "not found" is indistinguishable from not
+looking:
+
+* no plain `str` at a fixed offset anywhere in the binary writes it, except a
+  `strb wzr` in `AppCharacterBase::Dead` — a *byte* zero, while all ten reads
+  are `ldr s`, so that store is not the source;
+* it is not a script slot: `ChrSetData`'s jump table was extracted in full
+  (table at `.rodata` `0xa06a2`, branch base `0x2c9ab0`, 141 slots, 42 distinct
+  handlers) and **none** of the 141 maps to `+0xc68`;
+* the obvious hypothesis — that it is a multiplier derived from the adjacent
+  WALKMODE field at `+0xc60` — was **tested and falsified**: slot 124's handler
+  at `0x2c9e04` writes `+0xc60` and branches away without touching `+0xc68`.
+
+So it is computed somewhere else, most likely per-frame, and the distance-driven
+timer stays unimplementable rather than being filled in with a guessed 1.0.
+
+That table extraction did validate itself on the way past. It says slot 123 maps
+to `+0xc64`; `sk1.lua` — the game's own script prelude, in Shift-JIS —
+documents slot 123 as `MOVESPEED`, "キャラの移動値"; and `+0xc64` is already
+established as where `enemydat`'s move speed lands. Three independent sources,
+one answer. The rest of the extracted map is **provisional**: the extractor takes
+the first fixed-offset store within six instructions of a handler, which can pick
+up a neighbouring arm, so no entry should be used without the same kind of
+cross-check.
+
+#### A flaw in how "who writes actor+X" was being asked
+
+These scans matched an instruction anywhere in the binary by register and
+offset, without checking that the register held an `AppCharacterBase`. That is
+wrong, and it produced a concrete false positive: a `str q22, [x19, #0xc60]`
+that appeared to write `+0xc68` turned out to be inside `_vp_psy_init` — libvorbis
+code, a different `x19` entirely.
+
+Every offset the AI conclusions rest on was re-audited by containing function:
+`+0x38e8` 47/47 references in character code, `+0x3894` 36/36, `+0x3918` 4/4,
+`+0x3948` 6/6. Clean, so those conclusions stand. `+0xc64` has 24 references of
+which 13 are outside character-named functions, but those are `ChrGetData`,
+`ChrSetData` and `ModeGame::AddParty` — legitimate, just not name-matched.
+
 This matters for the port: **the `{base, range}` durations are not the only
 source of a state's length**. The port currently implements only the rolled
 form, which is correct for the states it was verified against but is not the
