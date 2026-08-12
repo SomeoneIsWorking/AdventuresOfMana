@@ -1246,3 +1246,37 @@ engine's and the sequence is not; headless runs stay reproducible.
 formula cannot pass: magic must add, a full gauge must double, half a gauge must
 be 1.5x, a weakness must quarter the defence, and a hopeless attack must still
 land 1.
+
+
+## How the charge meter fills
+
+`ModeGame::Process` @ `0x2d5e88` drives it, at `0x2d7828`..`0x2d788c`:
+
+```
+if (player->IsUpSpGauge()) {                       // vtable +0x470
+    dt_ms = frame_delta_ms
+    will  = oG[+0x1a4]                             // GameParameter+0x144, effective WILL
+    gauge = oG[+0x1b8]
+    oG[+0x1b8] = (float)(will * dt_ms * 100) / 1000.0f * (float)rate + gauge
+}
+if (flag) oG[+0x1b8] = 16000.0f                    // fill it outright
+```
+
+So the meter gains **`will * 100 * rate` per second**, and 16000 is full -- which
+makes `will` the "limit gauge build speed" that `SYS_HELP_LEVELUP_WISEMAN`
+promises the Sage regimen improves. That is the third independent confirmation
+of the stat mapping, after `Update`'s arithmetic and the level-up rows.
+
+`AppCharacterBase::_StepMotion` @ `0x2af304` stores zero into it, so a swing
+spends the meter. `ModeGame::UseInventoryFunc` @ `0x2deb78` writes 16000.0
+outright, so an item can fill it.
+
+**Not implemented, and this is why.** `AppCharacterPlayer::IsUpSpGauge` @
+`0x2b6228` decides when the meter may grow at all, and it depends on a debug
+flag, a per-character byte at `+0x3aac`, another virtual at slot `+0x248`, and
+the current motion id at `+0x9f0`. That gate is not reversed, and `rate`
+(`[x25+0x40]`) comes from a struct that is probably the debug settings. Guessing
+the gate would swing every hit in the game between 1x and 2x on a rule this
+project invented, so the port leaves the meter at the 0 `GameParameter::Init`
+gives a new game -- the neutral 1x -- and `mcf::DamageInput::gauge` is ready for
+it the day the gate is read.
