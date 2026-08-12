@@ -1280,3 +1280,43 @@ the gate would swing every hit in the game between 1x and 2x on a rule this
 project invented, so the port leaves the meter at the 0 `GameParameter::Init`
 gives a new game -- the neutral 1x -- and `mcf::DamageInput::gauge` is ready for
 it the day the gate is read.
+
+
+## `enemydat.bin`: 408 bytes per enemy, six of them used
+
+`AppCharacterEnemy::SetEnemyId` @ `0x2b2344` settles the record's size and where
+it goes: `DataTableGetEnemy(id)`, then one `memcpy` of `0x198` (408) bytes into
+the actor at `+0x3a24`. So **record offset R is actor offset R + 0x3a24**, which
+is what pins the six fields the port reads:
+
+| record | actor | field |
+|---|---|---|
+| `+0x00` | `+0x3a24` | id |
+| `+0x04` | `+0x3a28` | max HP |
+| `+0x08` | `+0x3a2c` | attack |
+| `+0x0C` | `+0x3a30` | defence (`AppCharacterEnemy::Damage` reads it here) |
+| `+0x10` | `+0x3a34` | EXP |
+| `+0x14` | `+0x3a38` | money |
+
+**384 of the 408 bytes are unread by this port.** `SetEnemyId` immediately
+distributes several of them into the actor's own fields, which is where enemy
+behaviour will come from:
+
+| record | goes to | as |
+|---|---|---|
+| `+0x51` | (a flag) | sets actor `+0xcbc` to `{0.0f, 180.0f}` |
+| `+0x53` | (a flag) | clears bit 4 of the collision target mask |
+| `+0x58` | actor `+0xc6c` | float |
+| `+0x5c` | — | float, passed to vtable slot `+0x1e8` |
+| `+0x60` | actor `+0xaf8` | float |
+| `+0x64` | actor `+0x3930` | int |
+| `+0x68` | actor `+0xc64` | float |
+| `+0x6c` | actor `+0x3938` | int |
+
+Which of those is movement speed, attack reach, or an attack cadence is **not
+established** -- each needs its consumer found. That is the next thread, and it
+is the one that matters: enemy movement in this port is a placeholder that walks
+an enemy into the player and holds it there, so every enemy attacks as fast as
+the player's i-frames allow. Against a level-1 player (19 HP, 7 defence) a
+werewolf's 40 attack is 33 damage a hit, and the run ends in under a second.
+That number is right; the behaviour producing it is not.
