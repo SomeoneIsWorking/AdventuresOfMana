@@ -87,6 +87,16 @@ constexpr const char* kFS =
     "varying vec2 texcoordVarying; void main() { vec4 color = texture2D( texture0 , "
     "texcoordVarying ); gl_FragColor = colorVarying * color; }";
 
+// The chip grid's two engine constants. CheckAddPos @ 0x2dcd20 writes
+// `baseY + 10000.0f` into the height map where the probe found no floor, and
+// _MakeRouteTable @ 0x2a7c5c rejects a chip whose |height| exceeds 9999. The
+// port always probes with baseY = 0, as MakeRandomChrPosTbl does.
+constexpr float kChipNoFloor = 10000.f;
+// _MakeRouteTable's height gate: |height[chip] - height[GOAL]| >= 5 rejects.
+// It is measured against the fixed goal cell, not the previous step -- the
+// per-step reading was refuted; see docs/re-frontier.md.
+constexpr float kChipStepLimit = 5.f;
+
 struct Mat4 {
     float m[16]{};
     static Mat4 Identity() {
@@ -1782,7 +1792,9 @@ int main(int argc, char** argv) {
             // enemy.
             int chip_w = 0, chip_h = 0;
             std::vector<uint8_t> chip_walk;
+            std::vector<float>   chip_height;   // ModeGame + 0x9bb0's counterpart
             std::vector<int32_t> chip_dist;
+            bool chip_fill_logged = false;
             struct Placed { const mcf::Renderable* r; float pos[3]; const mcf::Motion* mo; };
             std::vector<Placed> placed;
             struct PlacedObj { const mcf::Renderable* r; float pos[3]; };
@@ -1920,25 +1932,32 @@ int main(int argc, char** argv) {
             // of chip centres for one with walkable floor, nearest the room
             // centre. What is faithful is that the engine places these, not the
             // script; parking them at the literal origin was simply wrong.
-            // The chip walkability mask, built once per room. The engine keeps
-            // a per-chip height map at ModeGame+0x9bb0 and an attribute byte at
-            // +0x9ba8, and _MakeRouteTable @ 0x2a7c5c gates each step on them
-            // (no-floor sentinel |h| > 10000, step limit |dh| < 5). How those
-            // grids are derived from the room's .gdt is NOT reversed, so this
-            // substitutes the port's own floor test -- the same one the rest of
-            // the port already trusts for placement. The SHAPE below is the
-            // engine's; only the passability source is the port's.
+            // The chip grids, built once per room. This is the engine's own
+            // construction, not a substitute for it: ModeGame::MakeRandomChrPosTbl
+            // @ 0x2dd0a0 sizes the grid `fcvtzs(roomSize / 30)` -- TRUNCATE --
+            // and fills it by probing the collision mesh once per chip, at the
+            // chip CENTRE, through CheckAddPos @ 0x2dcd20. It stores an
+            // attribute byte at ModeGame+0x9ba8 and the ground height at
+            // +0x9bb0, writing the sentinel baseY + 10000 where there is no
+            // floor. Two departures, both named in docs/re-frontier.md: the
+            // port has no character/AppObject occupancy bits (the engine's bit
+            // 6 and bit 7, via a radius-12 push-back sphere), and it does not
+            // separate the two floor-mask classes in bits 0-1.
             chip_w = int(room_size.w / 30.f);
             chip_h = int(room_size.h / 30.f);
             chip_walk.assign(size_t(chip_w) * size_t(chip_h), 0);
+            chip_height.assign(size_t(chip_w) * size_t(chip_h), kChipNoFloor);
+            chip_fill_logged = false;
             if (have_col) {
                 for (int gz = 0; gz < chip_h; ++gz)
                     for (int gx = 0; gx < chip_w; ++gx) {
                         float g;
                         if (col.GetFloor(room_org[0] + (float(gx) + 0.5f) * 30.f,
                                          room_org[2] + (float(gz) + 0.5f) * 30.f,
-                                         mcf::Collision::kFloorMask, &g))
+                                         mcf::Collision::kFloorMask, &g)) {
                             chip_walk[size_t(gz) * size_t(chip_w) + size_t(gx)] = 1;
+                            chip_height[size_t(gz) * size_t(chip_w) + size_t(gx)] = g;
+                        }
                     }
             }
             {
@@ -1946,6 +1965,19 @@ int main(int argc, char** argv) {
                 for (uint8_t v : chip_walk) w += v;
                 lucent::info("ai", "chip grid {}x{}: {} of {} walkable",
                              chip_w, chip_h, w, chip_walk.size());
+                // The height map itself, row by row, because the route table's
+                // gate is entirely a function of it and a wrong floor probe
+                // would otherwise look like a wall.
+                for (int gz = 0; gz < chip_h; ++gz) {
+                    lucent::Line l;
+                    l.add("row {:2d}:", gz);
+                    for (int gx = 0; gx < chip_w; ++gx) {
+                        float hgt = chip_height[size_t(gz) * size_t(chip_w) + size_t(gx)];
+                        if (hgt >= kChipNoFloor) l.add("     .");
+                        else l.add(" {:5.0f}", hgt);
+                    }
+                    l.flush_debug("chip");
+                }
             }
 
             std::vector<std::pair<int, int>> taken_chips;
@@ -2917,6 +2949,15 @@ int main(int argc, char** argv) {
                     int pcx = int(std::floor((px - room_org[0]) / 30.f));
                     int pcz = int(std::floor((pz - room_org[2]) / 30.f));
                     if (pcx >= 0 && pcz >= 0 && pcx < chip_w && pcz < chip_h) {
+                        // The engine's height gate, now that it is read
+                        // correctly: |height[chip] - height[GOAL]| >= 5
+                        // rejects, where the goal is the fixed cell the fill
+                        // was started for -- here the player's chip. So a
+                        // ledge five units off the player's floor is not
+                        // reachable however many chips lead to it.
+                        const float goal_h =
+                            chip_height[size_t(pcz) * size_t(chip_w) + size_t(pcx)];
+                        long band_reject = 0;   // chips the height gate refused
                         std::vector<int> q;
                         q.push_back(pcz * chip_w + pcx);
                         chip_dist[size_t(q[0])] = 1;
@@ -2930,9 +2971,28 @@ int main(int argc, char** argv) {
                                 if (nx < 0 || nz < 0 || nx >= chip_w || nz >= chip_h) continue;
                                 size_t ni = size_t(nz) * size_t(chip_w) + size_t(nx);
                                 if (!chip_walk[ni] || chip_dist[ni]) continue;
+                                if (std::fabs(chip_height[ni]) > kChipNoFloor - 1.f)
+                                    continue;
+                                if (std::fabs(chip_height[ni] - goal_h) >= kChipStepLimit) {
+                                    ++band_reject;
+                                    continue;
+                                }
                                 chip_dist[ni] = nd;
                                 q.push_back(int(ni));
                             }
+                        }
+                        // Reported once per room, with its denominators, so a
+                        // zero here says "the gate ran and refused nothing"
+                        // rather than "the gate never ran".
+                        if (!chip_fill_logged) {
+                            chip_fill_logged = true;
+                            long walk = 0;
+                            for (uint8_t v : chip_walk) walk += v;
+                            lucent::info("ai",
+                                "chip fill from ({},{}) h={:.1f}: reached {} of "
+                                "{} walkable / {} chips, height gate refused {}",
+                                pcx, pcz, goal_h, q.size(), walk,
+                                chip_walk.size(), band_reject);
                         }
                     }
                 }

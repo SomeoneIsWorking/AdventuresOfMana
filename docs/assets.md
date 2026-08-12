@@ -1729,27 +1729,101 @@ it through `vtable[0x410]`. It then reads the destination cell and reports
 failure when it is still 0 — so **0 means "unreached"** and the field is a
 distance map whose zero cell is its own sentinel.
 
-`_MakeRouteTable` @ `0x2a7c5c` is the per-step passability test between two
-chips, and it names two more per-chip grids on `ModeGame`:
+`_MakeRouteTable` @ `0x2a7c5c` is a **depth-limited 4-neighbour flood fill**,
+and it names two more per-chip grids on `ModeGame`. All 113 instructions were
+read:
 
 ```
-h  = heightmap[chips_w * row + col]     // float,       ModeGame + 0x9bb0
-if (fabs(h) > 10000.0)      fail        // the "no floor" sentinel
-if (fabs(h - h_to) >= 5.0)  fail        // a STEP-HEIGHT limit, in units
-a  = attr[...]                          // signed byte, ModeGame + 0x9ba8
-if (a >= 0)                 fail        // the high bit must be set
-... then the two chips' attribute bytes are compared with `eor`
+_MakeRouteTable(this, cx, cz, gx, gz, depth):
+  reject if cx<0 || gx<0 || cz<0 || gz<0          // four tests, not three
+  reject unless chipsW>cx && chipsH>cz && chipsW>gx && chipsH>gz   // UNSIGNED hi
+  cur = chipsW*cz + cx
+  ref = chipsW*gz + gx
+  reject if fabs(height[cur]) > 9999.0            // the "no floor" sentinel
+  reject if fabs(height[cur] - height[ref]) >= 5.0
+  reject unless (attr[ref] & 0x80)                // signed byte: ldrsb + tbz #31
+  reject unless ((attr[ref] ^ attr[cur]) & 3) == 0
+  if (route[cur] != 0 && route[cur] >= depth) reject
+  route[cur] = depth
+  if (depth < 2) return 0
+  if (cx==gx && cz==gz) return 0                  // the fill stops at the goal
+  for n in the four neighbours:
+      vtable[0x410](this, n.x, n.z, gx, gz, depth-1)   // gx,gz UNCHANGED
+  return 0                                        // every path returns 0
 ```
 
-So the engine's walkability is a height map plus an attribute byte per chip,
-with a **5-unit step limit** — a sixth of a chip. `ModeGame::GetHeightMapData`
-@ `0x2dd004` reads the same `+0x9bb0`.
+**A correction.** An earlier version of this section read `(w3,w4)` as the
+*previous* chip, re-based each step — i.e. a per-step slope test. It is not:
+`mov w23,w3` @ `0x2a7d8c` and `mov w24,w4` @ `0x2a7d94` save the incoming pair
+and all four recursive calls restore it unchanged, and the wrapper
+`MakeRouteTable` reads `route[chipsW*w4 + w3]` when it is done. So `(w3,w4)` is
+the **fixed GOAL cell**: the 5-unit test is an absolute height *band around the
+goal*, and both attribute tests are against the goal chip. A router built on
+the per-step reading accepts and rejects different routes.
 
-**Not implemented.** The port chases in a straight line rather than over a
-distance field. In an open room that is indistinguishable; around a wall it is
-not. Implementing it needs the per-chip height and attribute grids, which come
-from the room's `.gdt` — the file the port already parses for room size — so
-this is buildable, not blocked. It is simply not built.
+`ModeGame::GetHeightMapData` @ `0x2dd010` (not `0x2dd004`, which is inside
+`CheckAddPos`) reads the same `+0x9bb0`, with no bounds check at all — 36
+instructions, one basic block, no branch of any kind.
+
+#### Where the two chip grids actually come from — NOT the `.gdt`
+
+An earlier version of this document said the grids "come from the room's `.gdt`
+— the file the port already parses for room size — so this is buildable". **That
+was wrong.** `ModeGame::MakeRandomChrPosTbl` @ `0x2dd0a0` builds both grids by
+**raycasting the collision mesh**, one probe per chip:
+
+```
+chipsW = fcvtzs(roomW / 30)            // TRUNCATE
+chipsH = fcvtzs(roomD / 30)            // room record at ModeGame + 0x9dc/0x9e0
+for each chip:
+    X = roomX*roomW + (cx+0.5)*30
+    Z = roomZ*roomD + (cz+0.5)*30
+    attr[cz*chipsW+cx], height[...] = CheckAddPos(X, Z, baseY=0,
+                                                  checkChars=false,
+                                                  checkObjects=true)
+```
+
+Enumerating every writer of `+0x9ba8` / `+0x9bb0` across the whole 16.4 MB
+disassembly, in five encodings, finds exactly **two**: the `movi v2.2d, #0`
+null-init in `ModeGame::ModeGame` @ `0x2d2438`, and this function. There is no
+4x4 aggregation of `.gdt` cells anywhere.
+
+`ModeGame::CheckAddPos` @ `0x2dcd20` (188 instructions, all read) references
+none of the `.gdt` members (`+0x9b70`/`+0x9b78`/`+0x9b7c`/`+0x9b80`/`+0x9b84`).
+It builds the attribute byte:
+
+| bits | meaning |
+|---|---|
+| 0–1 | floor class: 0 neither, 1 = mask-1 floor hit, 2 = mask-4 hit, 3 = both |
+| 6 (`0x40`) | no character occupies the chip |
+| 7 (`0x80`) | no AppObject blocks it |
+
+Bits `0x04`–`0x20` are never set. The occupancy probe is a **sphere of radius
+12** (`mov w10, #0x41400000` @ `0x2dce44` — 12.0f, not 5.0f) centred at
+`(X, groundHeight + 12, Z)`; the `5` in the same neighbourhood is the collision
+**mask** argument to `IsCollisionPushBack`, a different value. That wall test
+only runs when the floor class is non-zero (`cbz w22` @ `0x2dce88`). The height
+out-parameter gets the real ground height only when bit 7 is set **and** the low
+two bits are non-zero; otherwise it gets the sentinel `baseY + 10000.0f`, which
+is what `_MakeRouteTable`'s `|h| > 9999` test rejects.
+
+Two limits on that negative, carried deliberately: `MapServer::IsCollisionFloor`
+and `IsCollisionPushBack` were **not** decoded, so if the collision mesh is
+itself loaded from the `.gdt` then the `.gdt` reaches the grid indirectly and a
+static read cannot see it. And `Load_GroundAttribute` sizes the `.gdt` with
+`frintp` (**ceil**) while every chip-grid reader uses `fcvtzs` (**truncate**), so
+the two do not even cover the same area for a room whose size is not a multiple
+of 30 — how many rooms that is has not been counted.
+
+**What the port does.** It chases over a BFS distance field whose passability
+comes from `col.GetFloor` at each chip centre. Given the above, that is
+**essentially the engine's own method** — a per-chip probe of the collision mesh
+at the chip centre — rather than the "substitution" an earlier note called it.
+The departures that remain are named: the port has no character/AppObject
+occupancy bits (bit 6 / bit 7) because it does not enumerate objects, it does
+not run the radius-12 push-back probe, and its fill is a breadth-first distance
+field rather than the engine's depth-limited DFS with a goal-relative height
+band.
 
 #### State 1's wander, and what `s10` is
 
