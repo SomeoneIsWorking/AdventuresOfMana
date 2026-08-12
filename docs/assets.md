@@ -1670,6 +1670,43 @@ reasoning was wrong, and the last iteration's guess that state 3 might be the
 chase was wrong too — refuted by reading what it actually searches for. The port
 now pursues in state 2.
 
+#### Measuring it
+
+The change from state 0 to state 2 **is** measurable, once a room with enemies
+is used. 90 of the 714 room scripts spawn one (`AddEnemy` 58, `AddEnemyZaco`
+140, `AddBoss` 60); `sk1/M0000_03_06` spawns four WERE_WOLF and is the
+convenient one:
+
+```
+./build/mana --room M0000_03_06 --auto-attack --warmup 900
+```
+
+| pursue state | frame-overlaps | closest approach | enemy-vs-player closest |
+|---|---|---|---|
+| 2 (the engine's) | 5400 | 30.0 | 98.6 |
+| 0 (the old choice) | 4592 | 18.5 | 61.4 |
+
+So the enemies keep more distance under the engine's answer. That is a real
+difference and the run discriminates — unlike the first attempt at this, in
+`M0001_00_01`, where both settings gave byte-identical output because that
+room's actors are not enemies.
+
+The obvious worry is that state 2 might be so rare that "pursue in state 2"
+means "never pursue". It is not: solving each machine's weighted roulette for
+its stationary distribution over all 214 machines in `enemydat.bin` gives
+
+    state 0  44.8%   state 1  30.1%   state 2  16.0%   state 3  9.2%
+
+so an enemy spends about a sixth of its time in the chase state. That is
+consistent with the wander/pause/chase cycle the corpus describes, and it does
+not falsify the reading.
+
+**A remaining port simplification, stated plainly:** the port moves an enemy
+*only* in the pursue state and holds it still otherwise. The engine runs the
+mode body in every state, so states 0, 1 and 3 are not necessarily motionless —
+they simply do not chase. Narrowing that is a separate job from identifying
+which state chases.
+
 `actor+0x3904` is the target-character selector and `actor+0x3908` the
 target-position selector. State 3 sets `+0x3908` from `record[0x78] + 10` when
 `record[0x78] <= 2`; state 2 sets `+0x3904` from a 4-entry table at `0x9d8f0`
