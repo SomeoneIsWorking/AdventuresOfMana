@@ -1604,6 +1604,49 @@ form, which is correct for the states it was verified against but is not the
 whole mechanism. The distance-driven form is recorded and NOT implemented,
 because what feeds `+0x3948`, `+0xc68` and `+0x3918` is not read.
 
+### The duration roll, confirmed by a second path
+
+Modes 5, 6/7/10/11 and 9 all fall into one shared tail at `0x2a9e74`, which is
+where a state's length is rolled:
+
+```
+idx = actor[0x3894]                       // AI parameter block index
+st  = actor[0x38e8]                       // current state
+{base, range} = *(int32[2])(actor + 0x377c + idx*140 + st*8)
+dur = GameRandom(range) + base
+actor[0x38ec] = actor[0x38f0] = max(dur, floor)   // `floor` is mode-dependent
+actor[0x3900] = 0
+```
+
+`x20 = actor + 0x377c` is pinned at `0x2a8b98` (`add x20, x19, #0x377c`), and the
+140-byte stride is the AI record already recorded.
+
+The `floor` is 0 for modes 6/7/10/11 and 9, so those roll plainly. Mode 5 sets it
+from two `vtable[0x240]` calls (arguments 158 and 159) combined as
+`(a + b) / 30 * 60`, so mode 5's states cannot be shorter than that.
+
+**This confirms the port's duration model from an independent direction.** The
+port reads `{base, range}` out of the FILE, at `descriptor[st] + 0x10 / +0x14`
+with descriptor bases `0x80, 0x98, 0xB0, 0xC8`. The engine reads them at RUNTIME
+from `actor + 0x377c + st*8`. Those are only the same numbers if
+`SetAITblFromEnemyTbl` maps one onto the other, and it does — it gathers the
+pairs with paired `d` loads and 128-bit stores @ `0x2a6d04`..`0x2a6d84`:
+
+| runtime slot | written from | which is |
+|---|---|---|
+| `+0x377c + 0` | file `0x90`, `0x94` | descriptor 0 `+0x10`, `+0x14` |
+| `+0x377c + 8` | file `0xa8`, `0xac` | descriptor 1 `+0x10`, `+0x14` |
+| `+0x377c + 16` | file `0xc0`, `0xc4` | descriptor 2 `+0x10`, `+0x14` |
+| `+0x377c + 24` | file `0xd8`, `0xdc` | descriptor 3 `+0x10`, `+0x14` |
+
+Identical. The same function lands the four *weights* of each descriptor
+contiguously at `+0x379c`..`+0x37d8` (16 words = 4 states x 4 weights), which
+likewise matches the recorded weight model.
+
+This was worth checking rather than assuming: the two addressing schemes look
+nothing alike (`0x18` stride into the file vs `8` stride at runtime), and had
+they disagreed every enemy's timing in the port would have been wrong.
+
 ### The mode switch at `0x2a95b4`, dispatch only
 
 The dispatch is a chain of signed compares on the mode word at actor `+0x3934`,
