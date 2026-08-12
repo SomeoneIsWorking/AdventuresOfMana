@@ -1475,11 +1475,29 @@ state. That pair is what makes a state last a randomized number of frames.
 
 The block is not copied from `enemydat.bin`: `SetEnemyId`'s `memcpy` lands at
 `+0x3a24`, past it. It is filled at construction from constant quads in
-`.rodata` — `0x2a6500` and `0x2b4a54` are two different class initialisers
-loading different constants into the same offset. **Not read**: where those
-tables are, how many 140-byte records each holds, and which class gets which.
-Because they are static data, they are extractable, which makes this the most
-promising next step for the AI.
+`.rodata`, and the values are plain `int32` frame counts:
+
+| destination | source | `{base, range}` pairs | at 30 fps |
+|---|---|---|---|
+| `+0x377c` | `.rodata` `0x9ddd0` | `{120, 120}`, `{120, 10}` | 4–8 s, 4–4.3 s |
+| `+0x378c` | `.rodata` `0x9dc80` | `{240, 60}`, `{120, 120}` | 8–10 s, 4–8 s |
+
+(`.rodata` is at VMA `0x8ca90` == file offset, so these are read directly.)
+
+**There are exactly two records.** The index is a toggle, not a counter:
+`0x2a8d2c` writes `1 - old` into `+0x3894`, so its domain is `{0, 1}`. That
+closes the arithmetic — `0x377c + 2*140 == 0x3894`, i.e. the block is 280 bytes
+and the index field sits immediately after it. The same site resets the state
+and its timer together with one store, `+0x38e8 := 0` and `+0x38ec := -1`.
+
+Within a record, reads are observed at `+0x80` (int, `0x2a8ba4`) and `+0x84`
+(float, `0x2a8d10`, compared to decide the toggle). With a stride of 140 that
+leaves `0x00..0x7f` for the `{base, range}` pairs — **at most 16** of them,
+which bounds the number of AI states. The 16 is arithmetic from the stride, not
+an observed count, and is recorded as a bound rather than a fact.
+
+`0x2b4a54` is a second class initialiser writing the same offset from different
+constants; which character classes take which table is **not read**.
 
 Mode 8's body is the only other one read: it differences two counters at
 `+0x38c8` and `+0x38cc`, writes the `<=` result as a byte into a *different*
