@@ -2195,3 +2195,48 @@ Fuji. The port already sources both from `SYS_DEFAULTNAME_*` rather than
 hardcoding them — checked rather than assumed, and it was already right.
 
 NOT REVERSED: the menu layout, the name-entry UI, and which sub-state runs it.
+
+
+### The new-game path
+
+`GameParameter::Init` is called from exactly three places: `ModeGame`'s
+constructor and `ModeTitle::Process` twice. The title's is the new game, and it
+is short:
+
+```
+GameParameter::Init()                                          ; oG+0x60
+strcpy(oG+0x68, GetStringResource("SYS_DEFAULTNAME_HERO"), 128)
+strcpy(oG+0xe8, GetStringResource("SYS_DEFAULTNAME_GIRL"), 128)
+ApplicationMode::SkipAtNextFrame()
+```
+
+This **independently confirms the save header**: `oG+0x68` and `oG+0xe8` are the
+hero and girl names, exactly the two `SaveAccessStr` fields the save writes
+first, and `__strcpy_chk`'s bound pins each buffer at **128 bytes** — a size
+previously only inferred from the 0x80 gap between the two offsets.
+
+**The title does not choose the starting room.** `ModeTitle::Process` contains no
+map, jump, or script call of any kind — its whole call set is BGM, SE, save-data
+and `GameParameter::Init`. So the start room comes from somewhere later, and the
+port's `M0000_00_00` remains a PORT CHOICE.
+
+That choice is *not* confirmed by the standalone `"M0000_00_00"` literal at
+`0x9bf31` either: its only reference in the binary is
+`SceneWeapon::Initialize`, a debug/viewer scene, not the boot path. Worth
+recording because it is exactly the sort of coincidence that would otherwise
+read as confirmation.
+
+#### An unresolved run near `0xbd678`
+
+There is a run of 14 records at `0xbd678`, stride `0x88`, each
+`{u32 = 4}{"sk1/M0000_XX_00"}` for XX = 01..14, and all 14 rooms exist in the
+archive. **What reads it is not established** — neither the run's base nor the
+individual strings have an `adrp`+`add` reference anywhere, which is a statement
+about that scan (it cannot see indexed access through a register base) rather
+than proof the data is dead.
+
+It is recorded as an observation, not a finding, because two earlier readings of
+this same region were wrong: first a "272-record 16x17 world grid", which came
+from starting 0x80 too early and sampling at a stride that drifted a whole
+record every 16 entries. The raw bytes killed it. Nothing should be built on
+this run until its reader is found.
