@@ -7,6 +7,8 @@
 #include <cstring>
 #include <format>
 
+#include <lucent/log.h>
+
 namespace mcf {
 namespace {
 
@@ -645,6 +647,106 @@ bool StringTable::Load(const std::vector<uint8_t>& file) {
 const std::string* StringTable::Find(const std::string& id) const {
     auto it = by_id_.find(id);
     return it == by_id_.end() ? nullptr : &it->second;
+}
+
+// UTF8_OctBytes @ 0x3db5f0: how many bytes the lead byte claims. The engine
+// copies plain text a whole code point at a time, so a multi-byte character can
+// never be split across the '@' scan.
+static int Utf8OctBytes(unsigned char c) {
+    if (c < 0x80) return 1;
+    if (c < 0xc0) return 1;  // stray continuation byte: consume it, don't stall
+    if (c < 0xe0) return 2;
+    if (c < 0xf0) return 3;
+    return 4;
+}
+
+// The '@N' argument. The engine calls GetIntFromString, a general
+// operator-precedence expression evaluator, but every one of the 577 @N
+// occurrences in str_en.bin and str_ja.bin is a parenthesised literal, so this
+// parses that form and refuses anything else rather than half-evaluating it.
+// Returns the number of source bytes consumed, or 0 on no parse.
+static size_t ParseIntArg(const std::string& s, size_t i, int* out) {
+    size_t j = i;
+    while (j < s.size() && (s[j] == ' ' || s[j] == '\t')) ++j;
+    bool paren = j < s.size() && s[j] == '(';
+    if (paren) ++j;
+    size_t digits = j;
+    int v = 0;
+    while (j < s.size() && s[j] >= '0' && s[j] <= '9') { v = v * 10 + (s[j] - '0'); ++j; }
+    if (j == digits) return 0;
+    if (paren) {
+        if (j >= s.size() || s[j] != ')') return 0;
+        ++j;
+    }
+    *out = v;
+    return j - i;
+}
+
+std::string CnvFormatString(const std::string& src, const StringTable* tbl,
+                            const FormatParams& prm) {
+    std::string out;
+    out.reserve(src.size());
+    auto append = [&](const std::string* t, const char* what) {
+        if (t) { out += *t; return; }
+        // The engine logs "NoStringID:[%s]" and then memcpys from the null it
+        // just logged. Here the code is left visible instead, so a gap in the
+        // port reads as a gap and not as a line the game never wrote.
+        lucent::warn("text", "control code {} has no value", what);
+        out += what;
+    };
+    for (size_t i = 0; i < src.size();) {
+        if (src[i] != '@') {
+            int n = Utf8OctBytes((unsigned char)src[i]);
+            out.append(src, i, size_t(n));
+            i += size_t(n);
+            continue;
+        }
+        if (i + 1 >= src.size()) break;  // trailing '@': the engine drops it
+        char c = src[i + 1];
+        switch (c) {
+        case '@': out += '@'; i += 2; continue;
+        case 'H': case 'h': out += prm.hero; i += 2; continue;
+        case 'G': case 'g': out += prm.girl; i += 2; continue;
+        case 'P': append(&prm.prm[0], "@P"); i += 2; continue;
+        case 'i': append(&prm.prm[1], "@i"); i += 2; continue;
+        case 'I': append(&prm.prm[2], "@I"); i += 2; continue;
+        case 'S': append(&prm.prm[3], "@S"); i += 2; continue;
+        case 'N': case 'n': {
+            int id = 0;
+            size_t used = ParseIntArg(src, i + 2, &id);
+            if (!used) {  // not the literal form; leave it visible
+                lucent::warn("text", "@{} argument is not a literal: \"{}\"",
+                             c, src.substr(i, 12));
+                ++i;
+                continue;
+            }
+            auto key = std::format("CHARACTER_NAME_{}", id);
+            const std::string* t = tbl ? tbl->Find(key) : nullptr;
+            if (t) out += *t;
+            else { lucent::warn("text", "{} is not in the table", key); out += key; }
+            i += 2 + used;
+            continue;
+        }
+        default: break;
+        }
+        if (c >= '0' && c <= '9') {
+            size_t j = i + 1;
+            int n = 0;
+            while (j < src.size() && src[j] >= '0' && src[j] <= '9')
+                { n = n * 10 + (src[j] - '0'); ++j; }
+            if (size_t(n) < prm.args.size()) out += prm.args[size_t(n)];
+            else {
+                lucent::warn("text", "@{} but only {} arguments were supplied",
+                             n, prm.args.size());
+                out.append(src, i, j - i);
+            }
+            i = j;
+            continue;
+        }
+        // Unknown code: the engine swallows the '@' and reprocesses the letter.
+        ++i;
+    }
+    return out;
 }
 
 int32_t EquipDefence(int32_t id) {

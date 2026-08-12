@@ -286,8 +286,21 @@ bool DispatchAudio(lua_State* L, const CmdDef* def, Script& s) {
         }
         return true;
     }
+    // The four parameter slots @P/@i/@I/@S expand to. Out-of-range is dropped
+    // rather than clamped: the engine writes szCnvFormatStringPrm[slot] with no
+    // bound check, and silently aliasing slot 4 onto slot 3 would be a lie.
+    if (n == "SetMessageWndPrmString") {
+        int slot = N(1);
+        const char* t = lua_isstring(L, 2) ? lua_tostring(L, 2) : "";
+        if (slot >= 0 && slot < 4) s.fmt.prm[slot] = t;
+        else lucent::warn("text", "SetMessageWndPrmString slot {} is outside 0..3", slot);
+        return true;
+    }
     if (n == "SetMessageWnd") {
-        s.last_message = lua_isstring(L, 1) ? lua_tostring(L, 1) : "";
+        // SetMessageWnd @ 0x2c7874 does not hand the script's string to the
+        // window: it runs it through CnvFormatString first, which is what turns
+        // "@N(36):" into "Prisoner:".
+        s.last_message = s.FormatText(lua_isstring(L, 1) ? lua_tostring(L, 1) : "");
         s.message_pending = !s.last_message.empty();
         ++s.messages_shown;
         std::string shown;
@@ -333,6 +346,17 @@ Script::~Script() {
 }
 
 size_t Script::api_size() { return kCmdCount; }
+
+void Script::SetStrings(const StringTable* t) {
+    strings = t;
+    if (!t) return;
+    if (const std::string* h = t->Find("SYS_DEFAULTNAME_HERO")) fmt.hero = *h;
+    if (const std::string* g = t->Find("SYS_DEFAULTNAME_GIRL")) fmt.girl = *g;
+}
+
+std::string Script::FormatText(const std::string& t) const {
+    return CnvFormatString(t, strings, fmt);
+}
 
 // sk1.lua is Shift-JIS while every map script is UTF-8 (see docs/assets.md).
 // Shift-JIS trail bytes can be 0x5C, which Lua would read as a backslash escape

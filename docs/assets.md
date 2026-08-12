@@ -977,22 +977,45 @@ warns once per line when characters cannot be drawn, so a blank panel is not
 mistaken for a broken message window.
 
 
-## Dialogue control codes — NOT expanded
+## Dialogue control codes -- expanded, from the engine's own parser
 
-393 of the 1906 strings carry `@` control codes, presumably speaker tags and
-substitutions:
+393 of the 1906 English strings (435 Japanese) carry `@` control codes, e.g.
+`@N(36):\nAren't you...`. They are not part of the text: every window runs its
+string through **`CnvFormatString` @ `0x2c33b4`** before drawing it
+(`SetMessageWnd` @ `0x2c7874`, `SetInfoWnd`, `SetNameWnd`, ...). The whole
+branch table, read off that one function:
 
-| form | count |
-|---|---|
-| `@N(nn)` | 215 |
-| `@H` | 154 |
-| `@G` | 62 |
-| `@I` | 6 |
-| `@P` | 3 |
-| `@i`, `@S` | 1 each |
+| code | expands to | evidence |
+|---|---|---|
+| `@N(n)` / `@n(n)` | the `CHARACTER_NAME_<n>` string | `0x2c34d8` formats `"CHARACTER_NAME_%d"` (`.rodata` `0x943ce`) and calls `StrFileGetString` |
+| `@H` / `@h` | the hero's name (`oG+0x68`) | `0x2c3590` |
+| `@G` / `@g` | the girl's name (`oG+0xe8`) | `0x2c356c` |
+| `@P` | parameter slot 0 | `0x2c35ec` -> `pCnvFormatStringPrm[0]` |
+| `@i` | parameter slot 1 | `0x2c35e4` |
+| `@I` | parameter slot 2 | `0x2c35d4` |
+| `@S` | parameter slot 3 | `0x2c35dc` |
+| `@@` | a literal `@` | `0x2c35c4` |
+| `@<digits>` | the caller's argument array | `0x2c3618` |
+| anything else | the `@` is dropped, the letter kept | fall-through at `0x2c3618` |
 
-The port prints them literally, so a line reads `@N(36):\nAren't you...`. There
-are two accessors -- `GetIDString` and `GetIDStringCtrl` -- and the second's
-name suggests it is the one that processes these; neither has been reversed to
-the point of knowing what `@N(36)` resolves to. Expanding them on a guess would
-put invented names in the game's mouth, so they are left visible.
+So `@N(36):` is `Prisoner:` and `@H` is the player's name.
+
+The two name fields are not invented. `oG+0x68` and `oG+0xe8` are both handed to
+`SaveAccessStr` by `_GameSaveAccess` @ `0x30c874`, so they are save data, and
+`ModeInit::Process` @ `0x2f65e4` seeds them from `SYS_DEFAULTNAME_HERO` ("Sumo")
+and `SYS_DEFAULTNAME_GIRL` ("Fuji") before the name-entry screen can overwrite
+them. The four parameter slots are `szCnvFormatStringPrm`, four 256-byte buffers
+written by `SetMessageWndPrmString(slot, text)` @ `0x2c7860` -- which is one of
+the 200 `cmd` functions, so the scripts fill them.
+
+**Not ported, and it does not matter here:** the `@N` argument goes through
+`GetIntFromString`, a general operator-precedence expression evaluator (it
+mallocs an 8 KB work buffer). All 577 `@N` occurrences across both string tables
+are a parenthesised integer literal, so the port parses that form and refuses
+anything else rather than half-evaluating an expression.
+
+`--text-selftest` checks both classes -- strings that must change and strings
+that must not -- and then sweeps the whole table, reporting how many strings
+still contain a `@` after expansion. That residue is 1 of 393: the
+`SYS_INFO_ITEM_AUTOSTACK` string `"@i (@1)"`, whose `@1` indexes the caller's
+argument array, and every caller reached from the dialogue path passes NULL.

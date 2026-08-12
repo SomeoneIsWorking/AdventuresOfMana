@@ -22,6 +22,12 @@ if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   ./build/mana --combat-selftest >/dev/null || fail=1
   echo "  (9 cases, hit and miss)"
 
+  echo "=== text self-test ==="
+  for l in en ja; do
+    ./build/mana --text-selftest --lang "$l" 2>&1 | grep -E "SELFTEST:|sweep" || fail=1
+    ./build/mana --text-selftest --lang "$l" >/dev/null 2>&1 || fail=1
+  done
+
   echo "=== audio self-test ==="
   SDL_AUDIODRIVER=dummy ./build/mana --audio-selftest || fail=1
 

@@ -214,6 +214,7 @@ int main(int argc, char** argv) {
     bool has_spawn = false;
     bool fade_test = false;
     bool combat_selftest = false;
+    bool text_selftest = false;
     bool auto_attack = false;
     int warmup = 0;
     bool fixed_step = false;
@@ -244,6 +245,7 @@ int main(int argc, char** argv) {
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
         else if (a == "--audio-selftest") audio_selftest = true;
         else if (a == "--combat-selftest") combat_selftest = true;
+        else if (a == "--text-selftest") text_selftest = true;
         else if (a == "--auto-attack") auto_attack = true;
         // --warmup implies --fixed-step: see the loop, a frame count on an
         // uncapped loop is not a duration.
@@ -283,7 +285,8 @@ int main(int argc, char** argv) {
                 "  --room-census       load every room headlessly, report what is missing\n"
                 "  --string ID         resolve a dialogue id in every language\n"
                 "  --show-string ID    open the message window on that line\n"
-                "  --combat-selftest / --audio-selftest    self-tests, non-zero on failure\n"
+                "  --combat-selftest / --audio-selftest / --text-selftest\n"
+                "                                         self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
                 "  --auto-advance      dismiss dialogue automatically (headless)\n"
@@ -302,7 +305,7 @@ int main(int argc, char** argv) {
     // mode wins; `explicit_model` is tracked separately because `model` carries
     // a default value and so cannot be tested for emptiness.
     if (render_room.empty() && room.empty() && probe.empty() && !census &&
-        !audio_selftest && !combat_selftest && !explicit_model && !room_census &&
+        !audio_selftest && !combat_selftest && !text_selftest && !explicit_model && !room_census &&
         string_id.empty())
         render_room = kDefaultRoom;
 
@@ -378,6 +381,75 @@ int main(int argc, char** argv) {
             return bad ? 1 : 0;
         }
 
+        if (text_selftest) {
+            // Runs the control-code expander against BOTH classes -- strings
+            // that must change and strings that must not -- and then over the
+            // whole shipping table, because a corpus sweep with no denominator
+            // proves nothing.
+            mcf::StringTable tbl;
+            auto sp = std::format("sk1/str_{}.bin", lang);
+            if (!ar.Has(sp) || !tbl.Load(ar.Read(sp))) {
+                lucent::error("text", "{} missing or malformed; NOTHING was tested", sp);
+                return 1;
+            }
+            mcf::FormatParams p;
+            p.hero = "Sumo"; p.girl = "Fuji";
+            p.prm[0] = "P0"; p.prm[1] = "P1"; p.prm[2] = "P2"; p.prm[3] = "P3";
+            // The two @N cases resolve through the table, so what they must
+            // produce depends on which language is loaded. Hard-coding the
+            // English answer would make a --lang ja run fail for the wrong
+            // reason -- and hide a real failure behind an expected one.
+            bool ja = lang == "ja";
+            struct Case { const char* in; const char* want; };
+            const Case cases[] = {
+                {"@N(36):", ja ? "囚人:" : "Prisoner:"},   // the code that started this
+                {"@N(1)",   ja ? "旅の男" : "Mysterious Traveler"},
+                {"@H",      "Sumo"},
+                {"@h",      "Sumo"},
+                {"@G",      "Fuji"},
+                {"@P/@i/@I/@S", "P0/P1/P2/P3"},
+                {"@@",      "@"},                  // escape, not a code
+                {"@Z",      "Z"},                  // unknown: '@' dropped, letter kept
+                {"plain",   "plain"},              // must NOT be rewritten
+                {"e@mail",  "email"},              // ditto for the engine's own rule
+                {"@N(9999)", "CHARACTER_NAME_9999"},  // a miss stays visible
+                {"日本語@H", "日本語Sumo"},         // multi-byte text survives
+            };
+            int bad = 0;
+            for (const auto& c : cases) {
+                auto got = mcf::CnvFormatString(c.in, &tbl, p);
+                if (got != c.want) {
+                    lucent::error("text", "SELFTEST FAIL: \"{}\" -> \"{}\" (want \"{}\")",
+                                  c.in, got, c.want);
+                    ++bad;
+                } else {
+                    lucent::info("text", "  ok: {:<14} -> {}", c.in, got);
+                }
+            }
+            // The sweep. Every '@' the expander leaves behind is a code it does
+            // not know, so the residue is the honest measure of coverage.
+            size_t total = 0, with_code = 0, residue = 0;
+            std::string first_residue;
+            for (const auto& id : tbl.ids()) {
+                const std::string* t = tbl.Find(id);
+                ++total;
+                if (t->find('@') == std::string::npos) continue;
+                ++with_code;
+                auto out = mcf::CnvFormatString(*t, &tbl, p);
+                if (out.find('@') != std::string::npos) {
+                    ++residue;
+                    if (first_residue.empty()) first_residue = id;
+                }
+            }
+            lucent::info("text", "SELFTEST: {} cases, {} failures", 12, bad);
+            lucent::info("text", "sweep [{}]: {} strings, {} carry a control code, "
+                         "{} still contain '@' after expansion{}", lang, total,
+                         with_code, residue,
+                         first_residue.empty() ? "" : std::format(" (first: {})",
+                                                                  first_residue));
+            return bad ? 1 : 0;
+        }
+
         if (audio_selftest) {
             // A decoder that plays nothing is indistinguishable from one that
             // was never called, so this feeds cases that MUST decode and fails
@@ -435,10 +507,10 @@ int main(int argc, char** argv) {
                                   "echo instead of resolving", sp);
                 } else {
                     lucent::info("text", "{}: {} strings", sp, strings.size());
-                    sc.strings = &strings;
+                    sc.SetStrings(&strings);
                     if (!show_string.empty()) {
                         if (const std::string* t = strings.Find(show_string))
-                            sc.last_message = *t;
+                            sc.last_message = sc.FormatText(*t);
                         else
                             lucent::warn("text", "--show-string {}: not in the "
                                          "table ({} ids)", show_string, strings.size());
@@ -695,7 +767,7 @@ int main(int argc, char** argv) {
                 // establishes the scenario globals (sccnt, scflagNN, ...) that
                 // the map scripts read. Skipping it made 102 scripts fail on
                 // "attempt to compare nil with number".
-                if (have_strings) sc.strings = &cstr;
+                if (have_strings) sc.SetStrings(&cstr);
                 if (!sc.CallFunction("SystemInit")) {
                     lucent::error("lua", "SystemInit failed: {}", sc.last_error());
                     break;
@@ -938,10 +1010,10 @@ int main(int argc, char** argv) {
                                   "echo instead of resolving", sp);
                 } else {
                     lucent::info("text", "{}: {} strings", sp, strings.size());
-                    sc.strings = &strings;
+                    sc.SetStrings(&strings);
                     if (!show_string.empty()) {
                         if (const std::string* t = strings.Find(show_string))
-                            sc.last_message = *t;
+                            sc.last_message = sc.FormatText(*t);
                         else
                             lucent::warn("text", "--show-string {}: not in the "
                                          "table ({} ids)", show_string, strings.size());

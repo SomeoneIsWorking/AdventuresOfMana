@@ -331,10 +331,44 @@ public:
     // rather than silently becoming "".
     const std::string* Find(const std::string& id) const;
     size_t size() const { return by_id_.size(); }
+    // Every id in the table, so a sweep can state its denominator.
+    std::vector<std::string> ids() const {
+        std::vector<std::string> v;
+        v.reserve(by_id_.size());
+        for (const auto& [k, _] : by_id_) v.push_back(k);
+        return v;
+    }
 
 private:
     std::unordered_map<std::string, std::string> by_id_;
 };
+
+// ---------------------------------------------------------------------------
+// Text control codes. 393 of the 1906 strings carry them, e.g.
+// "@N(36):\nAren't you...". CnvFormatString @ 0x2c33b4 expands them, and every
+// window that shows text runs its string through it first (SetMessageWnd @
+// 0x2c7874, SetInfoWnd, SetNameWnd, ...). See docs/assets.md.
+// ---------------------------------------------------------------------------
+struct FormatParams {
+    // oG+0x68 and oG+0xe8, both save-persisted (_GameSaveAccess @ 0x30c874
+    // passes each to SaveAccessStr). ModeInit seeds them from the string table.
+    std::string hero;  // @H / @h
+    std::string girl;  // @G / @g
+    // szCnvFormatStringPrm: four 256-byte slots, written by
+    // SetMessageWndPrmString(slot, text) @ 0x2c7860. The code letters are not
+    // the slot order -- this mapping is read off the four loads at 0x2c35d4.
+    std::string prm[4];  // @P = 0, @i = 1, @I = 2, @S = 3
+    // The `char**` third argument, indexed by a decimal code (@1, @2, ...).
+    // Every caller reached from the dialogue path passes NULL, so this stays
+    // empty and an @<n> is reported rather than invented.
+    std::vector<std::string> args;
+};
+
+// Expands the control codes in `src`. `tbl` resolves @N(nn) -> the
+// CHARACTER_NAME_<nn> entry. Unknown codes drop the '@' and keep the letter,
+// which is what the engine does (the fall-through at 0x2c3618).
+std::string CnvFormatString(const std::string& src, const StringTable* tbl,
+                            const FormatParams& prm);
 
 // tblHelm / tblArmor defence, indexed by DataTableGetDefence @ 0x2c3bd8.
 // Returns 0 for an id not in either table.

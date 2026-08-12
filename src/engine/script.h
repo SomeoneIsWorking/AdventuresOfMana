@@ -6,6 +6,8 @@
 #include <string_view>
 #include <vector>
 
+#include "mcf/mcf.h"   // FormatParams, held by value below
+
 struct lua_State;
 
 
@@ -46,6 +48,14 @@ public:
     // The game's string table. When set, GetIDString returns real text instead
     // of echoing the id back.
     const StringTable* strings = nullptr;
+    // Sets `strings` and seeds the names @H and @G expand to, which is what
+    // ModeInit::Process does at 0x2f65e4 before any save is loaded.
+    void SetStrings(const StringTable* t);
+    // The values the text control codes expand to. See mcf::CnvFormatString.
+    FormatParams fmt;
+    // Runs `t` through CnvFormatString with this script's parameters -- the
+    // conversion every text window does before it draws.
+    std::string FormatText(const std::string& t) const;
     // The last line SetMessageWnd was handed, so dialogue is observable before
     // there is any UI to draw it in.
     std::string last_message;
