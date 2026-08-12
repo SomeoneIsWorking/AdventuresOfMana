@@ -224,6 +224,8 @@ int main(int argc, char** argv) {
     bool text_selftest = false;
     bool player_selftest = false;
     bool show_hud = true;
+    int auto_levelup = -1;
+    int grant_exp = 0;
     bool auto_attack = false;
     int warmup = 0;
     bool fixed_step = false;
@@ -257,6 +259,8 @@ int main(int argc, char** argv) {
         else if (a == "--text-selftest") text_selftest = true;
         else if (a == "--player-selftest") player_selftest = true;
         else if (a == "--no-hud") show_hud = false;
+        else if (a == "--auto-levelup" && i + 1 < argc) auto_levelup = std::atoi(argv[++i]);
+        else if (a == "--grant-exp" && i + 1 < argc) grant_exp = std::atoi(argv[++i]);
         else if (a == "--auto-attack") auto_attack = true;
         // --warmup implies --fixed-step: see the loop, a frame count on an
         // uncapped loop is not a duration.
@@ -302,7 +306,9 @@ int main(int argc, char** argv) {
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
                 "  --auto-advance      dismiss dialogue automatically (headless)\n"
                 "  --auto-talk         talk to any NPC in reach (headless)\n"
-                "  --no-hud            hide the status readout\n",
+                "  --no-hud            hide the status readout\n"
+                "  --auto-levelup N    take regimen N (0 Warrior .. 3 Sage) headlessly\n"
+                "  --grant-exp N       TEST HOOK: credit N EXP at startup\n",
                 argv[0], kDefaultRoom, archive.c_str());
             return 0;
         }
@@ -1663,6 +1669,15 @@ int main(int argc, char** argv) {
                          ps.defence(), mcf::PlayerStats::Cap(ps.stamina),
                          mcf::EquipDefence(ps.helm), mcf::EquipDefence(ps.armor),
                          ps.next_exp(), ps.level + 1);
+            // TEST HOOK, not a game mechanic: every enemy in the shipping
+            // rooms can one-shot a level-1 player, so there is no honest way to
+            // reach a level-up in a headless run. This credits EXP through the
+            // engine's own AddEXP so the progression path can be exercised.
+            if (grant_exp) {
+                ps.AddExp(grant_exp);
+                lucent::warn("player", "--grant-exp {}: {} EXP (test hook, not a "
+                             "game mechanic)", grant_exp, ps.exp);
+            }
             const int player_defence = ps.defence();
             // AppCharacterPlayer::DamageProcess refuses damage while an
             // invulnerability timer at +0x1ff0 is positive and reloads it from
@@ -1728,6 +1743,9 @@ int main(int argc, char** argv) {
 
             std::string last_warned_message;
             bool confirm_prev = false;
+            bool menu_up_prev = false, menu_down_prev = false;
+            bool level_up_open = false;
+            int level_up_choice = 0;
             float eye_cur[3]{};
             bool cam_init = false;
             bool running = true;
@@ -1791,12 +1809,43 @@ int main(int argc, char** argv) {
                 // Dismiss a message with the same key that attacks; while one
                 // is up that key must NOT also swing, or every conversation
                 // would be punctuated by sword strokes.
+                // The level-up screen. Everything behind it is the engine's --
+                // CheckLevelUp's conditions, tblLevelup's four rows, the full
+                // heal -- and the one thing the game hands to the PLAYER is the
+                // choice, so the port asks rather than picking.
+                if (!level_up_open && ps.level_up_due() && !sc.message_pending) {
+                    level_up_open = true;
+                    level_up_choice = 0;
+                    lucent::info("player", "level {} available: choose a regimen",
+                                 ps.level + 1);
+                }
                 bool confirm = key && (key[SDL_SCANCODE_SPACE] ||
                                        key[SDL_SCANCODE_Z] ||
                                        key[SDL_SCANCODE_RETURN]);
                 bool confirm_edge = confirm && !confirm_prev;
                 confirm_prev = confirm;
-                if (sc.message_pending) {
+                if (level_up_open) {
+                    bool up = key && (key[SDL_SCANCODE_UP] || key[SDL_SCANCODE_W]);
+                    bool down = key && (key[SDL_SCANCODE_DOWN] || key[SDL_SCANCODE_S]);
+                    if (up && !menu_up_prev) level_up_choice = (level_up_choice + 3) % 4;
+                    if (down && !menu_down_prev) level_up_choice = (level_up_choice + 1) % 4;
+                    menu_up_prev = up; menu_down_prev = down;
+                    // The screen stops the world: no walking, no swinging.
+                    mx = mz = 0;
+                    if (confirm_edge || auto_levelup >= 0) {
+                        int pick = auto_levelup >= 0 ? auto_levelup : level_up_choice;
+                        int before_hp = ps.hp;
+                        ps.LevelUp(pick);
+                        level_up_open = false;
+                        lucent::info("player", "{} -> level {}, HP {}->{}/{}, "
+                                     "power {} stamina {} wisdom {} will {}, "
+                                     "attack {} defence {}",
+                                     mcf::PlayerStats::RegimenName(pick), ps.level,
+                                     before_hp, ps.hp, ps.max_hp(), ps.power,
+                                     ps.stamina, ps.wisdom, ps.will,
+                                     ps.attack(), ps.defence());
+                    }
+                } else if (sc.message_pending) {
                     if (confirm_edge || auto_advance) {
                         sc.message_pending = false;
                         sc.last_message.clear();
@@ -1838,8 +1887,10 @@ int main(int argc, char** argv) {
                     attack_left = kAttackFrames;   // swing continuously, for testing
                     attacking = true;
                 }
-                if (auto_attack && !attacking) { attack_left = kAttackFrames; attacking = true; }
-                if (confirm && !sc.message_pending && !attacking) {
+                if (auto_attack && !attacking && !level_up_open) {
+                    attack_left = kAttackFrames; attacking = true;
+                }
+                if (confirm && !sc.message_pending && !level_up_open && !attacking) {
                     attack_left = kAttackFrames;
                     attacking = true;
                 }
@@ -2334,6 +2385,114 @@ int main(int argc, char** argv) {
                     float ty = kMargin + 6.f;
                     for (const auto& row : rows) {
                         float tx = kMargin + 8.f;
+                        for (unsigned char ch : row) {
+                            const mcf::Glyph* g = font.Find(ch);
+                            if (!g) continue;
+                            if (g->w && g->h) {
+                                float gx = tx + float(g->left) * kScale;
+                                float gy = ty + float(g->top) * kScale;
+                                push(gx, gy, gx + float(g->w) * kScale,
+                                     gy + float(g->h) * kScale,
+                                     float(g->x) / aw, float(g->y) / ah,
+                                     float(g->x + g->w) / aw, float(g->y + g->h) / ah);
+                            }
+                            tx += float(g->Advance()) * kScale;
+                        }
+                        ty += lineH;
+                    }
+                    flush(1.f, 1.f, 1.f, 1.f, 1.f);
+                    glDisableVertexAttribArray(0);
+                    glEnable(GL_DEPTH_TEST);
+                    glDisable(GL_BLEND);
+                }
+
+                // The level-up screen. PORT CHOICE: the layout, again --
+                // ModeGame::Draw_StatusData draws the real one and is not
+                // reversed. Every WORD in it is the game's: the four regimen
+                // names are SYS_LEVELUP_TYPE_1..4 and the descriptions are the
+                // matching SYS_HELP_LEVELUP_* strings, so what the player is
+                // told about each choice is what the game tells them.
+                if (fontTex && level_up_open) {
+                    const float kScale = 2.f;
+                    const float kMargin = 40.f;
+                    auto str = [&](const char* id, const char* fallback) {
+                        const std::string* t = strings.Find(id);
+                        return t ? *t : std::string(fallback);
+                    };
+                    static const char* kTypeIds[4] = {
+                        "SYS_LEVELUP_TYPE_1", "SYS_LEVELUP_TYPE_2",
+                        "SYS_LEVELUP_TYPE_3", "SYS_LEVELUP_TYPE_4"};
+                    static const char* kHelpIds[4] = {
+                        "SYS_HELP_LEVELUP_FIGHTER", "SYS_HELP_LEVELUP_MONK",
+                        "SYS_HELP_LEVELUP_WIZARD", "SYS_HELP_LEVELUP_WISEMAN"};
+                    static const char* kFallback[4] = {"Warrior", "Monk", "Mage", "Sage"};
+                    std::vector<std::string> rows;
+                    rows.push_back(str("SYS_HELP_LEVELUP_START_TOUCH",
+                                       "Select a training regimen."));
+                    rows.push_back("");
+                    for (int i = 0; i < 4; ++i)
+                        rows.push_back(std::format("{} {}",
+                                                   i == level_up_choice ? ">" : " ",
+                                                   str(kTypeIds[i], kFallback[i])));
+                    rows.push_back("");
+                    // The chosen regimen's own description, split on the
+                    // newline the string already carries.
+                    std::string help = str(kHelpIds[level_up_choice], "");
+                    for (size_t b = 0, e; b <= help.size(); b = e + 1) {
+                        e = help.find('\n', b);
+                        if (e == std::string::npos) e = help.size();
+                        rows.push_back(help.substr(b, e - b));
+                        if (e == help.size()) break;
+                    }
+                    std::vector<float> verts;
+                    auto push = [&](float x0, float y0, float x1, float y1,
+                                    float u0, float v0, float u1, float v1) {
+                        auto sx = [&](float px) { return px / float(W) * 2.f - 1.f; };
+                        auto sy = [&](float py) { return 1.f - py / float(H) * 2.f; };
+                        float q[6][4] = {{sx(x0), sy(y0), u0, v0}, {sx(x1), sy(y0), u1, v0},
+                                         {sx(x1), sy(y1), u1, v1}, {sx(x0), sy(y0), u0, v0},
+                                         {sx(x1), sy(y1), u1, v1}, {sx(x0), sy(y1), u0, v1}};
+                        for (auto& v : q) verts.insert(verts.end(), v, v + 4);
+                    };
+                    glUseProgram(progText);
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    glDisable(GL_DEPTH_TEST);
+                    glActiveTexture(GL_TEXTURE0);
+                    glBindTexture(GL_TEXTURE_2D, fontTex);
+                    glUniform1i(glGetUniformLocation(progText, "tex"), 0);
+                    GLint uTint = glGetUniformLocation(progText, "tint");
+                    GLint uUse = glGetUniformLocation(progText, "useTex");
+                    auto flush = [&](float r, float g, float b, float a, float useTex) {
+                        if (verts.empty()) return;
+                        glUniform4f(uTint, r, g, b, a);
+                        glUniform1f(uUse, useTex);
+                        glBindBuffer(GL_ARRAY_BUFFER, textVbo);
+                        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(verts.size() * 4),
+                                     verts.data(), GL_STREAM_DRAW);
+                        glEnableVertexAttribArray(0);
+                        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, nullptr);
+                        glEnableVertexAttribArray(1);
+                        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16,
+                                              (void*)(uintptr_t)8);
+                        glDrawArrays(GL_TRIANGLES, 0, GLsizei(verts.size() / 4));
+                        glDisableVertexAttribArray(1);
+                        verts.clear();
+                    };
+                    float lineH = 11.f * kScale;
+                    float boxH = lineH * float(rows.size()) + 24.f;
+                    float boxY = (float(H) - boxH) * 0.5f;
+                    // Dim the world, then the panel over it.
+                    push(0, 0, float(W), float(H), 0, 0, 1, 1);
+                    flush(0.f, 0.f, 0.f, 0.55f, 0.f);
+                    push(kMargin, boxY, float(W) - kMargin, boxY + boxH, 0, 0, 1, 1);
+                    flush(0.05f, 0.07f, 0.18f, 0.92f, 0.f);
+                    push(kMargin, boxY, float(W) - kMargin, boxY + 2.f, 0, 0, 1, 1);
+                    flush(0.55f, 0.65f, 0.95f, 0.9f, 0.f);
+                    float aw = float(font.width()), ah = float(font.height());
+                    float ty = boxY + 12.f;
+                    for (const auto& row : rows) {
+                        float tx = kMargin + 16.f;
                         for (unsigned char ch : row) {
                             const mcf::Glyph* g = font.Find(ch);
                             if (!g) continue;
