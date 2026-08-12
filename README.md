@@ -33,9 +33,11 @@ More precisely:
 - **Room transitions** — event boxes run their handlers, `mapjump` loads the
   destination.
 
-`docs/codemap.md` carries an honest per-subsystem status, including what is a
-placeholder and why. Nothing in this repo is marked done unless it was verified
-on real data.
+`docs/codemap.md` carries an honest per-subsystem status, and
+`docs/re-frontier.md` splits everything into what was read out of the shipping
+binary, what the port had to choose for itself, and what is simply missing —
+along with every claim this project has had to retract. Nothing here is marked
+done unless it was verified on real data.
 
 ## What is NOT here
 
@@ -86,7 +88,7 @@ that must fail — because a check that cannot say "no" is not a check.
 | `src/engine/` | world, actors, Lua bridge and the 200 `cmd` bindings |
 | `src/host/` | SDL3 + GL host, game loop, renderer |
 | `tools/asset/` | Python reference implementations, the cross-check for `src/mcf/` |
-| `docs/` | reversed formats, the `cmd` API, the codemap, issue catalog |
+| `docs/` | reversed formats, the `cmd` API, the codemap, the RE frontier |
 
 ## Legal
 

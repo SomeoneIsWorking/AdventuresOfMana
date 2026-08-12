@@ -16,6 +16,12 @@ The stock engine only; the 5play `libRMS.so` mod-menu injection is excluded from
 | Gamepad path already ships (Android TV / LEANBACK) | manifest + `SiController` |
 | Assets: one `sk1.mpk`, magic `mcfa`, 9886 entries, custom codec (NOT zlib), no AES | `docs/mpk-format.md` |
 
+## How real is it?
+
+`docs/re-frontier.md` splits every subsystem into RE-VERIFIED, PORT CHOICE and
+NOT REVERSED, and lists the claims this project has had to retract. Read it
+before trusting anything below to be the engine's rather than the port's.
+
 ## Verification
 
 `./tools/verify.sh` runs every asset parser over the full 9886-file corpus. It
