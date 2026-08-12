@@ -1449,7 +1449,13 @@ looking:
   handlers) and **none** of the 141 maps to `+0xc68`;
 * the obvious hypothesis — that it is a multiplier derived from the adjacent
   WALKMODE field at `+0xc60` — was **tested and falsified**: slot 124's handler
-  at `0x2c9e04` writes `+0xc60` and branches away without touching `+0xc68`.
+  at `0x2c9e04` writes `+0xc60` and branches away without touching `+0xc68`;
+* `AppCharacterBase::Update` (`0x2abce0`, 1,390 instructions) does not write it;
+* nor does any resolvable register-indexed store — the form that hides from an
+  offset scan, and the one that writes the `+0x377c` block. Across all **313**
+  character-class functions there are 41 such stores; 25 resolve to a constant
+  index and none covers `+0xc68`. **The residual is the other 16**, whose index
+  register could not be traced, and that is where it must be.
 
 So it is computed somewhere else, most likely per-frame, and the distance-driven
 timer stays unimplementable rather than being filled in with a guessed 1.0.
@@ -1462,6 +1468,33 @@ one answer. The rest of the extracted map is **provisional**: the extractor take
 the first fixed-offset store within six instructions of a handler, which can pick
 up a neighbouring arm, so no entry should be used without the same kind of
 cross-check.
+
+#### The movement equation, which is what the chase actually turned up
+
+`0x2ab040` and `0x2ab110` are where an enemy is displaced, and both compute the
+same product:
+
+```
+Normalize(dir)
+step = move_speed(+0xc64) * (+0xc68) * (+0x3918) * s14 * dt
+ScaleVector(dir, dir, step)
+```
+
+The identical product is the divisor in mode 9's timer, which is the consistency
+check on both readings: `time = distance / speed`.
+
+With `+0x3918 = 1.0f` (the constructor default, verified) and `s14 = 1.0` (its
+default; `0x2a9d10` sets 2.0 only when `+0xc4c == 1`), this reduces to
+`move_speed * (+0xc68) * dt`. **The port's `move_speed * dt` is therefore the
+engine's own equation with the remaining factors at their defaults**, not an
+approximation of it — so the port is the special case rather than wrong, and the
+two extra factors are named here for when they can be sourced.
+
+Neither site guards against `+0xc68` being zero, and here it is a MULTIPLIER, so
+a zero would freeze every enemy. Enemies do move in the shipping game, so the
+field is reliably nonzero and something must write it. Nothing found does — see
+the bounded search below — which localises the gap to the 16 register-indexed
+stores whose index could not be resolved.
 
 #### A flaw in how "who writes actor+X" was being asked
 
