@@ -275,6 +275,15 @@ struct EnemyStats {
     int32_t defence = 0;     // +0x0C
     int32_t exp = 0;         // +0x10
     int32_t money = 0;       // +0x14
+    // Fields SetEnemyId @ 0x2b2344 distributes into the actor, identified by
+    // their consumers. See docs/assets.md.
+    float shadow_size = 0.f;  // +0x60 -> actor +0xaf8, read by GetShadowSize
+    float move_speed = 0.f;   // +0x68 -> actor +0xc64, read by UpdateAI and
+                              // _UpdateGroundAttribute
+    int32_t ai_type = 0;      // +0x64 -> actor +0x3930, the 27-case switch in
+                              // AppCharacterBase::UpdateAI. Recorded, not acted
+                              // on: the 27 behaviours are not reversed.
+    int32_t throw_id = 0;     // +0x6c -> actor +0x3938, read by WeaponThrow
 };
 
 // Parses the whole file. Returns empty if the size is not a multiple of 408,

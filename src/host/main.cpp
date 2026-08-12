@@ -1732,6 +1732,8 @@ int main(int argc, char** argv) {
                     a.hp = a.max_hp;
                     a.defence = it->second.defence;
                     a.exp = it->second.exp;
+                    a.move_speed = it->second.move_speed;
+                    a.ai_type = it->second.ai_type;
                     a.money = it->second.money;
                     ++with_stats;
                 }
@@ -1983,7 +1985,11 @@ int main(int argc, char** argv) {
                     if (auto it = a.attack.find(0); it != a.attack.end())
                         reach += it->second.radius;
                     if (d < reach * 0.7f) { a.motion = kMotionWait; continue; }
-                    float step = 30.f * dt;
+                    // The enemy's OWN speed, from enemydat +0x68 -- 12 and 24
+                    // units/s dominate, against the invented 30 this replaces.
+                    // Nine of the 107 enemies have 0 and simply do not move.
+                    if (a.move_speed <= 0.f) { a.motion = kMotionWait; continue; }
+                    float step = a.move_speed * dt;
                     a.pos[0] += dx / d * step;
                     a.pos[2] += dz / d * step;
                     a.rot_y = std::atan2(dx, dz);

@@ -551,6 +551,10 @@ std::vector<EnemyStats> ParseEnemyDat(const std::vector<uint8_t>& file) {
         e.defence = RdS32(file, o + 0x0C);
         e.exp = RdS32(file, o + 0x10);
         e.money = RdS32(file, o + 0x14);
+        std::memcpy(&e.shadow_size, file.data() + o + 0x60, 4);
+        std::memcpy(&e.move_speed, file.data() + o + 0x68, 4);
+        e.ai_type = RdS32(file, o + 0x64);
+        e.throw_id = RdS32(file, o + 0x6c);
         out.push_back(e);
     }
     return out;

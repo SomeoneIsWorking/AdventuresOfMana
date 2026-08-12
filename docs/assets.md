@@ -1302,21 +1302,42 @@ is what pins the six fields the port reads:
 distributes several of them into the actor's own fields, which is where enemy
 behaviour will come from:
 
-| record | goes to | as |
+| record | goes to | identified by its consumer |
 |---|---|---|
-| `+0x51` | (a flag) | sets actor `+0xcbc` to `{0.0f, 180.0f}` |
+| `+0x51` | (a flag) | sets actor `+0xcbc` to `{0.0f, 180.0f}` -- unidentified |
 | `+0x53` | (a flag) | clears bit 4 of the collision target mask |
-| `+0x58` | actor `+0xc6c` | float |
-| `+0x5c` | — | float, passed to vtable slot `+0x1e8` |
-| `+0x60` | actor `+0xaf8` | float |
-| `+0x64` | actor `+0x3930` | int |
-| `+0x68` | actor `+0xc64` | float |
-| `+0x6c` | actor `+0x3938` | int |
+| `+0x58` | actor `+0xc6c` | read by `UpdateSlanted` -- slope handling |
+| `+0x5c` | — | float, passed to vtable slot `+0x1e8` -- unidentified |
+| `+0x60` | actor `+0xaf8` | **shadow size** (`GetShadowSize` @ `0x2b1f9c`) |
+| `+0x64` | actor `+0x3930` | **AI type** (the switch in `UpdateAI`) |
+| `+0x68` | actor `+0xc64` | **move speed** (`UpdateAI`, `_UpdateGroundAttribute`) |
+| `+0x6c` | actor `+0x3938` | **thrown weapon id** (`WeaponThrow` @ `0x2aec00`) |
 
-Which of those is movement speed, attack reach, or an attack cadence is **not
-established** -- each needs its consumer found. That is the next thread, and it
-is the one that matters: enemy movement in this port is a placeholder that walks
-an enemy into the player and holds it there, so every enemy attacks as fast as
-the player's i-frames allow. Against a level-1 player (19 HP, 7 defence) a
-werewolf's 40 attack is 33 damage a hit, and the run ends in under a second.
-That number is right; the behaviour producing it is not.
+`AppCharacterBase::UpdateAI` @ `0x2a894c` switches **27 ways** on the AI type --
+`cmp w8, #0x1a` then `b.hi` to the default, dispatched through a `ldrh` jump
+table at `.rodata 0x9dfb0`. 25 of the 27 cases are used by the shipping table,
+type 0 by 59 of the 107 enemies. Those 27 behaviours are the enemy AI and none
+of them is reversed.
+
+`tools/asset/enemydat.py` censuses the table, and each check can fail: every
+field it claims must VARY across the records (a constant would read the same
+whether the offset were right or wrong), the AI types must fall inside the
+switch's 0..26, and the speeds must be plausible. What it reports:
+
+| field | values |
+|---|---|
+| ids | unique and ascending in three blocks: 0..73, 100..123, 201..209 |
+| move speed | 12 (34 enemies) and 24 (43) dominate; 9 enemies are 0 and never move |
+| shadow size | 10 (82), 25 (15), 15 (1), 0 (9) |
+| thrown weapon | 41 of 107 carry one, ids 123..156 |
+
+The port now moves each enemy at its own speed instead of an invented 30, and
+leaves an enemy with speed 0 standing. The AI type is carried on the actor and
+**not acted on**, because acting on it means writing 27 behaviours that have not
+been read.
+
+This remains the gap that matters: enemy movement is still a placeholder that
+walks an enemy into the player and holds it there, so every enemy attacks as
+fast as the player's i-frames allow. Against a level-1 player (19 HP, 7 defence)
+a werewolf's 40 attack is 33 damage a hit, and the run ends in seconds. That
+number is right; the behaviour producing it is not.

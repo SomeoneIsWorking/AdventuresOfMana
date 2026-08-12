@@ -110,6 +110,11 @@ struct Actor {
     // +0x0C, so these are the game's own numbers, not port inventions.
     int hp = 0, max_hp = 0, defence = 0, attack_power = 0;
     int exp = 0, money = 0;
+    // enemydat +0x68 and +0x64. The speed is used; the AI type is recorded
+    // only -- AppCharacterBase::UpdateAI switches 27 ways on it and none of the
+    // 27 behaviours is reversed.
+    float move_speed = 0.f;
+    int ai_type = 0;
     // Attack volumes hit every frame they overlap. The engine applies a hit
     // once per swing, so each swing gets an id and a target is only damaged
     // once per id. Without this a 24-frame swing dealt damage 24 times.
