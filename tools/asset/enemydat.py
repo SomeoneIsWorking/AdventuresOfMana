@@ -76,6 +76,15 @@ AI_FLOAT_SLOTS = (0xF8, 0x100, 0x108, 0x184, 0x18C, 0x194)
 DESC_BASES = ((0x80, 0x98, 0xB0, 0xC8),        # record 0
               (0x10C, 0x124, 0x13C, 0x154))    # record 1
 DESC_SIZE = 0x18
+# Record +0x88 (from enemy +0xe8) is an AI PROBABILITY, in percent. The engine
+# reads it as `GameRandom(100)` vs `rec[+0x88]` -- e.g. at 0x2a90bc, where
+# failing the roll sends the enemy to movement mode 9. It is the most-read field
+# of the record (25 reads off the record pointer in UpdateAI).
+#
+# "0..100" alone would be a weak check, since a small enum passes it too. What
+# identifies this as a designer-authored percentage is the VOCABULARY: the only
+# values in the whole corpus are 0, 10, 20, 30, 60, 80, 90, 95 and 100.
+AI_PROB_OFF = 0xE8
 # The four params are TRANSITION WEIGHTS, one per destination state, and
 # UpdateAI @ 0x2a8d50 picks the next state by weighted roulette:
 #
@@ -342,6 +351,19 @@ def main(argv):
               f"state, {terminal} have sum 0 and stand; 0 negative weights")
     print(f"    {len(machines)} distinct state machines across "
           f"{len(rows) * len(DESC_BASES)} descriptor sets")
+
+    probs = [struct.unpack_from("<i", raw, r * STRIDE + AI_PROB_OFF)[0]
+             for r in range(len(rows))]
+    out_of_range = [p for p in probs if not 0 <= p <= 100]
+    if out_of_range:
+        print(f"    FAIL: {len(out_of_range)} AI probabilities outside 0..100 "
+              f"({sorted(set(out_of_range))[:6]}), so +{AI_PROB_OFF:#x} is not a "
+              f"percentage")
+        ok = False
+    else:
+        nz = sum(1 for p in probs if p)
+        print(f"    AI probability +{AI_PROB_OFF:#x}: {nz}/{len(rows)} enemies "
+              f"have one; values {sorted(set(probs))}")
 
     if "--ai" in argv:
         # The frame-count pairs are what drive behaviour, so show their spread

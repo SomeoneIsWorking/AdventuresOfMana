@@ -1683,6 +1683,32 @@ pair stores, record 1's from the copies at `+0x10c`..`+0x160` — and agree.
 Enemy 0 reads out as: state 0 `params (1,3,0,0) timer 60+rand(30)`, state 1
 `(3,1,0,0) 100+rand(50)`, state 3 `(0,0,0,0) 120+rand(120)`.
 
+#### `enemydat +0xe8` is an AI probability, in percent
+
+Record `+0x88` — from enemy record `+0xe8` — is the **most-read field of the AI
+block**, 25 reads off the record pointer in `UpdateAI`, and it is a percentage.
+At `0x2a90bc` the engine does exactly:
+
+```
+w0 = GameRandom(100)
+rec = actor+0x377c + [+0x3894]*140
+if (w0 < rec[+0x88]) { mode := 9; state := 1 }     ; 9 is the wander
+```
+
+so it is the chance per decision of entering the wander rather than continuing.
+
+The corpus check is deliberately not "is it in 0..100", which a small enum would
+also pass. What identifies it is the **vocabulary**: across all 107 enemies the
+only values that occur are `0, 10, 20, 30, 60, 80, 90, 95, 100` — round
+designer-authored percentages, bounded exactly at 100. 32 of 107 enemies carry a
+nonzero one, and the split tracks the AI types: types 0..5 are almost all zero
+(type 0 alone is 59 enemies), while every type from 6 upward carries a real
+probability.
+
+For contrast, the neighbouring trailing fields are clearly not percentages —
+enemy `+0x104` spans 0..4 (a small enum), `+0xf4` is 0..1 (a flag), and `+0xfc`
+is 0 in every record, which makes it unidentifiable rather than understood.
+
 #### The four params are transition weights
 
 `UpdateAI` @ `0x2a8d50` picks the next state by **weighted roulette** over the
