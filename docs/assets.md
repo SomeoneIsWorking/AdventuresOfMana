@@ -936,3 +936,42 @@ are the whole dialogue path at the data level. Both are implemented: an id that
 is not in the table echoes back and is counted, so a miss is visible instead of
 becoming an empty line. **There is no on-screen message window yet** -- the text
 is resolved and logged, not drawn.
+
+## `BasicFont.sfont` — the bitmap font
+
+Layout from `SiFont::SetBinary` @ `0x35a534`, metrics from
+`SiFont::DrawString` @ `0x35a858`.
+
+| Offset | Meaning |
+|---|---|
+| +0x0C, +0x10 | atlas width, height (128 x 128) |
+| +0x14 | offset of the pixel data — 8-bit coverage, one byte per texel |
+| +0x18, +0x1C | count and offset of the codepoint map (`u16`, `0xFFFF` = none) |
+| +0x20, +0x24 | count and offset of the glyph records, 10 bytes each |
+
+The record size is the engine's: `SetBinary` allocates `count * 5 << 1`. The
+three sections **tile the file exactly** (map ends where glyphs begin, glyphs end
+where pixels begin, pixels end at EOF), which is what validates the header.
+
+Glyph record, with the fields `DrawString` actually reads (all as SIGNED bytes):
+
+| Offset | Meaning |
+|---|---|
+| +0x00, +0x02 | `u16` atlas x, y |
+| +0x04, +0x05 | width, height |
+| +0x06 | not read by `DrawString`; undecoded |
+| +0x07, +0x08 | left and right side bearing |
+| +0x09 | vertical offset from the line origin |
+
+**The pen advances by `width + [+7] + [+8]`** — that is the engine's own
+expression, not an assumption, and it yields sensible values (`A` 8, `B` 7,
+`a` 7, space 4).
+
+Verified by rendering: the record for `A` claims atlas (78,12) size 8x9, and
+cropping exactly that rectangle out of the atlas produces the letter A.
+
+**Limitation:** the font covers exactly ASCII 32..126 (95 glyphs) — confirmed
+from the codepoint map, not assumed. Japanese therefore has no glyphs; the game
+draws CJK with the Android system font, which is not in the archive. The port
+warns once per line when characters cannot be drawn, so a blank panel is not
+mistaken for a broken message window.

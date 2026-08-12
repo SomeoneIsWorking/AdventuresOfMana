@@ -554,6 +554,60 @@ std::vector<EnemyStats> ParseEnemyDat(const std::vector<uint8_t>& file) {
     return out;
 }
 
+bool Font::Load(const std::vector<uint8_t>& file) {
+    // SetBinary reads: +0x0C/+0x10 texture w/h, +0x14 pixel offset, +0x18/+0x1C
+    // count/offset of the codepoint map, +0x20/+0x24 count/offset of the glyph
+    // records (10 bytes each, from `x*5 << 1`).
+    if (file.size() < 0x30) return false;
+    w_ = RdU32(file, 0x0C);
+    h_ = RdU32(file, 0x10);
+    uint32_t tex = RdU32(file, 0x14);
+    uint32_t map_n = RdU32(file, 0x18), map_off = RdU32(file, 0x1C);
+    uint32_t gly_n = RdU32(file, 0x20), gly_off = RdU32(file, 0x24);
+    if (!w_ || !h_ || !gly_n) return false;
+    // The three sections tile the file exactly in the shipping font; anything
+    // else means this is not the layout SetBinary expects.
+    if (size_t(map_off) + size_t(map_n) * 2 != gly_off) return false;
+    if (size_t(gly_off) + size_t(gly_n) * 10 != tex) return false;
+    if (size_t(tex) + size_t(w_) * h_ != file.size()) return false;
+
+    atlas_.assign(file.begin() + tex, file.end());
+    glyphs_.resize(gly_n);
+    for (uint32_t i = 0; i < gly_n; ++i) {
+        const uint8_t* r = file.data() + gly_off + size_t(i) * 10;
+        Glyph g;
+        std::memcpy(&g.x, r, 2);
+        std::memcpy(&g.y, r + 2, 2);
+        g.w = r[4];
+        g.h = r[5];
+        // +6 is not read by DrawString and stays undecoded.
+        g.left = int8_t(r[7]);
+        g.right = int8_t(r[8]);
+        g.top = int8_t(r[9]);
+        glyphs_[i] = g;
+    }
+    map_.resize(map_n);
+    for (uint32_t i = 0; i < map_n; ++i)
+        std::memcpy(&map_[i], file.data() + map_off + size_t(i) * 2, 2);
+    return true;
+}
+
+const Glyph* Font::Find(uint32_t cp) const {
+    if (cp >= map_.size()) return nullptr;
+    uint16_t gi = map_[cp];
+    if (gi == 0xFFFF || gi >= glyphs_.size()) return nullptr;
+    return &glyphs_[gi];
+}
+
+int Font::Measure(const std::string& s) const {
+    int w = 0, best = 0;
+    for (unsigned char c : s) {
+        if (c == '\n') { best = std::max(best, w); w = 0; continue; }
+        if (const Glyph* g = Find(c)) w += g->Advance();
+    }
+    return std::max(best, w);
+}
+
 bool StringTable::Load(const std::vector<uint8_t>& file) {
     by_id_.clear();
     if (file.size() < 16) return false;

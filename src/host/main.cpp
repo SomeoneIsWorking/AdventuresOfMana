@@ -62,6 +62,17 @@ constexpr const char* kFFade =
     "precision highp float; varying vec4 colorVarying; void main() "
     "{ gl_FragColor = colorVarying; }";
 
+// 2D overlay: screen-space quads, an 8-bit coverage atlas in the red channel,
+// tinted. Used for the message window and its text.
+constexpr const char* kVText =
+    "attribute vec2 position; attribute vec2 texcoord; varying vec2 uv; "
+    "void main() { uv = texcoord; gl_Position = vec4(position, 0.0, 1.0); }";
+constexpr const char* kFText =
+    "precision highp float; varying vec2 uv; uniform sampler2D tex; "
+    "uniform vec4 tint; uniform float useTex; void main() { "
+    "float a = mix(1.0, texture2D(tex, uv).r, useTex); "
+    "gl_FragColor = vec4(tint.rgb, tint.a * a); }";
+
 constexpr const char* kFS =
     "precision highp float; uniform sampler2D texture0; varying vec4 colorVarying; "
     "varying vec2 texcoordVarying; void main() { vec4 color = texture2D( texture0 , "
@@ -194,7 +205,7 @@ int main(int argc, char** argv) {
     float anim_t = 0.f;
     bool census = false;
     bool room_census = false;
-    std::string string_id;
+    std::string string_id, show_string;
     std::string room, render_room;
     std::string bgm_dir = "scratch/raw/assets";
     bool audio_selftest = false;
@@ -221,6 +232,7 @@ int main(int argc, char** argv) {
         else if (a == "--script-census") census = true;
         else if (a == "--room-census") room_census = true;
         else if (a == "--string" && i + 1 < argc) string_id = argv[++i];
+        else if (a == "--show-string" && i + 1 < argc) show_string = argv[++i];
         else if (a == "--run-room" && i + 1 < argc) room = argv[++i];
         else if (a == "--render-room" && i + 1 < argc) render_room = argv[++i];
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
@@ -263,6 +275,7 @@ int main(int argc, char** argv) {
                 "  --script-census     run every shipping script and tally cmd calls\n"
                 "  --room-census       load every room headlessly, report what is missing\n"
                 "  --string ID         resolve a dialogue id in every language\n"
+                "  --show-string ID    open the message window on that line\n"
                 "  --combat-selftest / --audio-selftest    self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n",
@@ -414,6 +427,13 @@ int main(int argc, char** argv) {
                 } else {
                     lucent::info("text", "{}: {} strings", sp, strings.size());
                     sc.strings = &strings;
+                    if (!show_string.empty()) {
+                        if (const std::string* t = strings.Find(show_string))
+                            sc.last_message = *t;
+                        else
+                            lucent::warn("text", "--show-string {}: not in the "
+                                         "table ({} ids)", show_string, strings.size());
+                    }
                 }
             }
             if (!sc.Run("sk1.lua", ar.Read("sk1/sk1.lua")))
@@ -802,6 +822,33 @@ int main(int argc, char** argv) {
             GLuint progFlat = LinkProgram(kVS, kFS);
             GLuint progSkin = LinkProgram(kVSkin, kFS);
             GLuint progFade = LinkProgram(kVFade, kFFade);
+            // The game's own bitmap font, for the message window.
+            mcf::Font font;
+            GLuint fontTex = 0, textVbo = 0;
+            {
+                const char* fp = "sk1/BasicFont.sfont";
+                if (!ar.Has(fp) || !font.Load(ar.Read(fp))) {
+                    lucent::warn("text", "{} missing or malformed; dialogue will "
+                                 "be logged but not drawn", fp);
+                } else {
+                    lucent::info("text", "{}: {}x{} atlas, {} glyphs", fp,
+                                 font.width(), font.height(), font.glyphs());
+                    glGenTextures(1, &fontTex);
+                    glBindTexture(GL_TEXTURE_2D, fontTex);
+                    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+                    // 8-bit coverage. GL_LUMINANCE replicates into rgb, so the
+                    // shader can read it from .r on both GLES2 and desktop GL.
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE,
+                                 GLsizei(font.width()), GLsizei(font.height()), 0,
+                                 GL_LUMINANCE, GL_UNSIGNED_BYTE, font.atlas().data());
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                }
+                glGenBuffers(1, &textVbo);
+            }
+            GLuint progText = LinkProgram(kVText, kFText);
             GLuint fadeVbo = 0;
             glGenBuffers(1, &fadeVbo);
             {
@@ -849,6 +896,13 @@ int main(int argc, char** argv) {
                 } else {
                     lucent::info("text", "{}: {} strings", sp, strings.size());
                     sc.strings = &strings;
+                    if (!show_string.empty()) {
+                        if (const std::string* t = strings.Find(show_string))
+                            sc.last_message = *t;
+                        else
+                            lucent::warn("text", "--show-string {}: not in the "
+                                         "table ({} ids)", show_string, strings.size());
+                    }
                 }
             }
             if (!sc.Run("sk1.lua", ar.Read("sk1/sk1.lua")))
@@ -1309,6 +1363,7 @@ int main(int argc, char** argv) {
             };
             seedCombat();
 
+            std::string last_warned_message;
             float eye_cur[3]{};
             bool cam_init = false;
             bool running = true;
@@ -1675,6 +1730,134 @@ int main(int argc, char** argv) {
                     drawOne(hero, hp, heroMotion(moving ? 1 : 0), pdeg);
                 }
                 ++frames;
+
+                // Message window. Drawn before the fade so a transition covers
+                // it, and only when a script has actually set a line.
+                // A message the font cannot draw renders as an empty panel,
+                // which looks like a bug in the window rather than a missing
+                // glyph range. BasicFont holds only ASCII 32..126 -- the game
+                // draws CJK with the Android system font, which is not in the
+                // archive -- so say it once per distinct line.
+                if (fontTex && !sc.last_message.empty() &&
+                    sc.last_message != last_warned_message) {
+                    last_warned_message = sc.last_message;
+                    size_t drawable = 0, printable = 0;
+                    for (unsigned char c : sc.last_message) {
+                        if (c == '\n') continue;
+                        ++printable;
+                        if (font.Find(c)) ++drawable;
+                    }
+                    if (drawable < printable)
+                        lucent::warn("text", "{} of {} characters have no glyph in "
+                                     "BasicFont (ASCII 32..126 only); the panel will "
+                                     "be blank or partial", printable - drawable,
+                                     printable);
+                }
+                if (fontTex && !sc.last_message.empty()) {
+                    const float kScale = 2.f;         // the atlas is 128x128, 9px caps
+                    const int kPadX = 14, kPadY = 10;
+                    const float kMargin = 16.f;
+                    std::vector<float> verts;         // x,y,u,v per vertex
+                    auto push = [&](float x0, float y0, float x1, float y1,
+                                    float u0, float v0, float u1, float v1) {
+                        auto sx = [&](float px) { return px / float(W) * 2.f - 1.f; };
+                        auto sy = [&](float py) { return 1.f - py / float(H) * 2.f; };
+                        float q[6][4] = {{sx(x0), sy(y0), u0, v0}, {sx(x1), sy(y0), u1, v0},
+                                         {sx(x1), sy(y1), u1, v1}, {sx(x0), sy(y0), u0, v0},
+                                         {sx(x1), sy(y1), u1, v1}, {sx(x0), sy(y1), u0, v1}};
+                        for (auto& v : q) verts.insert(verts.end(), v, v + 4);
+                    };
+                    // Lay the text out first so the box can be sized to it.
+                    // Word-wrap to the panel width: the game's lines carry their
+                    // own breaks, but they were authored for a phone screen and
+                    // overflow here, and silently clipping text is worse than
+                    // wrapping it.
+                    float avail = float(W) - kMargin * 2 - kPadX * 2;
+                    std::vector<std::string> lines{""};
+                    auto width_of = [&](const std::string& t) {
+                        float x = 0;
+                        for (unsigned char c : t)
+                            if (const mcf::Glyph* g = font.Find(c))
+                                x += float(g->Advance()) * kScale;
+                        return x;
+                    };
+                    for (size_t i = 0; i <= sc.last_message.size(); ++i) {
+                        bool end = i == sc.last_message.size();
+                        char c = end ? '\n' : sc.last_message[i];
+                        if (c == '\n') { if (!end) lines.emplace_back(); continue; }
+                        std::string probe = lines.back() + c;
+                        if (c != ' ' && width_of(probe) > avail) {
+                            // Break at the last space if there is one.
+                            auto sp = lines.back().find_last_of(' ');
+                            if (sp != std::string::npos) {
+                                std::string carry = lines.back().substr(sp + 1);
+                                lines.back().erase(sp);
+                                lines.push_back(carry + c);
+                            } else {
+                                lines.push_back(std::string(1, c));
+                            }
+                            continue;
+                        }
+                        lines.back() = probe;
+                    }
+                    float lineH = 11.f * kScale;
+                    float boxH = lineH * float(lines.size()) + kPadY * 2;
+                    float boxY = float(H) - boxH - kMargin;
+                    glUseProgram(progText);
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    glDisable(GL_DEPTH_TEST);
+                    glActiveTexture(GL_TEXTURE0);
+                    glBindTexture(GL_TEXTURE_2D, fontTex);
+                    glUniform1i(glGetUniformLocation(progText, "tex"), 0);
+                    GLint uTint = glGetUniformLocation(progText, "tint");
+                    GLint uUse = glGetUniformLocation(progText, "useTex");
+                    auto flush = [&](float r, float g, float b, float a, float useTex) {
+                        if (verts.empty()) return;
+                        glUniform4f(uTint, r, g, b, a);
+                        glUniform1f(uUse, useTex);
+                        glBindBuffer(GL_ARRAY_BUFFER, textVbo);
+                        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(verts.size() * 4),
+                                     verts.data(), GL_STREAM_DRAW);
+                        glEnableVertexAttribArray(0);
+                        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, nullptr);
+                        glEnableVertexAttribArray(1);
+                        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16,
+                                              (void*)(uintptr_t)8);
+                        glDrawArrays(GL_TRIANGLES, 0, GLsizei(verts.size() / 4));
+                        glDisableVertexAttribArray(1);
+                        verts.clear();
+                    };
+                    // Panel, then a lighter border line along the top.
+                    push(kMargin, boxY, float(W) - kMargin, boxY + boxH, 0, 0, 1, 1);
+                    flush(0.05f, 0.07f, 0.18f, 0.85f, 0.f);
+                    push(kMargin, boxY, float(W) - kMargin, boxY + 2.f, 0, 0, 1, 1);
+                    flush(0.55f, 0.65f, 0.95f, 0.9f, 0.f);
+                    // Glyphs.
+                    float aw = float(font.width()), ah = float(font.height());
+                    float ty = boxY + kPadY;
+                    for (const auto& line : lines) {
+                        float tx = kMargin + kPadX;
+                        for (unsigned char ch : line) {
+                            const mcf::Glyph* g = font.Find(ch);
+                            if (!g) continue;
+                            if (g->w && g->h) {
+                                float gx = tx + float(g->left) * kScale;
+                                float gy = ty + float(g->top) * kScale;
+                                push(gx, gy, gx + float(g->w) * kScale,
+                                     gy + float(g->h) * kScale,
+                                     float(g->x) / aw, float(g->y) / ah,
+                                     float(g->x + g->w) / aw, float(g->y + g->h) / ah);
+                            }
+                            tx += float(g->Advance()) * kScale;
+                        }
+                        ty += lineH;
+                    }
+                    flush(1.f, 1.f, 1.f, 1.f, 1.f);
+                    glDisableVertexAttribArray(0);
+                    glEnable(GL_DEPTH_TEST);
+                    glDisable(GL_BLEND);
+                }
 
                 // Fade overlay, drawn last so it covers everything.
                 if (world.fade.Coverage() > 0.001f) {

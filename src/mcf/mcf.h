@@ -289,6 +289,37 @@ const WeaponStats* FindWeapon(int32_t id);
 constexpr int32_t kStartingWeaponId = 101;
 
 // ---------------------------------------------------------------------------
+// sk1/BasicFont.sfont -- the game's bitmap font. Layout from SiFont::SetBinary
+// @ 0x35a534, metrics from SiFont::DrawString @ 0x35a858.
+// ---------------------------------------------------------------------------
+struct Glyph {
+    uint16_t x = 0, y = 0;      // position in the atlas
+    uint8_t w = 0, h = 0;
+    int8_t left = 0, right = 0; // DrawString advances by w + left + right
+    int8_t top = 0;             // vertical offset from the line origin
+    int Advance() const { return int(w) + left + right; }
+};
+
+class Font {
+public:
+    bool Load(const std::vector<uint8_t>& file);
+    const Glyph* Find(uint32_t codepoint) const;
+    // 8-bit coverage, `width * height` bytes.
+    const std::vector<uint8_t>& atlas() const { return atlas_; }
+    uint32_t width() const { return w_; }
+    uint32_t height() const { return h_; }
+    size_t glyphs() const { return glyphs_.size(); }
+    // Pixel width of an ASCII string, using the engine's advance rule.
+    int Measure(const std::string& utf8) const;
+
+private:
+    uint32_t w_ = 0, h_ = 0;
+    std::vector<uint8_t> atlas_;
+    std::vector<Glyph> glyphs_;
+    std::vector<uint16_t> map_;     // codepoint -> glyph index, 0xFFFF = none
+};
+
+// ---------------------------------------------------------------------------
 // sk1/str_en.bin and sk1/str_ja.bin -- the game's string table. See
 // docs/assets.md and tools/asset/strings.py.
 // ---------------------------------------------------------------------------
