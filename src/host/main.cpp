@@ -2936,13 +2936,29 @@ int main(int argc, char** argv) {
                         // UpdateAI_TargetChr @ 0x2a8348 tests the caller's own
                         // GetType(), and for type 4 (AppCharacterEnemy) it
                         // SearchNears type 1 (player) and type 2 (party) and
-                        // takes the nearer. States 0 and 1 only roll a duration;
-                        // state 3 calls UpdateAI_TargetPos, which SearchNears
-                        // type 4 -- other ENEMIES, so it is spacing, not chase.
+                        // takes the nearer. This replaces the previous choice of
+                        // state 0, which was reasoned from state 0 being the
+                        // reset state. That reasoning was wrong.
                         //
-                        // This replaces the previous choice of state 0, which
-                        // was reasoned from state 0 being the reset state. That
-                        // reasoning was wrong.
+                        // What the other three states do, from the same
+                        // dispatch:
+                        //   state 0 @ 0x2a9f28  IDLE. It zeroes the movement
+                        //     vector (`movi v0.2d, #0`) and forces the idle
+                        //     motion -- 0 normally, 15 on floor type 1. The
+                        //     kMotionWait below matches it.
+                        //   state 1 @ 0x2a9ef0  MOVES. After a countdown at
+                        //     +0x38fc it converts the actor's position to chip
+                        //     coordinates and branches on the MODE for a
+                        //     mode-specific move. This port does NOT do that:
+                        //     it has only one kind of motion, straight at the
+                        //     player, and a wander with no destination cannot be
+                        //     faked from that without inventing a direction. So
+                        //     enemies stand still for state 1's ~30% instead of
+                        //     wandering. Named here rather than left as a
+                        //     surprise; see docs/re-frontier.md.
+                        //   state 3 @ 0x2a9700  calls UpdateAI_TargetPos, which
+                        //     SearchNears type 4 -- other ENEMIES -- so it is
+                        //     spacing, not chase.
                         if (a.ai_state != 2) { a.motion = kMotionWait; continue; }
                     }
                     float step = a.move_speed * dt;

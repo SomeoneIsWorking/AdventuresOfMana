@@ -1701,11 +1701,26 @@ so an enemy spends about a sixth of its time in the chase state. That is
 consistent with the wander/pause/chase cycle the corpus describes, and it does
 not falsify the reading.
 
-**A remaining port simplification, stated plainly:** the port moves an enemy
-*only* in the pursue state and holds it still otherwise. The engine runs the
-mode body in every state, so states 0, 1 and 3 are not necessarily motionless —
-they simply do not chase. Narrowing that is a separate job from identifying
-which state chases.
+#### What the other three states do
+
+| state | at | behaviour |
+|---|---|---|
+| 0 | `0x2a9f28` | **idle** — zeroes the movement vector (`movi v0.2d, #0`) and forces the idle motion: 0 normally, 15 on floor type 1 |
+| 1 | `0x2a9ef0` | **moves** — counts down `+0x38fc`, then converts the position to chip coordinates (`WorldToRoomLocalX/Z` / 30) and branches on the MODE (`+0x3934`) for a mode-specific move: 9 -> `0x2aa44c`, 11 -> `0x2aa020`, else `0x2aa624` |
+| 3 | `0x2a9700` | calls `UpdateAI_TargetPos` — type 4, other enemies, so spacing |
+
+So the cycle is **idle (state 0) / move (state 1) / chase (state 2) / space
+(state 3)**, at roughly 45 / 30 / 16 / 9 percent of the time.
+
+**The port's deficiency, named:** it holds an enemy still in every state but 2,
+so it idles for state 1's ~30% instead of wandering. That is not laziness about
+state 1 — the port has exactly one kind of movement, straight at the player, and
+a wander needs a destination the engine picks per MODE in code that is not read.
+Faking a direction would be an invention of exactly the sort this file keeps
+having to retract. It stays idle and is recorded here.
+
+An earlier version of this section said states 0 and 1 "only roll a duration".
+That was wrong about state 1, which moves.
 
 `actor+0x3904` is the target-character selector and `actor+0x3908` the
 target-position selector. State 3 sets `+0x3908` from `record[0x78] + 10` when
