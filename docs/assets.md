@@ -1621,13 +1621,29 @@ actor[0x3900] = 0
 `x20 = actor + 0x377c` is pinned at `0x2a8b98` (`add x20, x19, #0x377c`), and the
 140-byte stride is the AI record already recorded.
 
-The `floor` is 0 for modes 6/7/10/11 and 9, so those roll plainly. Modes 4 and 5
-set it from two motion lengths, and are otherwise the same body:
+**Six of the seven bodies are the same body.** Modes 4, 5, 6, 8, 9 and 10 all
+run the shared preamble, set three floats, and fall into this tail. They differ
+in exactly two things: a per-mode float in `s10`, and whether a motion-length
+floor is applied. `s11` = 2.0 and `s14` = 1.0 in every one of them.
 
-| mode | calls | at |
-|---|---|---|
-| 4 | `GetMotionTimeLength(157)`, `GetMotionTimeLength(156)` | `0x2aa204`, `0x2aa21c` |
-| 5 | `GetMotionTimeLength(158)`, `GetMotionTimeLength(159)` | `0x2a990c`, `0x2a9924` |
+| mode | `s10` | duration floor | motion calls at |
+|---|---|---|---|
+| 4 | 5.0 | `GetMotionTimeLength(157)` + `(156)` | `0x2aa204`, `0x2aa21c` |
+| 5 | 5.0 | `GetMotionTimeLength(158)` + `(159)` | `0x2a990c`, `0x2a9924` |
+| 8 | 6.0 | `GetMotionTimeLength(159)` + `(158)` | `0x2a9698`, `0x2a96ac` |
+| 6, 7, 10, 11 | 5.0 | none (0) | — |
+| 9 | 4.0 | none (0) | — |
+
+So the "27 AI behaviours" narrow much further than the mode count suggests: past
+modes 0-2 (the event-box floor machine) and mode 3, everything else is one body
+with a constant swapped. Mode 8 reverses mode 5's motion pair (159 then 158
+rather than 158 then 159), which changes nothing since they are summed — the
+only real difference between 5 and 8 is `s10`.
+
+What `s10` is has NOT been established; it is recorded as a per-mode constant
+because that is what is demonstrated. Two later sites use 30.0 (`0x2aa300`,
+`0x2aa6b0`), which is the chip unit, but they are on paths not yet attributed to
+a mode and no claim is made from that.
 
 `vtable[0x240]` is `AppCharacterBase::GetMotionTimeLength(CharacterMotionKind)`
 — resolved from the relocation on `vtable for AppCharacterEnemy + 0x10 + 0x240`
@@ -1648,7 +1664,14 @@ Those targets are not read yet.
 
 Two vtable slots that this file previously listed as unknown are named by the
 same relocation lookup: `vtable[0x1c8]` is `AppCharacterBase::UpdateGround()`
-and `vtable[0x2f0]` is `AppCharacterBase::SetShadowAlpha(float)`.
+and `vtable[0x2f0]` is `AppCharacterBase::SetShadowAlpha(float)`. Also
+`vtable[0x430]` is `AppCharacterBase::UpdateAI_TargetPos()`, `vtable[0x218]` is
+`IsMotionData(CharacterMotionKind)` and `vtable[0xd0]` is
+`AppCharacterEnemy::ChangeMotion(CharacterMotionKind)`.
+
+Every `GetMotionTimeLength` argument in `UpdateAI`, with its denominator: eight
+call sites, ids **156, 157, 158, 159** (modes 4, 5 and 8) and **10, 11** at
+`0x2aaa78`/`0x2aaa90` on a path not yet attributed.
 
 **This confirms the port's duration model from an independent direction.** The
 port reads `{base, range}` out of the FILE, at `descriptor[st] + 0x10 / +0x14`
