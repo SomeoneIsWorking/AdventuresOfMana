@@ -24,6 +24,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace mcf {
 
@@ -102,6 +103,51 @@ struct TitleMenu {
     // Confirm the cursor. Items whose data is absent are refused rather than
     // silently accepted; `enabled` says which ones can be picked.
     bool Confirm(bool (*enabled)(int));
+};
+
+// ---------------------------------------------------------------------------
+// Name entry. New Game asks for two names, and ModeTitle::Process @ 0x307ec8
+// validates each one against a character set the game states outright in
+// SYS_NAMEENTRY_USE: it walks the entered name a UTF-8 code point at a time and
+// searches that string for a match.
+//
+// The rules, read from 0x307ec8..0x30800c:
+//
+//     err = any code point not in SYS_NAMEENTRY_USE            -> 1
+//     name equals SYS_COMMON_NULLSPACE (strncmp @ 0x307fd8)    -> 1
+//     zero code points                                         -> 3
+//     GetLanguage() == 0 (Japanese) and count > 4              -> 2
+//     GetLanguage() != 0             and count > 8             -> 2
+//
+// Japanese additionally permits U+301C (bytes e3 80 9c), tested inline at
+// 0x307f60 -- a wave dash, which is not in the shared set.
+//
+// The message for each error comes from a relative-offset table at 0xbd550:
+// `GetStringResource(0xbd554 + (int32)table[err])`, i.e. the entry is a
+// displacement from the table's own base, not a pointer.
+// ---------------------------------------------------------------------------
+struct NameEntry {
+    enum Error {
+        kOk = 0,
+        kProhibited = 1,   // SYS_NAMEENTRY_USAGE_PROHIBITED_STRING
+        kTooLong = 2,      // SYS_NAMEENTRY_NUMBER_EXCESS
+        kEmpty = 3,        // SYS_NAMEENTRY_NOT_BEEN_ENTER
+    };
+    // The engine's own message id for an error, or nullptr for kOk.
+    static const char* ErrorId(int err);
+
+    static constexpr int kMaxJa = 4;    // GetLanguage() == 0
+    static constexpr int kMaxOther = 8;
+
+    // `allowed` is SYS_NAMEENTRY_USE verbatim; `nullspace` is
+    // SYS_COMMON_NULLSPACE. Both come from the shipping string table, so this
+    // holds no character list of its own.
+    static Error Validate(const std::string& name, const std::string& allowed,
+                          const std::string& nullspace, bool japanese);
+
+    // How many UTF-8 code points `s` has. UTF8_OctBytes @ 0x3db5f0 is what the
+    // engine counts with.
+    static int CodePoints(const std::string& s);
 };
 
 }  // namespace mcf

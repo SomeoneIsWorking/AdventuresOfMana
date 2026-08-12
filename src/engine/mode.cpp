@@ -45,6 +45,67 @@ const char* const TitleMenu::kItemId[TitleMenu::kItemCount] = {
     "SYS_TITLE_MENU_LOADGAME",
 };
 
+const char* NameEntry::ErrorId(int err) {
+    switch (err) {
+        // The relative-offset table at 0xbd550, resolved.
+        case kProhibited: return "SYS_NAMEENTRY_USAGE_PROHIBITED_STRING";
+        case kTooLong:    return "SYS_NAMEENTRY_NUMBER_EXCESS";
+        case kEmpty:      return "SYS_NAMEENTRY_NOT_BEEN_ENTER";
+        default:          return nullptr;
+    }
+}
+
+// UTF8_OctBytes @ 0x3db5f0: how many bytes the lead byte claims.
+static int OctBytes(unsigned char c) {
+    if (c < 0x80) return 1;
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return 1;                       // a stray continuation byte counts as one
+}
+
+int NameEntry::CodePoints(const std::string& s) {
+    int n = 0;
+    for (size_t i = 0; i < s.size(); i += size_t(OctBytes((unsigned char)s[i])))
+        ++n;
+    return n;
+}
+
+NameEntry::Error NameEntry::Validate(const std::string& name,
+                                     const std::string& allowed,
+                                     const std::string& nullspace,
+                                     bool japanese) {
+    // The engine tests the character set first, then length, then empty --
+    // but the empty test OVERRIDES the set result (csel @ 0x307fec) and the
+    // length test overrides both (csel @ 0x307ffc/0x308004), so the effective
+    // precedence is length > empty > prohibited. Reproduced in that order.
+    int err = kOk;
+    for (size_t i = 0; i < name.size();) {
+        int n = OctBytes((unsigned char)name[i]);
+        std::string cp = name.substr(i, size_t(n));
+        bool found = false;
+        for (size_t j = 0; j < allowed.size();) {
+            int m = OctBytes((unsigned char)allowed[j]);
+            if (allowed.compare(j, size_t(m), cp) == 0) { found = true; break; }
+            j += size_t(m);
+        }
+        // Japanese also permits U+301C, tested inline at 0x307f60 as the
+        // byte sequence e3 80 9c. Written as escapes rather than as a
+        // literal character, so the source file's own encoding cannot
+        // silently change what this compares against -- it already did
+        // once: a UTF-8 round trip turned the 3 bytes into 6.
+        if (!found && japanese && cp == "\xe3\x80\x9c") found = true;
+        if (!found) { err = kProhibited; break; }
+        i += size_t(n);
+    }
+    if (!nullspace.empty() && name.compare(0, nullspace.size(), nullspace) == 0)
+        err = kProhibited;
+    int count = CodePoints(name);
+    if (count == 0) err = kEmpty;
+    if (count > (japanese ? kMaxJa : kMaxOther)) err = kTooLong;
+    return Error(err);
+}
+
 void TitleMenu::Down() { cursor = (cursor + 1) % kItemCount; }
 void TitleMenu::Up()   { cursor = (cursor + kItemCount - 1) % kItemCount; }
 

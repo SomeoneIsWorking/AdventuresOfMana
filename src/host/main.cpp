@@ -241,8 +241,9 @@ int main(int argc, char** argv) {
     bool player_selftest = false;
     bool inventory_selftest = false;
     bool ai_selftest = false;
+    bool name_selftest = false;
     bool boot_chain = false;
-    bool title_start_in_menu = false;   // TEST HOOK: skip the attract screen
+    std::string title_phase;   // TEST HOOK: attract | menu | names
     bool mode_selftest = false;
     bool png_selftest = false;
     std::string shot_mode;
@@ -283,8 +284,9 @@ int main(int argc, char** argv) {
         else if (a == "--player-selftest") player_selftest = true;
         else if (a == "--inventory-selftest") inventory_selftest = true;
         else if (a == "--ai-selftest") ai_selftest = true;
+        else if (a == "--nameentry-selftest") name_selftest = true;
         else if (a == "--boot") boot_chain = true;
-        else if (a == "--title-menu") title_start_in_menu = true;
+        else if (a == "--title-phase" && i + 1 < argc) title_phase = argv[++i];
         else if (a == "--mode-selftest") mode_selftest = true;
         else if (a == "--png-selftest") png_selftest = true;
         else if (a == "--shot-mode" && i + 1 < argc) shot_mode = argv[++i];
@@ -331,9 +333,9 @@ int main(int argc, char** argv) {
                 "  --string ID         resolve a dialogue id in every language\n"
                 "  --show-string ID    open the message window on that line\n"
                 "  --combat-selftest / --audio-selftest / --text-selftest / --player-selftest\n"
-                "  --inventory-selftest / --ai-selftest\n"
+                "  --inventory-selftest / --ai-selftest / --nameentry-selftest\n"
                 "  --boot              boot through the engine's real mode chain\n"
-                "  --title-menu        TEST HOOK: open the title on its menu\n"
+                "  --title-phase P     TEST HOOK: open the title on attract|menu|names\n"
                 "                                         self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
@@ -743,6 +745,75 @@ int main(int argc, char** argv) {
             return bad ? 1 : 0;
         }
 
+        if (name_selftest) {
+            // Both classes, on the game's OWN character set: names that must be
+            // accepted and names that must be refused, with the exact error.
+            // A validator only ever run on valid input proves nothing.
+            const char* kStr = "sk1/str_en.bin";
+            mcf::StringTable st;
+            if (!ar.Has(kStr) || !st.Load(ar.Read(kStr))) {
+                lucent::error("name", "{} missing or unparseable; NOTHING was "
+                              "tested", kStr);
+                return 1;
+            }
+            const std::string* use = st.Find("SYS_NAMEENTRY_USE");
+            const std::string* nul = st.Find("SYS_COMMON_NULLSPACE");
+            if (!use || use->empty()) {
+                lucent::error("name", "SYS_NAMEENTRY_USE is not in the table; "
+                              "NOTHING was tested");
+                return 1;
+            }
+            const std::string ns = nul ? *nul : std::string();
+            lucent::info("name", "SYS_NAMEENTRY_USE has {} code points; "
+                         "SYS_COMMON_NULLSPACE is {}",
+                         mcf::NameEntry::CodePoints(*use),
+                         nul ? "present" : "ABSENT (that gate is untested)");
+            struct Case { const char* name; bool ja; int want; };
+            const Case cases[] = {
+                // Accepted.
+                {"Sumo",     false, mcf::NameEntry::kOk},
+                {"A",        false, mcf::NameEntry::kOk},
+                {"12345678", false, mcf::NameEntry::kOk},
+                {"Zz09",     true,  mcf::NameEntry::kOk},
+                // Refused, one per error code, in both languages.
+                {"",         false, mcf::NameEntry::kEmpty},
+                {"",         true,  mcf::NameEntry::kEmpty},
+                {"123456789",false, mcf::NameEntry::kTooLong},
+                {"12345",    true,  mcf::NameEntry::kTooLong},
+                {"ab cd",    false, mcf::NameEntry::kProhibited},  // space
+                {"a\"b",     false, mcf::NameEntry::kProhibited},  // quote
+                {"a#b",      false, mcf::NameEntry::kProhibited},
+                // The length gate must OUTRANK the character gate, because the
+                // engine's csel chain applies it last.
+                {"aaaa#aaaaa", false, mcf::NameEntry::kTooLong},
+            };
+            int bad = 0, n = 0;
+            for (const auto& c : cases) {
+                ++n;
+                int got = mcf::NameEntry::Validate(c.name, *use, ns, c.ja);
+                const char* id = mcf::NameEntry::ErrorId(got);
+                if (got != c.want) {
+                    ++bad;
+                    lucent::error("name", "'{}' ({}) -> {} ({}), want {}",
+                                  c.name, c.ja ? "ja" : "en", got,
+                                  id ? id : "ok", c.want);
+                } else {
+                    lucent::info("name", "'{}' ({}) -> {}", c.name,
+                                 c.ja ? "ja" : "en", id ? id : "accepted");
+                }
+            }
+            // The 4-vs-8 split is the whole point of the language branch, so
+            // check it directly rather than trusting the cases above.
+            bool split = mcf::NameEntry::Validate("abcde", *use, ns, true)
+                             == mcf::NameEntry::kTooLong &&
+                         mcf::NameEntry::Validate("abcde", *use, ns, false)
+                             == mcf::NameEntry::kOk;
+            if (!split) { ++bad; lucent::error("name", "the ja/en length split "
+                                               "(4 vs 8) does not hold"); }
+            lucent::info("name", "{} cases, {} failures; length split {}",
+                         n, bad, split ? "holds" : "BROKEN");
+            return bad ? 1 : 0;
+        }
         if (ai_selftest) {
             const char* kEnemyDat = "sk1/enemydat.bin";
             if (!ar.Has(kEnemyDat)) {
@@ -2262,13 +2333,22 @@ int main(int argc, char** argv) {
             mcf::ModeMachine modes;
             bool title_bgm = false;
             mcf::TitleMenu title;
-            if (title_start_in_menu) title.phase = mcf::TitleMenu::Phase::kMenu;
+            if (title_phase == "menu" || title_phase == "names")
+                title.phase = mcf::TitleMenu::Phase::kMenu;
             bool title_press = false;   // "any button" on the attract screen
             // Which menu items this port can actually act on. Continue and Load
             // Game both need a save file, and the save format past the
             // inventory is not reversed, so there is nothing to load: they are
             // listed and dimmed rather than offered and then ignored.
             auto titleEnabled = [](int item) { return item == 0; };
+            // Name entry: the engine asks for two, hero then heroine
+            // (SYS_NAMEENTRY_HERO_NAME_TITLE / _GIRL_NAME_TITLE).
+            bool naming = title_phase == "names";
+            bool naming_done = false;
+            if (naming) title.chosen = true;   // as New Game would
+            int  name_field = 0;              // 0 = hero, 1 = heroine
+            std::string names[2];
+            int  name_err = mcf::NameEntry::kOk;
             if (!boot_chain) modes = {mcf::Mode::kGame, mcf::Mode::kNone, 0};
             uint64_t prev = SDL_GetTicks();
             float t = anim_t;
@@ -2326,11 +2406,31 @@ int main(int argc, char** argv) {
                                 lucent::info("title", "menu: {} items",
                                              mcf::TitleMenu::kItemCount);
                             }
-                        } else if (title.chosen) {
+                        } else if (title.chosen && !naming_done) {
+                            // New Game asks for the two names before it starts.
                             // Only New Game is reachable -- see titleEnabled.
                             // oG[0x28c0] initialises to -1 (ApplicationGlobal's
                             // ctor @ 0x2c07e8) and -1 IS "new game", so this
                             // matches the engine's own default.
+                            if (!naming) {
+                                naming = true;
+                                lucent::info("name", "entry: max {} code points",
+                                             lang == "ja" ? mcf::NameEntry::kMaxJa
+                                                          : mcf::NameEntry::kMaxOther);
+                            }
+                            if ((warmup > 0 || auto_advance) &&
+                                title_phase != "names") {
+                                // Headless: no keyboard. Take the defaults so
+                                // the boot path still reaches the game, and say
+                                // that the names were not typed.
+                                names[0] = "Sumo";
+                                names[1] = "Fuji";
+                                lucent::info("name", "headless: using defaults "
+                                             "'{}' and '{}' (nobody typed one)",
+                                             names[0], names[1]);
+                                naming_done = true;
+                            }
+                        } else if (title.chosen) {
                             modes.next = mcf::Mode::kGame;
                         } else if (warmup > 0 || auto_advance) {
                             // Headless: take the engine's default immediately.
@@ -2345,6 +2445,41 @@ int main(int argc, char** argv) {
                             // Edge-triggered: a menu must not scroll once per
                             // frame while a key is held.
                             SDL_Keycode k = ev.key.key;
+                            if (naming && !naming_done) {
+                                // Typed with the real keyboard; the engine's
+                                // own character set decides what is legal, so
+                                // nothing is filtered here -- an illegal key
+                                // produces the engine's own error message
+                                // instead of being silently swallowed.
+                                if (k == SDLK_BACKSPACE) {
+                                    if (!names[name_field].empty())
+                                        names[name_field].pop_back();
+                                    name_err = mcf::NameEntry::kOk;
+                                } else if (k == SDLK_RETURN) {
+                                    const std::string* use =
+                                        strings.Find("SYS_NAMEENTRY_USE");
+                                    const std::string* nul =
+                                        strings.Find("SYS_COMMON_NULLSPACE");
+                                    name_err = use
+                                        ? mcf::NameEntry::Validate(
+                                              names[name_field], *use,
+                                              nul ? *nul : std::string(),
+                                              lang == "ja")
+                                        : mcf::NameEntry::kOk;
+                                    if (name_err == mcf::NameEntry::kOk) {
+                                        if (name_field == 0) name_field = 1;
+                                        else naming_done = true;
+                                    }
+                                } else if (k == SDLK_TAB) {
+                                    name_field ^= 1;
+                                    name_err = mcf::NameEntry::kOk;
+                                } else if (k >= 32 && k < 127) {
+                                    names[name_field].push_back(char(k));
+                                    name_err = mcf::NameEntry::kOk;
+                                }
+                                if (k == SDLK_ESCAPE) running = false;
+                                continue;
+                            }
                             if (modes.current == mcf::Mode::kTitle &&
                                 title.phase == mcf::TitleMenu::Phase::kMenu) {
                                 if (k == SDLK_DOWN || k == SDLK_S) title.Down();
@@ -2364,7 +2499,9 @@ int main(int argc, char** argv) {
                         if (modes.current == mcf::Mode::kMakerLogo)
                             drawSprite(sprMaker);
                         else if (modes.current == mcf::Mode::kTitle) {
-                            drawSprite(sprTitle);
+                            // Name entry is its own screen, not an overlay on
+                            // the logo.
+                            if (!naming || naming_done) drawSprite(sprTitle);
                             // Every word here is the game's own, resolved
                             // through the shipping string table.
                             auto say = [&](const char* id) {
@@ -2379,7 +2516,40 @@ int main(int argc, char** argv) {
                             drawUiText(say(mcf::TitleMenu::kCopyrightId),
                                        cx, float(H) - 22.f * kScale, kScale, true,
                                        1.f, 1.f, 1.f, 0.75f);
-                            if (title.phase == mcf::TitleMenu::Phase::kAttract) {
+                            if (naming && !naming_done) {
+                                // Every word here is the game's own.
+                                drawUiText(say("SYS_NAMEENTRY_INFO_1"),
+                                           cx, float(H) * 0.30f, kScale, true,
+                                           1, 1, 1, 1);
+                                drawUiText(say("SYS_NAMEENTRY_INFO_2"),
+                                           cx, float(H) * 0.35f, kScale, true,
+                                           1, 1, 1, 0.8f);
+                                const char* lbl[2] = {
+                                    "SYS_NAMEENTRY_HERO_NAME_TITLE",
+                                    "SYS_NAMEENTRY_GIRL_NAME_TITLE"};
+                                float y = float(H) * 0.50f;
+                                for (int f = 0; f < 2; ++f) {
+                                    bool sel = f == name_field;
+                                    drawUiText(say(lbl[f]) + ":",
+                                               cx - 120.f * kScale, y, sc, false,
+                                               1, 1, sel ? 0.55f : 1.f, 1);
+                                    // A caret on the field being typed, so an
+                                    // empty field still shows where input goes.
+                                    std::string shown = names[f];
+                                    if (sel && (modes.frames / 20) % 2) shown += "_";
+                                    drawUiText(shown, cx + 10.f * kScale, y, sc,
+                                               false, 1, 1, 1, 1);
+                                    y += 26.f * kScale;
+                                }
+                                if (const char* eid =
+                                        mcf::NameEntry::ErrorId(name_err))
+                                    drawUiText(say(eid), cx, float(H) * 0.68f,
+                                               kScale, true, 1.f, 0.45f, 0.4f, 1.f);
+                                drawUiText(say("SYS_NAMEENTRY_BUTTON_DECIDE") +
+                                               "  [Enter]   Tab: switch",
+                                           cx, float(H) * 0.78f, kScale, true,
+                                           1, 1, 1, 0.7f);
+                            } else if (title.phase == mcf::TitleMenu::Phase::kAttract) {
                                 // The engine fades this prompt (LerpL over
                                 // 1000ms @ 0x3084c8); the port pulses it on the
                                 // same 1s period rather than inventing a rate.

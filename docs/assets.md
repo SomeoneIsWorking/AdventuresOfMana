@@ -2322,9 +2322,40 @@ The port draws all three items and dims the two it cannot act on: Continue and
 Load Game both need a save file, and the save format past the inventory is not
 reversed. They are listed and refused rather than offered and then ignored.
 
-Not drawn yet, though the strings are all present: the opening crawl
-(`SYS_TITLE_OPENING_0..14`, 15 non-empty lines) and the name-entry screen, whose
-allowed character set the game states outright in `SYS_NAMEENTRY_USE`.
+##### Name entry
+
+New Game asks for two names, hero then heroine
+(`SYS_NAMEENTRY_HERO_NAME_TITLE` / `_GIRL_NAME_TITLE`).
+`ModeTitle::Process` @ `0x307ec8` validates each against a character set the
+game states outright in `SYS_NAMEENTRY_USE` (81 code points): it walks the name
+one UTF-8 code point at a time (`UTF8_OctBytes` @ `0x3db5f0`) and searches that
+string for a match.
+
+    any code point not in SYS_NAMEENTRY_USE          -> 1  prohibited
+    name equals SYS_COMMON_NULLSPACE (strncmp)       -> 1
+    zero code points                                 -> 3  empty
+    GetLanguage() == 0 (Japanese) and count > 4      -> 2  too long
+    GetLanguage() != 0             and count > 8     -> 2
+
+The `csel` chain @ `0x307fec`..`0x308004` applies these in that order, so the
+effective precedence is **length beats empty beats prohibited** — a name that is
+both too long and contains an illegal character reports "too long". The port
+reproduces that order and its self-test pins it.
+
+Japanese additionally permits U+301C, tested inline @ `0x307f60` as the byte
+sequence `e3 80 9c`; it is not in the shared set.
+
+`GetLanguage() == 0` is Japanese: it is the branch that both caps names at 4 and
+admits the wave dash.
+
+The error message comes from a **relative-offset** table at `0xbd550` —
+`GetStringResource(0xbd554 + (int32)table[err])`, where the entry is a
+displacement from the table's own base rather than a pointer, and the load is
+`ldursw [x9, #-0x4]`. Resolved: 1 -> `SYS_NAMEENTRY_USAGE_PROHIBITED_STRING`,
+2 -> `SYS_NAMEENTRY_NUMBER_EXCESS`, 3 -> `SYS_NAMEENTRY_NOT_BEEN_ENTER`.
+
+Still not drawn, though every string ships: the opening crawl
+(`SYS_TITLE_OPENING_0..14`, 15 non-empty lines).
 
 One visible gap: `SYS_TITLE_COPYRIGHT_1` begins with `(c)` U+00A9, and the font
 atlas is ASCII 32..126, so that one glyph is missing. The original draws
