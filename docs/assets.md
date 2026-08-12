@@ -2294,6 +2294,29 @@ arm @ `0x2d2b8c` is:
 so **a new game starts at world 1, cell (0,0)** = `sk1/M0001_00_00`. The port had
 guessed `M0000_00_00`; that is a real room, but not the one the game starts in.
 
+##### `oG[0x28c0]`: the pending save slot
+
+The word the constructor branches on has exactly 9 writers and 4 readers in the
+whole binary, so its meaning is settled rather than inferred:
+
+| value | meaning | who writes it |
+|---|---|---|
+| `-1` | start a NEW GAME | `ApplicationGlobal`'s ctor @ `0x2c07e8` (the initial value, `w21 = -1`), and three `ModeTitle::Process` sites @ `0x307384`, `0x307bc8`, `0x307c04` |
+| `>= 0` | CONTINUE from this save slot | two `ModeTitle::Process` sites @ `0x3074f0`, `0x307520`, both copying the title's selected-slot field `+0x324` |
+| `-100` | a third entry: world 1, cell (1,0), then reset to `-1` | `ModeGame`'s ctor @ `0x2d2b74` |
+
+`ModeGame`'s ctor reads it twice: once to pick the starting cell, once to decide
+between `GameSaveDataLoad(slot)` and the new-game path.
+
+The value it **initialises to is `-1`**, so a boot that never reaches the title
+menu is a new game by default -- which is exactly what the port does, and why
+skipping the title still lands on the engine's own starting cell rather than on
+an accident.
+
+Corroboration independent of the disassembly: the port now opens in a walled
+stone courtyard with a barred gate, which is the game's actual opening (the hero
+escaping Glaive castle). `M0000` is the overworld.
+
 ##### Three wrong readings of this table, and what caused each
 
 Kept because this region defeated inference three times and the failure modes
