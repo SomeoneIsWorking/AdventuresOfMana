@@ -1473,9 +1473,33 @@ actor offset, not a global table — laid out as 140-byte records selected by
 `+0x3894`, each holding 8-byte `{base, range}` pairs selected by the current
 state. That pair is what makes a state last a randomized number of frames.
 
-The block is not copied from `enemydat.bin`: `SetEnemyId`'s `memcpy` lands at
-`+0x3a24`, past it. It is filled at construction from constant quads in
-`.rodata`, and the values are plain `int32` frame counts:
+The block **is** per-enemy data, from `enemydat.bin`. An earlier version of this
+section said it was not, reasoning that `SetEnemyId`'s `memcpy` lands at
+`+0x3a24`, past the block. That is true of *that* memcpy and false as a
+conclusion: there is a second path out of the same file.
+
+`AppCharacterBase::SetAITblFromEnemyTbl` @ `0x2a6cb0` calls
+`DataTableGetEnemy(id)` and copies the record's `+0x80`..`+0x194` into
+`+0x377c`..`+0x3894` -- exactly the two 140-byte records -- and seeds a
+`GameRandom` value into `+0x38f8`. The copy accounts for **53 of 53** non-stack
+stores in the function, so the block is filled entirely from this file. That is
+276 of the record's 408 bytes: **two thirds of an enemy record is AI
+configuration**, and it was sitting unparsed behind a wrong conclusion.
+
+The block mixes `int32` and `float32`, and which is which comes from the engine
+-- whether the copy uses `ldr w` or `ldr s` -- rather than from reading bit
+patterns. Six slots are floats (`+0xf8`, `+0x100`, `+0x108`, `+0x184`, `+0x18c`,
+`+0x194`). `enemydat.py --ai` checks that split against all 107 records in both
+directions: all six decode as plausible floats in every nonzero record, and none
+of the 64 int slots do. 46 of the 57 source offsets are typed by a direct load;
+the other 11 arrive through SIMD moves and are reported as untyped rather than
+assumed.
+
+The dominant int values across the corpus are 1, 120, 2, 3, 30, 60, 240, 180 --
+frame counts at 30 fps, matching the shape of the constructor defaults.
+
+What the base constructor writes there is only a **default**, overwritten for
+any enemy:
 
 | destination | source | `{base, range}` pairs | at 30 fps |
 |---|---|---|---|

@@ -18,9 +18,30 @@ identified by finding who reads that actor offset:
     +0x68  move speed    actor +0xc64    UpdateAI, _UpdateGroundAttribute
     +0x6c  thrown weapon actor +0x3938   AppCharacterBase::WeaponThrow
 
-Run directly to census the table. Every check states its denominator, and the
-negative case is explicit: a missing or wrongly-sized file exits non-zero rather
-than reporting a clean table it never read.
+    +0x80..+0x194   the AI parameter block -- see below
+
+`AppCharacterBase::SetAITblFromEnemyTbl` @ 0x2a6cb0 is a SECOND path out of this
+file, and it is the one that matters for behaviour. It calls
+`DataTableGetEnemy(id)` and copies the record's `+0x80`..`+0x194` into the
+actor's AI block at `+0x377c`..`+0x3894`, which is exactly two 140-byte records
+-- `UpdateAI` selects between them with a toggle at actor `+0x3894` and indexes
+`{base, range}` frame-count pairs inside one with the state word at `+0x38e8`.
+It also seeds a `GameRandom` value into actor `+0x38f8`.
+
+That region is 276 of the record's 408 bytes, so **two thirds of an enemy record
+is AI configuration**. The copy accounts for 53 of 53 non-stack stores in the
+function, so the block is filled entirely from this file; the constants the base
+constructor writes there are defaults every enemy overwrites.
+
+The block is a mix of int32 and float32. Which is which comes from the ENGINE --
+whether `SetAITblFromEnemyTbl` loads a slot with `ldr w` or `ldr s` -- not from
+guessing at bit patterns, and `--ai` checks that classification against all 107
+records in both directions.
+
+Run directly to census the table, `--ai` to census the AI block. Every check
+states its denominator, and the negative case is explicit: a missing or
+wrongly-sized file exits non-zero rather than reporting a clean table it never
+read.
 """
 
 import collections
@@ -32,6 +53,83 @@ STRIDE = 0x198
 # The switch in AppCharacterBase::UpdateAI @ 0x2a894c is `cmp w8, #0x1a` then
 # `b.hi` to the default, so 0..26 are real cases.
 AI_MAX = 26
+
+# The AI parameter block: record +0x80..+0x194, copied to actor +0x377c..+0x3894.
+AI_LO, AI_HI = 0x80, 0x194
+# Slots SetAITblFromEnemyTbl loads with `ldr s` rather than `ldr w`. Transcribed
+# from the disassembly, NOT inferred from the data -- inferring the type from the
+# bytes and then "confirming" it against the same bytes proves nothing. These are
+# checked against the corpus by ai_check(), which must be able to disagree.
+AI_FLOAT_SLOTS = (0xF8, 0x100, 0x108, 0x184, 0x18C, 0x194)
+# 46 of the 57 source offsets the function reads are typed by a direct `ldr w`
+# or `ldr s`. The remaining 11 arrive through `ldr d`/`ldp`/`str q` SIMD moves
+# that carry no type, so they are reported as untyped rather than assumed int.
+AI_TYPED_SLOTS = 46
+AI_SOURCE_SLOTS = 57
+
+
+def ai_slots(rec):
+    """-> [(offset, int_value, float_value)] over the AI block of one record."""
+    out = []
+    for o in range(AI_LO, AI_HI + 4, 4):
+        iv, = struct.unpack_from("<i", rec, o)
+        fv, = struct.unpack_from("<f", rec, o)
+        out.append((o, iv, fv))
+    return out
+
+
+def ai_check(records, raw):
+    """Cross-checks the engine's int/float split against the shipping data.
+
+    Runs against BOTH classes: every slot the code calls a float must decode as
+    one, and no slot the code calls an int may. Returns (ok, lines).
+    """
+    lines = []
+    ok = True
+
+    def plausible_float(off):
+        good = total = 0
+        for r in range(len(records)):
+            iv, = struct.unpack_from("<i", raw, r * STRIDE + off)
+            fv, = struct.unpack_from("<f", raw, r * STRIDE + off)
+            if iv == 0:
+                continue          # 0 is 0.0 either way and discriminates nothing
+            total += 1
+            if 1e-2 < abs(fv) < 1e6 and abs(iv) > 100000:
+                good += 1
+        return good, total
+
+    for off in AI_FLOAT_SLOTS:
+        good, total = plausible_float(off)
+        if total == 0:
+            lines.append(f"    +{off:#05x}: FAIL -- 0 nonzero records, so the "
+                         f"float claim was never tested")
+            ok = False
+        elif good < total:
+            lines.append(f"    +{off:#05x}: FAIL -- code loads it with `ldr s` "
+                         f"but only {good}/{total} decode as floats")
+            ok = False
+        else:
+            lines.append(f"    +{off:#05x} float: {good}/{total} nonzero "
+                         f"records decode as plausible floats")
+
+    # The other direction, which is what makes this a discriminator and not a
+    # rubber stamp: an int slot that looks like a float means the split is wrong.
+    wrong = []
+    for off in range(AI_LO, AI_HI + 4, 4):
+        if off in AI_FLOAT_SLOTS:
+            continue
+        good, total = plausible_float(off)
+        if total and good >= total * 0.8:
+            wrong.append(off)
+    n_int = (AI_HI - AI_LO) // 4 + 1 - len(AI_FLOAT_SLOTS)
+    if wrong:
+        lines.append(f"    FAIL: {len(wrong)} of {n_int} int slots look like "
+                     f"floats: {[hex(o) for o in wrong]}")
+        ok = False
+    else:
+        lines.append(f"    and 0 of {n_int} int slots look like floats")
+    return ok, lines
 
 
 def parse(data):
@@ -122,6 +220,35 @@ def main(argv):
     throwers = [r for r in rows if r["throw"]]
     print(f"  {len(throwers)} of {len(rows)} enemies carry a thrown-weapon id "
           f"({sorted({r['throw'] for r in throwers})})")
+
+    raw = open(path, "rb").read()
+    span = AI_HI + 4 - AI_LO
+    print(f"  AI block +{AI_LO:#04x}..+{AI_HI:#05x}: {span} of {STRIDE} bytes "
+          f"({span * 100 // STRIDE}%) of every record is AI configuration")
+    print(f"    typed by a direct ldr w/s in SetAITblFromEnemyTbl: "
+          f"{AI_TYPED_SLOTS} of {AI_SOURCE_SLOTS} source offsets; the other "
+          f"{AI_SOURCE_SLOTS - AI_TYPED_SLOTS} arrive by SIMD and are untyped")
+    ai_ok, lines = ai_check(rows, raw)
+    for ln in lines:
+        print(ln)
+    if not ai_ok:
+        ok = False
+
+    if "--ai" in argv:
+        # The frame-count pairs are what drive behaviour, so show their spread
+        # rather than one record's numbers.
+        counts = collections.Counter()
+        for r in range(len(rows)):
+            for off, iv, _ in ai_slots(raw[r * STRIDE:(r + 1) * STRIDE]):
+                if off not in AI_FLOAT_SLOTS and iv:
+                    counts[iv] += 1
+        print("    most common nonzero int values across all records:")
+        print("      " + ", ".join(f"{v}x{n}" for v, n in counts.most_common(10)))
+        zero = sum(1 for r in range(len(rows))
+                   for off, iv, _ in ai_slots(raw[r * STRIDE:(r + 1) * STRIDE])
+                   if iv == 0)
+        total = len(rows) * (span // 4)
+        print(f"    {zero} of {total} slots are zero across the corpus")
 
     print("ENEMYDAT OK" if ok else "ENEMYDAT FAILURES ABOVE")
     return 0 if ok else 1
