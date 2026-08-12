@@ -1621,10 +1621,10 @@ actor[0x3900] = 0
 `x20 = actor + 0x377c` is pinned at `0x2a8b98` (`add x20, x19, #0x377c`), and the
 140-byte stride is the AI record already recorded.
 
-**Six of the seven bodies are the same body.** Modes 4, 5, 6, 8, 9 and 10 all
-run the shared preamble, set three floats, and fall into this tail. They differ
-in exactly two things: a per-mode float in `s10`, and whether a motion-length
-floor is applied. `s11` = 2.0 and `s14` = 1.0 in every one of them.
+**All of them except modes 0-2 are the same body.** Modes 3, 4, 5, 6, 8, 9 and
+10 run the shared preamble, set the same three floats, and fall into this tail.
+They differ in a per-mode float in `s10` and in which motion pair (if any) sets
+the duration floor. `s14` = 1.0 in every one; `s11` = 2.0 wherever it is set.
 
 | mode | `s10` | duration floor | motion calls at |
 |---|---|---|---|
@@ -1633,6 +1633,23 @@ floor is applied. `s11` = 2.0 and `s14` = 1.0 in every one of them.
 | 8 | 6.0 | `GetMotionTimeLength(159)` + `(158)` | `0x2a9698`, `0x2a96ac` |
 | 6, 7, 10, 11 | 5.0 | none (0) | — |
 | 9 | 4.0 | none (0) | — |
+| 3 | 4.0 | `GetMotionTimeLength(10)` + `(11)` | `0x2aaa6c`, `0x2aaa88` |
+
+That accounts for **all eight** `GetMotionTimeLength` sites in `UpdateAI`: 156
+and 157 are mode 4, 158 and 159 are modes 5 and 8, and 10 and 11 are mode 3 —
+the pair that was unattributed a moment ago.
+
+Mode 3 reaches the shared body through a gate the others do not have. It reads a
+party byte at `+0x958` and sets an actor byte at `+0xcba` from it:
+
+```
+actor[0xcba] = (party[0x958] == 0) ? 1 : 0
+```
+
+and when `party[0x958]` is set and the latch `actor[0x38e0]` is still 0, it takes
+a longer path @ `0x2aaa40` that also stores `actor[0xaec]` (a float) into
+`actor[0x395c]` and clears `party[0x8f4]`. What `party[0x958]` means is **not**
+established.
 
 So the "27 AI behaviours" narrow much further than the mode count suggests: past
 modes 0-2 (the event-box floor machine) and mode 3, everything else is one body
