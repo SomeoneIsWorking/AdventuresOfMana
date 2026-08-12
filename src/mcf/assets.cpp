@@ -649,6 +649,26 @@ const std::string* StringTable::Find(const std::string& id) const {
     return it == by_id_.end() ? nullptr : &it->second;
 }
 
+int32_t PlayerStats::attack() const {
+    int32_t a = Cap(power);
+    // tblWeapon stores an attack RANGE and which end feeds the player's attack
+    // power is not a guess: DataTableGetWeapon returns the record itself (its
+    // first word is the id it matched on) and Update reads `[x0, #4]`, the
+    // second word -- the LOW end. The port used the high end before, which was
+    // an assumption and was wrong.
+    if (const WeaponStats* w = FindWeapon(weapon)) a += w->atk_lo;
+    return a;
+}
+
+int32_t PlayerStats::defence() const {
+    // Exactly what Update adds: stamina + 1, then the helm and the armour --
+    // and NOT the shield, whose id sits in the very next slot and whose table
+    // (tblShield, ids 401..409) DataTableGetDefence resolves perfectly well.
+    // Whether the shield is applied elsewhere or simply never counted is not
+    // established, so the port matches the engine rather than "fixing" it.
+    return Cap(stamina) + 1 + EquipDefence(helm) + EquipDefence(armor);
+}
+
 RoomSize FindRoomSize(const Archive& ar, const std::string& room) {
     RoomSize rs;
     // Best source: the room's own ground-attribute grid. Load_GroundAttribute @

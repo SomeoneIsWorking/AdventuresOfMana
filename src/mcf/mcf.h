@@ -393,6 +393,47 @@ struct FormatParams {
 std::string CnvFormatString(const std::string& src, const StringTable* tbl,
                             const FormatParams& prm);
 
+// ---------------------------------------------------------------------------
+// GameParameter -- the player's own numbers. Every field offset, constant and
+// formula below is read off GameParameter::Init @ 0x2c6d14 (which sets a new
+// game's values) and GameParameter::Update @ 0x2c6f14 (which derives the rest
+// from them). See docs/assets.md.
+// ---------------------------------------------------------------------------
+struct PlayerStats {
+    // Init's constants. The four stats come from one `movi v0.4s, #2`.
+    int32_t level = 1;                          // +0x110
+    int32_t power = 2, stamina = 2,             // +0x148, +0x14c
+            wisdom = 2, will = 2;               // +0x150, +0x154
+    int32_t hp = 19, mp = 6;                    // +0x114, +0x118
+    int32_t exp = 0;                            // +0x12c, capped at 999999
+    int32_t money = 50;                         // +0x134, capped at 65535
+    // The four equipment slots Init fills, each with AddItem(id, 1).
+    int32_t weapon = 101, helm = 201, armor = 301, accessory = 401;
+
+    // Update recomputes these every frame; they are not stored state.
+    // Both reproduce Init's own constants at stat 2, which is the check that
+    // they are right rather than merely plausible: 2*2/10 + 19 == 19, and
+    // 2*94/100 + 5 == 6.
+    int32_t max_hp() const {                    // -> +0x11c
+        int32_t s = Cap(stamina);
+        return s * s >= 9810 ? 999 : s * s / 10 + 19;
+    }
+    int32_t max_mp() const { return Cap(wisdom) * 94 / 100 + 5; }   // -> +0x120
+    // Attack is the POWER stat plus the equipped weapon's table entry; defence
+    // is STAMINA + 1 plus helm and armour. Note it is stamina, not a separate
+    // defence stat, that carries both HP and defence.
+    int32_t attack() const;                     // -> +0x124
+    int32_t defence() const;                    // -> +0x128
+    // 12L + 3L^2 + 103L^3/100, capped at 999999.
+    int32_t next_exp() const {                  // -> +0x130
+        int64_t l = level;
+        int64_t v = 12 * l + 3 * l * l + 103 * l * l * l / 100;
+        return int32_t(v > 999999 ? 999999 : v);
+    }
+    // Update clamps every stat to 99 before using it.
+    static int32_t Cap(int32_t v) { return v > 99 ? 99 : v < 0 ? 0 : v; }
+};
+
 // tblHelm / tblArmor defence, indexed by DataTableGetDefence @ 0x2c3bd8.
 // Returns 0 for an id not in either table.
 int32_t EquipDefence(int32_t id);

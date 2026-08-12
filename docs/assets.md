@@ -1075,3 +1075,56 @@ like a size class and predicts the `.gdt` size in 655 of 656 rooms, but it is
 wrong for exactly the shop interiors, so it was dropped. And using the collision
 AABB as the ORIGIN (rather than to choose between two sizes) was falsified
 earlier -- see the note above on the +15 margin.
+
+
+## The player's own numbers (`GameParameter`)
+
+`GameParameter::Init` @ `0x2c6d14` sets what a new game starts with, and
+`GameParameter::Update` @ `0x2c6f14` derives everything else from it every
+frame. `GameParameter` lives at `oG+0x60`.
+
+| field | offset | new game |
+|---|---|---|
+| level | `+0x110` | 1 |
+| HP current / max | `+0x114` / `+0x11c` | 19 / 19 |
+| MP current / max | `+0x118` / `+0x120` | 6 / 6 |
+| attack | `+0x124` | derived |
+| defence | `+0x128` | derived |
+| EXP | `+0x12c` | 0, capped at 999999 |
+| EXP for next level | `+0x130` | derived |
+| money | `+0x134` | 50, capped at 65535 |
+| effective stats | `+0x138`..`+0x144` | derived, each capped at 99 |
+| base stats | `+0x148`..`+0x154` | 2, 2, 2, 2 (one `movi v0.4s, #2`) |
+| equipment | `+0x36c`, `+0x374`, `+0x37c`, `+0x384` | 101, 201, 301, 401 |
+
+`Update` copies the four base stats into the effective ones with a **shuffle** --
+`+0x148 -> +0x13c`, `+0x14c -> +0x138`, `+0x150 -> +0x140`, `+0x154 -> +0x144` --
+adds 15 to any stat with an active temporary effect (`+0x3b8`..), caps each at
+99, and then:
+
+```
+max_hp   = stamina^2 / 10 + 19          (999 once stamina^2 >= 9810, i.e. 100)
+max_mp   = wisdom * 94 / 100 + 5
+attack   = power   + tblWeapon[weapon].atk_LOW      // the record's +0x04
+defence  = stamina + 1 + tblHelm[helm] + tblArmor[armor]
+next_exp = 12*L + 3*L^2 + 103*L^3/100               (capped at 999999)
+```
+
+Both derived formulas reproduce `Init`'s own literals at stat 2 -- `2*2/10+19`
+is 19 and `2*94/100+5` is 6 -- which is the check that they are right rather
+than merely plausible, since `Init` wrote those numbers and the derivation never
+saw them. `--player-selftest` runs that, plus grown stats and the caps.
+
+Note that **stamina carries both HP and defence**; there is no separate defence
+stat. And the attack figure is the weapon's LOW end, not its high one -- the
+port used the high end before this was read off the instruction.
+
+The fourth equipment slot is a shield, and `Update` does not add it to defence.
+`tblShield`'s defence word is zero in all nine records; the field that varies is
+a bit mask at `+0x10` (1, 3, 7, 15, 23, 31, 55, 87, 127), so a shield blocks
+kinds of damage rather than reducing it. What the bits mean is not established.
+See `docs/weapon-table.md`.
+
+Still missing, and not faked: there is no save/load path, so this is always a
+new game at level 1, and how stats grow (`tblLevelup`, a 16-byte-record table
+reached by `DataTableGetLevelUp` @ `0x2c375c`) is not decoded.

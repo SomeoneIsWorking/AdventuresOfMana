@@ -221,6 +221,7 @@ int main(int argc, char** argv) {
     bool fade_test = false;
     bool combat_selftest = false;
     bool text_selftest = false;
+    bool player_selftest = false;
     bool auto_attack = false;
     int warmup = 0;
     bool fixed_step = false;
@@ -252,6 +253,7 @@ int main(int argc, char** argv) {
         else if (a == "--audio-selftest") audio_selftest = true;
         else if (a == "--combat-selftest") combat_selftest = true;
         else if (a == "--text-selftest") text_selftest = true;
+        else if (a == "--player-selftest") player_selftest = true;
         else if (a == "--auto-attack") auto_attack = true;
         // --warmup implies --fixed-step: see the loop, a frame count on an
         // uncapped loop is not a duration.
@@ -291,7 +293,7 @@ int main(int argc, char** argv) {
                 "  --room-census       load every room headlessly, report what is missing\n"
                 "  --string ID         resolve a dialogue id in every language\n"
                 "  --show-string ID    open the message window on that line\n"
-                "  --combat-selftest / --audio-selftest / --text-selftest\n"
+                "  --combat-selftest / --audio-selftest / --text-selftest / --player-selftest\n"
                 "                                         self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
@@ -311,7 +313,7 @@ int main(int argc, char** argv) {
     // mode wins; `explicit_model` is tracked separately because `model` carries
     // a default value and so cannot be tested for emptiness.
     if (render_room.empty() && room.empty() && probe.empty() && !census &&
-        !audio_selftest && !combat_selftest && !text_selftest && !explicit_model && !room_census &&
+        !audio_selftest && !combat_selftest && !text_selftest && !player_selftest && !explicit_model && !room_census &&
         string_id.empty())
         render_room = kDefaultRoom;
 
@@ -384,6 +386,62 @@ int main(int argc, char** argv) {
                 }
             }
             lucent::info("combat", "SELFTEST: {} cases, {} failures", 9, bad);
+            return bad ? 1 : 0;
+        }
+
+        if (player_selftest) {
+            // The formulas are derived from Update's arithmetic, so the test
+            // that matters is whether they REPRODUCE Init's own constants --
+            // numbers written by a different function, which the derivation
+            // did not get to see.
+            mcf::PlayerStats p;
+            struct Case { const char* what; int32_t got, want; };
+            const Case cases[] = {
+                // Init writes these four literally; Update derives two of them.
+                {"max HP at stamina 2 == Init's 19", p.max_hp(), 19},
+                {"max MP at wisdom 2 == Init's 6",   p.max_mp(), 6},
+                {"starting HP",                       p.hp, 19},
+                {"starting money",                    p.money, 50},
+                // The equipment Init grants, and what it is worth.
+                {"attack = power + weapon 101 low",   p.attack(), 2 + 4},
+                {"defence = stamina + 1 + 2 + 2",     p.defence(), 7},
+                {"EXP to level 2",                    p.next_exp(), 16},
+            };
+            int bad = 0;
+            for (const auto& c : cases) {
+                if (c.got != c.want) {
+                    lucent::error("player", "SELFTEST FAIL: {} -> {} (want {})",
+                                  c.what, c.got, c.want);
+                    ++bad;
+                } else {
+                    lucent::info("player", "  ok: {:<34} -> {}", c.what, c.got);
+                }
+            }
+            // The other class: the formulas must MOVE, or a pair of constants
+            // would pass every case above.
+            mcf::PlayerStats q;
+            q.stamina = 40; q.wisdom = 40; q.power = 40; q.level = 10;
+            struct Case2 { const char* what; int32_t got, want; };
+            const Case2 grown[] = {
+                {"max HP at stamina 40 (40*40/10 + 19)", q.max_hp(), 179},
+                {"max MP at wisdom 40 (40*94/100 + 5)",  q.max_mp(), 42},
+                {"max HP at stamina 100 is capped",
+                 [] { mcf::PlayerStats r; r.stamina = 100; return r.max_hp(); }(), 999},
+                {"stats above 99 are capped",
+                 [] { mcf::PlayerStats r; r.stamina = 500; return r.max_hp(); }(), 999},
+                {"EXP to level 11",                      q.next_exp(),
+                 12 * 10 + 3 * 100 + 103 * 1000 / 100},
+            };
+            for (const auto& c : grown) {
+                if (c.got != c.want) {
+                    lucent::error("player", "SELFTEST FAIL: {} -> {} (want {})",
+                                  c.what, c.got, c.want);
+                    ++bad;
+                } else {
+                    lucent::info("player", "  ok: {:<38} -> {}", c.what, c.got);
+                }
+            }
+            lucent::info("player", "SELFTEST: {} cases, {} failures", 12, bad);
             return bad ? 1 : 0;
         }
 
@@ -1444,17 +1502,23 @@ int main(int argc, char** argv) {
             constexpr int kMotionWait = 0, kMotionWalk = 1, kMotionAttack = 23;
             constexpr float kAttackFrames = 24.f;   // ~0.8 s at 30 fps
             float attack_left = 0.f;
-            // The player's attack comes from the game's own weapon table.
-            // What is NOT modelled: which weapon is equipped (no inventory or
-            // save system, so this is the id a new game starts with) and any
-            // level-up bonus (tblLevelup is a 4-entry growth cycle, not
-            // decoded). So the NUMBER is real; the SELECTION is an assumption.
-            // Player defence from the equipment a new game is granted.
-            const int player_defence = mcf::EquipDefence(mcf::kStartingHelmId) +
-                                       mcf::EquipDefence(mcf::kStartingArmorId);
-            lucent::info("combat", "player defence {} (helm {} + armor {})",
-                         player_defence, mcf::EquipDefence(mcf::kStartingHelmId),
-                         mcf::EquipDefence(mcf::kStartingArmorId));
+            // The player's numbers are the engine's own: GameParameter::Init
+            // sets a new game's state and ::Update derives the rest from it.
+            // What is NOT modelled is the SAVE -- there is no load path, so
+            // this is always a new game's level 1 and its granted equipment.
+            mcf::PlayerStats ps;
+            lucent::info("player", "level {}  HP {}/{}  MP {}/{}  {} GP  "
+                         "power {} stamina {} wisdom {} will {}",
+                         ps.level, ps.hp, ps.max_hp(), ps.mp, ps.max_mp(),
+                         ps.money, ps.power, ps.stamina, ps.wisdom, ps.will);
+            lucent::info("player", "attack {} (power {} + weapon {}), "
+                         "defence {} (stamina {} + 1 + helm {} + armor {}), "
+                         "{} EXP to level {}",
+                         ps.attack(), mcf::PlayerStats::Cap(ps.power), ps.weapon,
+                         ps.defence(), mcf::PlayerStats::Cap(ps.stamina),
+                         mcf::EquipDefence(ps.helm), mcf::EquipDefence(ps.armor),
+                         ps.next_exp(), ps.level + 1);
+            const int player_defence = ps.defence();
             // AppCharacterPlayer::DamageProcess refuses damage while an
             // invulnerability timer at +0x1ff0 is positive and reloads it from
             // +0x3aa0 after each hit. The MECHANISM is reversed; the duration
@@ -1462,15 +1526,11 @@ int main(int argc, char** argv) {
             constexpr float kPlayerIFramesStopgap = 30.f;   // frames
             float player_iframes = 0.f;
             long player_damage_taken = 0, player_hits = 0;
-            int player_attack = 0;
-            if (const auto* w = mcf::FindWeapon(mcf::kStartingWeaponId)) {
-                player_attack = w->atk_hi;
-                lucent::info("combat", "player weapon {}: attack {}-{}, using {}",
-                             mcf::kStartingWeaponId, w->atk_lo, w->atk_hi, player_attack);
-            } else {
-                lucent::warn("combat", "weapon {} not in tblWeapon; no damage "
-                             "will be applied", mcf::kStartingWeaponId);
-            }
+            bool player_dead = false;
+            int player_attack = ps.attack();
+            if (!mcf::FindWeapon(ps.weapon))
+                lucent::warn("combat", "weapon {} not in tblWeapon; the player's "
+                             "attack is the power stat alone", ps.weapon);
             seedCombat = [&] {
                 if (auto* pl = world.Find("MainPlayer")) {
                     auto& av = pl->attack[0];
@@ -1814,13 +1874,29 @@ int main(int argc, char** argv) {
                                         ++player_hits;
                                         ++cs.landed;
                                         player_iframes = kPlayerIFramesStopgap;
+                                        // A real pool now: GameParameter::Update
+                                        // clamps HP into [0, max_hp], which is
+                                        // what this mirrors.
+                                        ps.hp = std::max(0, ps.hp - dmg);
                                         lucent::info("combat",
                                             "{} hits MainPlayer for {} ({} atk - {} def); "
-                                            "{} taken over {} hits (no HP pool: the "
-                                            "player's max HP lives in save data)",
+                                            "HP {}/{} after {} hits",
                                             atkA.handle, dmg, atkA.attack_power,
-                                            player_defence, player_damage_taken,
+                                            player_defence, ps.hp, ps.max_hp(),
                                             player_hits);
+                                        if (ps.hp == 0 && !player_dead) {
+                                            player_dead = true;
+                                            // NOT the engine's death sequence:
+                                            // AppCharacterPlayer's death motion
+                                            // and the game-over path are not
+                                            // reversed. What is real is that the
+                                            // pool can reach zero at all.
+                                            lucent::warn("combat", "MainPlayer is "
+                                                "down (0 HP after {} damage); the "
+                                                "game-over path is not reversed, so "
+                                                "play continues",
+                                                player_damage_taken);
+                                        }
                                         continue;
                                     }
                                     // One hit per swing per target. The volume is
@@ -2104,9 +2180,10 @@ int main(int argc, char** argv) {
                          cs.pairs ? std::format("{:.1f}", cs.closest) : "n/a",
                          cs.atk_no_model, cs.def_no_model, cs.def_no_bone);
             lucent::info("combat",
-                         "player took {} damage over {} hits; {} enemy-vs-player "
-                         "volume pairs tested, closest {}",
-                         player_damage_taken, player_hits, cs.pairs_vs_player,
+                         "player took {} damage over {} hits, ending on {}/{} HP; "
+                         "{} enemy-vs-player volume pairs tested, closest {}",
+                         player_damage_taken, player_hits, ps.hp, ps.max_hp(),
+                         cs.pairs_vs_player,
                          cs.pairs_vs_player ? std::format("{:.1f} (xz {:.1f}, y {:.1f})",
                                                           cs.closest_vs_player,
                                                           cs.closest_xz, cs.closest_y)

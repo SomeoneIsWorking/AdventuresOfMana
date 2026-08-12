@@ -57,3 +57,21 @@ Stride 20, from `DataTableGetDefence` @ `0x2c3bd8`.
 | 307 | 34 |
 | 308 | 44 |
 | 309 | 18 |
+
+## `tblShield` — the fourth equipment slot
+
+`GameParameter::Init` grants id 401 alongside the weapon, helm and armour, and `DataTableGetDefence` resolves 401..409 out of this table with the same stride 20. But every record's defence word is **zero**; what varies is `+0x10`. That is a bit mask, so a shield blocks KINDS of damage rather than reducing it — which is why `GameParameter::Update` adds the helm and the armour to the player's defence and not the shield.
+
+| id | defence | mask `+0x10` |
+|---|---|---|
+| 401 | 0 | `0x01` |
+| 402 | 0 | `0x03` |
+| 403 | 0 | `0x07` |
+| 404 | 0 | `0x0f` |
+| 405 | 0 | `0x37` |
+| 406 | 0 | `0x57` |
+| 407 | 0 | `0x7f` |
+| 408 | 0 | `0x17` |
+| 409 | 0 | `0x1f` |
+
+What the mask's bits mean is NOT established.
