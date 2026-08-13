@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: bosses,combat,collision,scripting
 depends: src/mcf/assets.cpp#ParseGdt, src/mcf/assets.cpp#Collision::BlockedXZ, src/engine/script.cpp#ChrAttackBoneValid, src/engine/world.cpp#TickScriptMoves, src/host/main.cpp#ground_attribute, src/host/main.cpp#hit_this_swing, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 23:36:13
+verified_at: 2026-08-13 23:39:40
 ---
 
 ## Claim
@@ -60,3 +60,7 @@ Re-proved by the complete tools/verify.sh pass on 2026-08-13 after the opening-r
 ## Re-confirmed 2026-08-13
 
 Re-proved by the complete tools/verify.sh pass against the source landed in 37bda36 on 2026-08-13; every claim-specific runtime/self-test gate passed on the shipping corpus.
+
+## Re-confirmed 2026-08-13
+
+Re-proved by the complete tools/verify.sh pass whose stronger playable-overworld gate landed in b50191c on 2026-08-13.

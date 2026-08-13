@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: animation,scripting,bosses
 depends: src/engine/world.h#Actor, src/engine/world.cpp#TickMotions, src/engine/script.cpp#IsChrMotionFinish, src/host/main.cpp#missing_actor_models, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 23:36:13
+verified_at: 2026-08-13 23:39:40
 ---
 
 ## Claim
@@ -72,3 +72,7 @@ Re-proved by the complete tools/verify.sh pass on 2026-08-13 after the opening-r
 ## Re-confirmed 2026-08-13
 
 Re-proved by the complete tools/verify.sh pass against the source landed in 37bda36 on 2026-08-13; every claim-specific runtime/self-test gate passed on the shipping corpus.
+
+## Re-confirmed 2026-08-13
+
+Re-proved by the complete tools/verify.sh pass whose stronger playable-overworld gate landed in b50191c on 2026-08-13.

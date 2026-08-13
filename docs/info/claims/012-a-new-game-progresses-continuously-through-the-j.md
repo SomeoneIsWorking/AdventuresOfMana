@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-13
 tags:
 depends: src/host/main.cpp#main, src/host/render.cpp#ActorModelName, tools/verify.sh
+reconfirmed: 2026-08-13
+verified_at: 2026-08-13 23:39:41
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ tools/verify.sh passed on 2026-08-13: the continuous opening logged two Jackal k
 ## What would falsify it
 
 Falsified if the unseeded --opening-story run no longer reaches M0001_01_04 with sccnt=6, if either tagged boss model/motion fails, if either scripted edge transition disappears, or if a non-audio gameplay gate decodes audio
+
+## Re-confirmed 2026-08-13
+
+Re-proved by the complete tools/verify.sh pass whose stronger playable-overworld gate landed in b50191c on 2026-08-13.
