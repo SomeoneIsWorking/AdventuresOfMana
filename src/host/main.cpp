@@ -909,7 +909,22 @@ int main(int argc, char** argv) {
                                               return e.name == "joined";
                                           });
             ck("same-name volumes retain their callback", both_named, true);
-            lucent::info("eventbox", "SELFTEST: 16 cases, {} failures", bad);
+            mcf::World vines;
+            mcf::EventBox up, down;
+            up.lo[0] = 215; up.hi[0] = 235;
+            up.lo[1] = 0; up.hi[1] = 11;
+            up.lo[2] = 168; up.hi[2] = 195; up.flags = mcf::EventBox::kWallUp;
+            down.lo[0] = 210; down.hi[0] = 240;
+            down.lo[1] = 76; down.hi[1] = 114;
+            down.lo[2] = 168; down.hi[2] = 195; down.flags = mcf::EventBox::kWallDown;
+            vines.boxes = {up, down};
+            ck("shipping vine contact resolves upward pair",
+               vines.FindEventWall(213.1f, 192.6f, 226.f, 199.f,
+                                   0.f, 0.f, 0.f).source != nullptr, true);
+            ck("shipping vine near miss stays outside",
+               vines.FindEventWall(198.f, 192.6f, 212.f, 199.f,
+                                   0.f, 0.f, 0.f).source == nullptr, true);
+            lucent::info("eventbox", "SELFTEST: 18 cases, {} failures", bad);
             return bad ? 1 : 0;
         }
         if (camera_selftest) {
@@ -2503,9 +2518,9 @@ int main(int argc, char** argv) {
                              world.boxes.size(), live);
                 for (const auto& bx : world.boxes)
                     lucent::info("world", "  box '{}' local ({:.0f},{:.0f},{:.0f}).."
-                                 "({:.0f},{:.0f},{:.0f}){}",
+                                 "({:.0f},{:.0f},{:.0f}) flags=0x{:x}{}",
                                  bx.name, bx.lo[0], bx.lo[1], bx.lo[2],
-                                 bx.hi[0], bx.hi[1], bx.hi[2],
+                                 bx.hi[0], bx.hi[1], bx.hi[2], bx.flags,
                                  bx.floor_y ? " (floor unresolved)" : "");
             }
 
@@ -2658,6 +2673,7 @@ int main(int argc, char** argv) {
                 return &mit->second;
             };
             float px = ctr[0], pz = ctr[2], py = 0, pdeg = 0;
+            constexpr float kEventBoxProbeHeight = 15.f;
             if (has_spawn) { px = spawn_x + room_org[0]; pz = spawn_z + room_org[2]; }
             // A spawn with no floor under it silently dropped the player to
             // y=0, i.e. under a terrain whose floor is at y=60 -- the player
@@ -2938,7 +2954,11 @@ int main(int argc, char** argv) {
             std::string driver_route_room;
             float driver_route_goal_x = std::numeric_limits<float>::quiet_NaN();
             float driver_route_goal_z = std::numeric_limits<float>::quiet_NaN();
+            float driver_route_floor = std::numeric_limits<float>::quiet_NaN();
+            float driver_route_contact_x = std::numeric_limits<float>::quiet_NaN();
+            float driver_route_contact_z = std::numeric_limits<float>::quiet_NaN();
             std::deque<std::pair<float, float>> driver_route;
+            bool event_wall_inside = false;
             const float kWalk = 60.f;   // units/sec; rooms are 300x240
             // A silent combat loop is ambiguous: nothing in range, or the test
             // never ran at all. These make the negative say which.
@@ -3345,6 +3365,7 @@ int main(int argc, char** argv) {
                 // rooms) can be exercised without a human at the keyboard.
                 if (walk_to && player_input_enabled) {
                     float active_walk_x = walk_x, active_walk_z = walk_z;
+                    std::vector<const mcf::EventBox*> active_wall_ups;
                     if (opening_story) {
                         if (room_name == "M0001_00_02" ||
                             room_name == "M0001_00_01") {
@@ -3353,6 +3374,16 @@ int main(int argc, char** argv) {
                         } else if (room_name == "M0001_01_03") {
                             active_walk_x = -30.f;
                             active_walk_z = 135.f;
+                        } else if (room_name == "M0000_05_06" &&
+                                   stop_room.empty()) {
+                            // The mandatory opening verifier's documented end
+                            // is the playable waterfall recovery. A targeted
+                            // continuation (`--stop-room`) may keep driving;
+                            // the default gate must not wander into later
+                            // overworld rooms merely because more traversal
+                            // mechanics become available.
+                            active_walk_x = px - room_org[0];
+                            active_walk_z = pz - room_org[2];
                         } else if (room_name == "M0001_00_00") {
                             // After the second Jackal, EnemyDead authors two
                             // joined out_01 boxes. Drive their actual centre;
@@ -3367,6 +3398,19 @@ int main(int argc, char** argv) {
                                 }
                         }
 
+                        // Multi-level overworld rooms author their staircase
+                        // as an ordered set of WALL_UP volumes. Approach the
+                        // first volume belonging to the player's current
+                        // floor; after traversal, the next level selects the
+                        // next authored volume automatically.
+                        for (const auto& bx : world.boxes) {
+                            if (!bx.enabled || bx.no_touch ||
+                                !(bx.flags & mcf::EventBox::kWallUp) ||
+                                py < bx.lo[1] - 20.f || py > bx.hi[1] + 5.f)
+                                continue;
+                            active_wall_ups.push_back(&bx);
+                        }
+
                         // The headless driver is an instrument: route through
                         // the shipping floor and wall queries instead of
                         // assuming that a straight line, or even a 30-unit
@@ -3377,12 +3421,16 @@ int main(int argc, char** argv) {
                         const bool route_changed =
                             driver_route_room != room_name ||
                             driver_route_goal_x != active_walk_x ||
-                            driver_route_goal_z != active_walk_z;
+                            driver_route_goal_z != active_walk_z ||
+                            driver_route_floor != py;
                         if (have_col && route_changed) {
                             driver_route_room = room_name;
                             driver_route_goal_x = active_walk_x;
                             driver_route_goal_z = active_walk_z;
+                            driver_route_floor = py;
                             driver_route.clear();
+                            driver_route_contact_x = active_walk_x;
+                            driver_route_contact_z = active_walk_z;
                             constexpr float kNavStep = 7.5f;
                             const int nav_w = int(std::lround(room_size.w / kNavStep)) + 1;
                             const int nav_h = int(std::lround(room_size.h / kNavStep)) + 1;
@@ -3413,7 +3461,8 @@ int main(int argc, char** argv) {
                                     // boundary; retain that one node but never
                                     // let routing use an unrelated room edge as
                                     // a shortcut.
-                                    if (unrelated_boundary && sample != start)
+                                    if (active_wall_ups.empty() &&
+                                        unrelated_boundary && sample != start)
                                         continue;
                                     float floor;
                                     if (col.GetFloor(nav_x(x), nav_z(z),
@@ -3451,7 +3500,10 @@ int main(int argc, char** argv) {
                                     if (col.BlockedXZ(nav_x(hx), nav_z(hz),
                                                       nav_x(nx), nav_z(nz),
                                                       height[size_t(here)], 30.f,
-                                                      mcf::Collision::kWallMask))
+                                                      mcf::Collision::kWallMask) &&
+                                        !world.FindEventWall(
+                                            nav_x(hx), nav_z(hz), nav_x(nx), nav_z(nz),
+                                            height[size_t(here)], room_org[0], room_org[2]).source)
                                         continue;
                                     dist[size_t(next)] = dist[size_t(here)] + 1;
                                     prev[size_t(next)] = here;
@@ -3484,15 +3536,31 @@ int main(int argc, char** argv) {
                                 constexpr float kExitApproach = 60.f;
                                 const float cx = gx * kNavStep;
                                 const float cz = gz * kNavStep;
-                                if ((outside_left && cx > kExitApproach) ||
-                                    (outside_right &&
-                                     cx < room_size.w - kExitApproach) ||
-                                    (outside_up && cz > kExitApproach) ||
-                                    (outside_down &&
-                                     cz < room_size.h - kExitApproach))
+                                if (active_wall_ups.empty() &&
+                                    ((outside_left && cx > kExitApproach) ||
+                                     (outside_right &&
+                                      cx < room_size.w - kExitApproach) ||
+                                     (outside_up && cz > kExitApproach) ||
+                                     (outside_down &&
+                                      cz < room_size.h - kExitApproach)))
                                     continue;
+                                bool in_wall_goal = active_wall_ups.empty();
+                                if (!in_wall_goal)
+                                    for (const auto* bx : active_wall_ups)
+                                        if (cx >= bx->lo[0] && cx <= bx->hi[0] &&
+                                            cz >= bx->lo[2] && cz <= bx->hi[2]) {
+                                            in_wall_goal = true;
+                                            break;
+                                        }
+                                if (!in_wall_goal) continue;
                                 const float dx = cx - active_walk_x;
                                 const float dz = cz - active_walk_z;
+                                // For a staircase choose the reachable volume
+                                // that advances toward the eventual room goal.
+                                // M0000_07_05 has east and west vine branches;
+                                // shortest-from-player selects the wrong one,
+                                // while both the goal and reachability are
+                                // authored data.
                                 const float score = dx * dx + dz * dz;
                                 if (score < best) {
                                     best = score;
@@ -3508,7 +3576,11 @@ int main(int argc, char** argv) {
                                     active_walk_x, active_walk_z, room_name);
                                 running = false;
                                 mx = mz = 0.f;
-                            } else if (goal != start) {
+                            } else {
+                                driver_route_contact_x = float(goal % nav_w) * kNavStep;
+                                driver_route_contact_z = float(goal / nav_w) * kNavStep;
+                            }
+                            if (goal >= 0 && goal != start) {
                                 std::vector<int> reverse_path;
                                 for (int step = goal; step != start;
                                      step = prev[size_t(step)])
@@ -3531,6 +3603,9 @@ int main(int argc, char** argv) {
                         if (!driver_route.empty()) {
                             active_walk_x = driver_route.front().first;
                             active_walk_z = driver_route.front().second;
+                        } else if (!active_wall_ups.empty()) {
+                            active_walk_x = driver_route_contact_x;
+                            active_walk_z = driver_route_contact_z;
                         }
                     }
                     float tx = active_walk_x + room_org[0];
@@ -3728,10 +3803,74 @@ int main(int argc, char** argv) {
                     if (exit_arrow >= 0) {
                         requestRoomExit(exit_arrow, lx, lz);
                     }
+                    bool traversed_event_wall = false;
+                    bool touching_event_wall = false;
+                    for (const auto& bx : world.boxes)
+                        if ((bx.flags & (mcf::EventBox::kWallUp |
+                                         mcf::EventBox::kWallDown)) &&
+                            px > room_org[0] + bx.lo[0] - kEventBoxProbeHeight &&
+                            px < room_org[0] + bx.hi[0] + kEventBoxProbeHeight &&
+                            pz > room_org[2] + bx.lo[2] - kEventBoxProbeHeight &&
+                            pz < room_org[2] + bx.hi[2] + kEventBoxProbeHeight) {
+                            touching_event_wall = true;
+                            break;
+                        }
+                    if (!touching_event_wall) event_wall_inside = false;
+                    float wall_probe_x = px, wall_probe_z = pz;
+                    if (blocked) {
+                        // AppCharacterBase resolves event collision with the
+                        // character volume, while the port's wall query stops
+                        // its origin at the shell. Probe one established
+                        // half-height/radius (15 units), not another point
+                        // step, so body contact reaches the authored volume.
+                        wall_probe_x += mx / len * kEventBoxProbeHeight;
+                        wall_probe_z += mz / len * kEventBoxProbeHeight;
+                    }
+                    auto wall = event_wall_inside ? mcf::EventWallLink{} :
+                        world.FindEventWall(ox, oz, wall_probe_x, wall_probe_z,
+                                            py, room_org[0], room_org[2]);
+                    if (wall.source) {
+                        const float dx = wall_probe_x - ox;
+                        const float dz = wall_probe_z - oz;
+                        if (std::fabs(dx) > std::fabs(dz)) {
+                            const float edge = dx > 0.f ? wall.source->hi[0]
+                                                        : wall.source->lo[0];
+                            px = room_org[0] + std::nextafter(
+                                edge, dx > 0.f ? std::numeric_limits<float>::infinity()
+                                               : -std::numeric_limits<float>::infinity());
+                            pz = std::clamp(pz, room_org[2] + wall.source->lo[2],
+                                           room_org[2] + wall.source->hi[2]);
+                        } else {
+                            const float edge = dz > 0.f ? wall.source->hi[2]
+                                                        : wall.source->lo[2];
+                            pz = room_org[2] + std::nextafter(
+                                edge, dz > 0.f ? std::numeric_limits<float>::infinity()
+                                               : -std::numeric_limits<float>::infinity());
+                            px = std::clamp(px, room_org[0] + wall.source->lo[0],
+                                           room_org[0] + wall.source->hi[0]);
+                        }
+                        // sk1.lua authors WallUp at floor-1 and WallDn at
+                        // floor-14. Invert those exact constructors: the vine
+                        // strip itself has no horizontal collision floor to
+                        // query, which is why these event volumes exist.
+                        const bool upward =
+                            (wall.source->flags & mcf::EventBox::kWallUp) != 0;
+                        py = wall.destination->lo[1] + (upward ? 14.f : 1.f);
+                        traversed_event_wall = true;
+                        event_wall_inside = true;
+                        // The remaining path was planned on the old floor.
+                        // Rebuild it from the destination landing next frame.
+                        driver_route.clear();
+                        driver_route_floor =
+                            std::numeric_limits<float>::quiet_NaN();
+                        lucent::info("world", "traversed event wall {} -> {}, "
+                                     "floor {:.1f}", wall.source->flags,
+                                     wall.destination->flags, py);
+                    }
                     // Refuse to walk off the collision mesh rather than
                     // silently floating: revert the step if there is no floor.
-                    if (blocked) { px = ox; pz = oz; }
-                    else if (have_col) py = g;
+                    if (blocked && !traversed_event_wall) { px = ox; pz = oz; }
+                    else if (!blocked && !traversed_event_wall && have_col) py = g;
                 }
                 // The opening boss's own script gates its charge on EX_1, and
                 // the requested point lies beyond the physical wall. Reaching
@@ -4094,7 +4233,6 @@ int main(int argc, char** argv) {
                 // above that contact point. Without this distinction every
                 // floor-anchored box rejects the player at its strict lower-Y
                 // boundary.
-                constexpr float kEventBoxProbeHeight = 15.f;
                 for (auto& bx : world.boxes) {
                     bool in = bx.IsHit(px, py + kEventBoxProbeHeight, pz,
                                       room_org[0], room_org[2]);
@@ -4374,6 +4512,15 @@ int main(int argc, char** argv) {
                         seedCombat();
                         px = room_exit.world_x;
                         pz = room_exit.world_z;
+                        // The shared edge itself may belong only to the room
+                        // we just left (M0000_07_05 reports y=180 there while
+                        // M0000_07_04's inward terrain is y=330). Place the
+                        // character one established body radius inside the
+                        // destination before resolving its floor.
+                        if (room_exit.arrow == 0) pz -= kEventBoxProbeHeight;
+                        if (room_exit.arrow == 1) px += kEventBoxProbeHeight;
+                        if (room_exit.arrow == 2) pz += kEventBoxProbeHeight;
+                        if (room_exit.arrow == 3) px -= kEventBoxProbeHeight;
                         py = 0.f;
                         if (have_col) {
                             float g;

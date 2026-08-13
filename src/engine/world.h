@@ -196,6 +196,8 @@ inline bool UsesHostEnemyAI(const Actor& a) {
 // engine calls the global Lua function of the same name, which is how map
 // transitions, cutscenes and shops all start.
 struct EventBox {
+    static constexpr uint32_t kWallUp = 0x01;
+    static constexpr uint32_t kWallDown = 0x02;
     std::string name;
     float lo[3]{}, hi[3]{};
     uint32_t flags = 0;      // SetEventBoxFlg: engine ORs/clears requested bits
@@ -222,6 +224,11 @@ struct EventBox {
         hi[1] += y;
         floor_y = false;
     }
+};
+
+struct EventWallLink {
+    const EventBox* source = nullptr;
+    const EventBox* destination = nullptr;
 };
 
 // The engine's faction tag for a spawned actor. The player is the one actor the
@@ -285,6 +292,8 @@ public:
     std::vector<EventBox> boxes;
 
     EventBox* FindBox(const std::string& name);
+    EventWallLink FindEventWall(float x0, float z0, float x1, float z1,
+                                float foot_y, float room_x, float room_z) const;
 
     void Reset();
 

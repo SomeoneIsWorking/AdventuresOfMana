@@ -126,6 +126,62 @@ EventBox* World::FindBox(const std::string& name) {
     return nullptr;
 }
 
+namespace {
+bool SegmentMeetsRect(float x0, float z0, float x1, float z1,
+                      float lo_x, float lo_z, float hi_x, float hi_z) {
+    float t0 = 0.f, t1 = 1.f;
+    auto clip = [&](float p, float q) {
+        if (p == 0.f) return q >= 0.f;
+        const float r = q / p;
+        if (p < 0.f) {
+            if (r > t1) return false;
+            t0 = std::max(t0, r);
+        } else {
+            if (r < t0) return false;
+            t1 = std::min(t1, r);
+        }
+        return true;
+    };
+    return clip(-(x1 - x0), x0 - lo_x) &&
+           clip( (x1 - x0), hi_x - x0) &&
+           clip(-(z1 - z0), z0 - lo_z) &&
+           clip( (z1 - z0), hi_z - z0);
+}
+}
+
+EventWallLink World::FindEventWall(float x0, float z0, float x1, float z1,
+                                   float foot_y, float room_x, float room_z) const {
+    for (const auto& source : boxes) {
+        if (!source.enabled || source.no_touch) continue;
+        const bool up = (source.flags & EventBox::kWallUp) != 0;
+        const bool down = (source.flags & EventBox::kWallDown) != 0;
+        if (!up && !down) continue;
+        // EvBoxWallUp surrounds the lower contact; EvBoxWallDn surrounds the
+        // upper one. The engine switches only from the corresponding floor
+        // state. The 20-unit margin covers the character origin below an UP
+        // box while still separating successive 30+ unit authored levels.
+        if ((up && (foot_y < source.lo[1] - 20.f ||
+                    foot_y > source.hi[1] + 5.f)) ||
+            (down && (foot_y < source.lo[1] || foot_y > source.hi[1])))
+            continue;
+        if (!SegmentMeetsRect(x0, z0, x1, z1,
+                              source.lo[0] + room_x, source.lo[2] + room_z,
+                              source.hi[0] + room_x, source.hi[2] + room_z))
+            continue;
+        const uint32_t wanted = up ? EventBox::kWallDown : EventBox::kWallUp;
+        for (const auto& destination : boxes) {
+            if (&destination == &source || !destination.enabled ||
+                destination.no_touch || !(destination.flags & wanted)) continue;
+            if (std::max(source.lo[0], destination.lo[0]) <
+                    std::min(source.hi[0], destination.hi[0]) &&
+                std::max(source.lo[2], destination.lo[2]) <
+                    std::min(source.hi[2], destination.hi[2]))
+                return {&source, &destination};
+        }
+    }
+    return {};
+}
+
 void World::Reset() {
     actors_.clear();
     index_.clear();
