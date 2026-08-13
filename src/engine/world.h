@@ -165,6 +165,11 @@ struct Actor {
     // Set when a script spawned this NPC at exactly (0,0) -- the engine's
     // signal to choose the position itself (see Dispatch's AddNPC).
     bool random_place = false;
+    // Set once the host has resolved an engine-chosen chip. Room Init
+    // coroutines can create random enemies after the initial room load, so
+    // random_place alone cannot distinguish pending placement from an actor
+    // that legitimately landed at room-local (0,0).
+    bool random_placed = false;
     float place_extent = 0.f;
     bool is_weapon = false;
     std::map<int, float> data;   // sparse: slot -> value

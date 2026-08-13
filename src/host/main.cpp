@@ -272,6 +272,7 @@ int main(int argc, char** argv) {
     bool opening_story = false;
     bool continue_story = false;
     std::string stop_room;
+    int stop_sccnt = -1;
     int warmup = 0;
     bool fixed_step = false;
     bool combat_demo = false;
@@ -280,6 +281,7 @@ int main(int argc, char** argv) {
     bool auto_advance = false;
     bool auto_talk = false;
     bool force_window = false;
+    bool no_window = false;
     bool walk_to = false;
     float walk_x = 0, walk_z = 0;
     for (int i = 1; i < argc; ++i) {
@@ -296,6 +298,7 @@ int main(int argc, char** argv) {
         else if (a == "--auto-advance") auto_advance = true;
         else if (a == "--auto-talk") auto_talk = true;
         else if (a == "--window") force_window = true;
+        else if (a == "--no-window") no_window = true;
         else if (a == "--run-room" && i + 1 < argc) room = argv[++i];
         else if (a == "--render-room" && i + 1 < argc) render_room = argv[++i];
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
@@ -329,9 +332,15 @@ int main(int argc, char** argv) {
             walk_z = 30.f;
             fixed_step = true;
             no_audio = true;
+            no_window = true;
         }
-        else if (a == "--continue-story") continue_story = true;
+        else if (a == "--continue-story") {
+            continue_story = true;
+            auto_talk = true;
+        }
         else if (a == "--stop-room" && i + 1 < argc) stop_room = argv[++i];
+        else if (a == "--stop-sccnt" && i + 1 < argc)
+            stop_sccnt = std::atoi(argv[++i]);
         // --warmup implies --fixed-step: see the loop, a frame count on an
         // uncapped loop is not a duration.
         else if (a == "--warmup" && i + 1 < argc) { warmup = std::atoi(argv[++i]); fixed_step = true; }
@@ -365,6 +374,7 @@ int main(int argc, char** argv) {
                 "  --model NAME [--anim FILE] [--time T]   view one model\n"
                 "  --screenshot OUT.png [--warmup N]       render N frames, save, exit\n"
                 "  --window            open a real window during a --screenshot run\n"
+                "  --no-window         use SDL's offscreen video backend\n"
                 "  --fixed-step        step at a fixed 30 Hz (implied by --warmup)\n"
                 "  --collision-probe ROOM                  walk outward, report walls\n"
                 "  --script-census     run every shipping script and tally cmd calls\n"
@@ -382,6 +392,7 @@ int main(int argc, char** argv) {
                 "  --opening-story     drive the authored opening through both Jackal fights\n"
                 "  --continue-story    continue the opening driver past waterfall recovery\n"
                 "  --stop-room NAME    exit successfully after loading this room\n"
+                "  --stop-sccnt N      exit after scenario N settles with no dialogue/coroutines\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
                 "  --auto-advance      dismiss dialogue automatically (headless)\n"
                 "  --auto-talk         talk to any NPC in reach (headless)\n"
@@ -1154,6 +1165,35 @@ int main(int argc, char** argv) {
                !script.player_control_enabled &&
                run("control-on", "SetPlayerControllEnable(true)\n") &&
                script.player_control_enabled);
+            {
+                mcf::World zw;
+                mcf::Script zs;
+                zs.world = &zw;
+                int rolls = 0;
+                zs.random_index = [&](int n) { return (rolls++) % n; };
+                auto zrun = [&](std::string_view source) {
+                    std::vector<uint8_t> bytes(source.begin(), source.end());
+                    return zs.Run("zaco-selftest", bytes);
+                };
+                ck("AddEnemyZaco zero count produces no actors",
+                   zrun("AddEnemyZaco(0,-1,-1,-1,-1,-1)\n") &&
+                   zw.actors().empty());
+                ck("AddEnemyZaco spawns the requested count from the terminated id list",
+                   zrun("AddEnemyZaco(3,3,7,-1,-1,-1)\n") &&
+                   zw.actors().size() == 3 && rolls == 3 &&
+                   zw.actors()[0].type_id == 3 &&
+                   zw.actors()[1].type_id == 7 &&
+                   zw.actors()[2].type_id == 3);
+                ck("AddEnemyZaco actors have unique handles and pending engine placement",
+                   zw.actors().size() == 3 &&
+                   zw.actors()[0].handle != zw.actors()[1].handle &&
+                   zw.actors()[1].handle != zw.actors()[2].handle &&
+                   std::all_of(zw.actors().begin(), zw.actors().end(),
+                               [](const mcf::Actor& a) {
+                                   return a.kind == 'E' && a.random_place &&
+                                          !a.random_placed;
+                               }));
+            }
             lucent::info("movement", "SELFTEST: {} cases, {} failures", checked, bad);
             return bad ? 1 : 0;
         }
@@ -1895,7 +1935,7 @@ int main(int argc, char** argv) {
         // flashes on the user's desktop for no benefit, so it goes through
         // SDL's offscreen driver whether or not a display exists. --window
         // opts back in for the rare case of watching a capture run live.
-        if (!shot.empty() && !force_window)
+        if ((no_window || !shot.empty()) && !force_window)
             SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
 
         if (!SDL_Init(SDL_INIT_VIDEO))
@@ -2235,10 +2275,16 @@ int main(int argc, char** argv) {
             // Re-seeded on every room load, because world.Reset() drops the
             // actors a previous room's stats were attached to.
             std::function<void()> seedCombat = [] {};
+            std::function<int()> placeRandomActors = [] { return 0; };
 
             std::string room_name = render_room;
+            bool bogard_house_visited = false;
+            bool bogard_return_reached_vine_summit = false;
             auto loadRoom = [&](const std::string& name) -> bool {
                 room_name = name;
+                if (name == "M0010_00_01") bogard_house_visited = true;
+                if (bogard_house_visited && name == "M0000_07_04")
+                    bogard_return_reached_vine_summit = true;
                 stage = mcf::Renderable{};
                 if (!mcf::LoadRenderable(ar, room_name, white, &stage)) {
                     lucent::error("world", "no model for room {}", room_name);
@@ -2372,50 +2418,70 @@ int main(int argc, char** argv) {
                 }
             }
 
-            std::vector<std::pair<int, int>> taken_chips;
-            for (auto& a : world.actors_mutable()) {
-                if (!a.random_place || !have_col) continue;
-                constexpr float kChip = 30.f;
-                float best[2]{0, 0};
-                std::pair<int, int> best_chip{-1, -1};
-                float best_d = 1e30f;
-                bool found = false;
-                float cx = room_org[0] + room_size.w * 0.5f;
-                float cz = room_org[2] + room_size.h * 0.5f;
-                // The scan covers the ROOM, whose size is not a constant --
-                // a 330x270 room is 11x9 chips, not 10x8.
-                const int chips_x = int(room_size.w / kChip);
-                const int chips_z = int(room_size.h / kChip);
-                for (int gz = 0; gz < chips_z; ++gz) {
-                    for (int gx = 0; gx < chips_x; ++gx) {
-                        float wx = room_org[0] + (float(gx) + 0.5f) * kChip;
-                        float wz = room_org[2] + (float(gz) + 0.5f) * kChip;
-                        float g;
-                        if (!col.GetFloor(wx, wz, mcf::Collision::kFloorMask, &g)) continue;
-                        // One actor per chip, or a room's NPCs all stack on the
-                        // single chip nearest the centre.
-                        if (std::find(taken_chips.begin(), taken_chips.end(),
-                                      std::make_pair(gx, gz)) != taken_chips.end())
-                            continue;
-                        float d = (wx - cx) * (wx - cx) + (wz - cz) * (wz - cz);
-                        if (d < best_d) {
-                            best_d = d; best[0] = wx; best[1] = wz; found = true;
-                            best_chip = {gx, gz};
+            placeRandomActors = [&]() {
+                if (!have_col) return 0;
+                std::vector<std::pair<int, int>> taken_chips;
+                for (const auto& a : world.actors()) {
+                    if (!a.random_place || !a.random_placed) continue;
+                    taken_chips.emplace_back(int(a.pos[0] / 30.f),
+                                             int(a.pos[2] / 30.f));
+                }
+                int placed_count = 0;
+                for (auto& a : world.actors_mutable()) {
+                    if (!a.random_place || a.random_placed) continue;
+                    constexpr float kChip = 30.f;
+                    float best[2]{0, 0};
+                    std::pair<int, int> best_chip{-1, -1};
+                    float best_d = 1e30f;
+                    bool found = false;
+                    float cx = room_org[0] + room_size.w * 0.5f;
+                    float cz = room_org[2] + room_size.h * 0.5f;
+                    // The scan covers the ROOM, whose size is not a constant --
+                    // a 330x270 room is 11x9 chips, not 10x8.
+                    const int chips_x = int(room_size.w / kChip);
+                    const int chips_z = int(room_size.h / kChip);
+                    for (int gz = 0; gz < chips_z; ++gz) {
+                        for (int gx = 0; gx < chips_x; ++gx) {
+                            float wx = room_org[0] + (float(gx) + 0.5f) * kChip;
+                            float wz = room_org[2] + (float(gz) + 0.5f) * kChip;
+                            float g;
+                            if (!col.GetFloor(wx, wz, mcf::Collision::kFloorMask, &g))
+                                continue;
+                            // One actor per chip, or a room's NPCs all stack on the
+                            // single chip nearest the centre.
+                            if (std::find(taken_chips.begin(), taken_chips.end(),
+                                          std::make_pair(gx, gz)) != taken_chips.end())
+                                continue;
+                            float d = (wx - cx) * (wx - cx) +
+                                      (wz - cz) * (wz - cz);
+                            if (d < best_d) {
+                                best_d = d;
+                                best[0] = wx;
+                                best[1] = wz;
+                                found = true;
+                                best_chip = {gx, gz};
+                            }
                         }
                     }
+                    if (found) {
+                        taken_chips.push_back(best_chip);
+                        a.pos[0] = best[0] - room_org[0];
+                        a.pos[2] = best[1] - room_org[2];
+                        a.random_placed = true;
+                        ++placed_count;
+                        lucent::info("world", "{}: engine-placed (script gave 0,0, "
+                                     "extent {:.0f}) -> room-local ({:.0f},{:.0f})",
+                                     a.handle, a.place_extent, a.pos[0], a.pos[2]);
+                    } else {
+                        lucent::warn("world", "{}: engine placement scanned {} chips "
+                                     "({}x{}), found 0 available walkable chips; "
+                                     "leaving it at the origin", a.handle,
+                                     chips_x * chips_z, chips_x, chips_z);
+                    }
                 }
-                if (found) {
-                    taken_chips.push_back(best_chip);
-                    a.pos[0] = best[0] - room_org[0];
-                    a.pos[2] = best[1] - room_org[2];
-                    lucent::info("world", "{}: engine-placed (script gave 0,0, extent {:.0f}) "
-                                 "-> room-local ({:.0f},{:.0f})",
-                                 a.handle, a.place_extent, a.pos[0], a.pos[2]);
-                } else {
-                    lucent::warn("world", "{}: engine-placed, but no walkable chip found "
-                                 "in the 10x8 grid; leaving it at the origin", a.handle);
-                }
-            }
+                return placed_count;
+            };
+            placeRandomActors();
 
             // One renderable per distinct model, instanced per actor.
             placed.clear();
@@ -2820,6 +2886,7 @@ int main(int argc, char** argv) {
             auto game_random = [&rng](int n) {
                 return std::uniform_int_distribution<int>(0, n - 1)(rng);
             };
+            sc.random_index = game_random;
             int player_attack = ps.attack();
             if (!mcf::FindWeapon(ps.weapon))
                 lucent::warn("combat", "weapon {} not in tblWeapon; the player's "
@@ -3382,7 +3449,7 @@ int main(int argc, char** argv) {
                 // rooms) can be exercised without a human at the keyboard.
                 if (walk_to && player_input_enabled) {
                     float active_walk_x = walk_x, active_walk_z = walk_z;
-                    std::vector<const mcf::EventBox*> active_wall_ups;
+                    std::vector<const mcf::EventBox*> active_event_walls;
                     if (opening_story) {
                         if (room_name == "M0001_00_02" ||
                             room_name == "M0001_00_01") {
@@ -3402,13 +3469,16 @@ int main(int argc, char** argv) {
                             active_walk_x = px - room_org[0];
                             active_walk_z = pz - room_org[2];
                         } else if (room_name == "M0000_05_06" ||
-                                   room_name == "M0000_06_06") {
+                                   (room_name == "M0000_06_06" &&
+                                    !bogard_house_visited)) {
                             active_walk_x = room_size.w + 30.f;
                             active_walk_z = 135.f;
-                        } else if (room_name == "M0000_07_06") {
+                        } else if (room_name == "M0000_07_06" &&
+                                   !bogard_house_visited) {
                             active_walk_x = 150.f;
                             active_walk_z = -30.f;
-                        } else if (room_name == "M0000_07_05") {
+                        } else if (room_name == "M0000_07_05" &&
+                                   !bogard_house_visited) {
                             // The southern entrance is connected to the east
                             // vines through floors 0 and 90. Floor 150 joins
                             // the two branches, where the west vine reaches the
@@ -3416,12 +3486,21 @@ int main(int argc, char** argv) {
                             active_walk_x = py < 140.f ? 225.f : 105.f;
                             active_walk_z = -30.f;
                         } else if (room_name == "M0000_07_04") {
-                            active_walk_x = -30.f;
-                            active_walk_z = 180.f;
+                            if (bogard_house_visited) {
+                                // The west return vine exits into this upper
+                                // cell. Cross its continuous y=180 floor and
+                                // re-enter above the middle/east descent.
+                                active_walk_x = 225.f;
+                                active_walk_z = room_size.h + 30.f;
+                            } else {
+                                active_walk_x = -30.f;
+                                active_walk_z = 180.f;
+                            }
                         } else if (room_name == "M0000_06_04") {
                             active_walk_x = 285.f;
                             active_walk_z = room_size.h + 30.f;
-                        } else if (room_name == "M0000_06_05") {
+                        } else if (room_name == "M0000_06_05" &&
+                                   !bogard_house_visited) {
                             for (const auto& bx : world.boxes)
                                 if (bx.enabled && !bx.no_touch &&
                                     bx.name == "in_01") {
@@ -3429,6 +3508,47 @@ int main(int argc, char** argv) {
                                     active_walk_z = (bx.lo[2] + bx.hi[2]) * .5f;
                                     break;
                                 }
+                        } else if (room_name == "M0010_00_01") {
+                            const bool greeted_bogard =
+                                sc.GlobalNumber("tmp0") >= 1.0;
+                            const char* wanted = greeted_bogard ? "out_01" : nullptr;
+                            if (wanted) {
+                                for (const auto& bx : world.boxes)
+                                    if (bx.enabled && !bx.no_touch &&
+                                        bx.name == wanted) {
+                                        active_walk_x =
+                                            (bx.lo[0] + bx.hi[0]) * .5f;
+                                        active_walk_z =
+                                            (bx.lo[2] + bx.hi[2]) * .5f;
+                                        break;
+                                    }
+                            } else if (const auto* npc = world.Find("NPC_01")) {
+                                active_walk_x = npc->pos[0];
+                                active_walk_z = npc->pos[2] + 20.f;
+                            }
+                        } else if (room_name == "M0000_06_05") {
+                            active_walk_x = room_size.w + 30.f;
+                            active_walk_z = 105.f;
+                        } else if (room_name == "M0000_07_05") {
+                            active_walk_x = 150.f;
+                            active_walk_z = room_size.h + 30.f;
+                        } else if (room_name == "M0000_07_06" &&
+                                   bogard_house_visited) {
+                            active_walk_x = room_size.w + 30.f;
+                            // The destination edge has authored y=0 bands at
+                            // z<=112.5 and z>=150, separated by an isolated
+                            // y=-15 pocket. Cross through the measured lower
+                            // connected band, on the 7.5-unit ground lattice.
+                            active_walk_z = 105.f;
+                        } else if (room_name == "M0000_08_06") {
+                            active_walk_x = 150.f;
+                            active_walk_z = room_size.h + 30.f;
+                        } else if (room_name == "M0000_08_07") {
+                            active_walk_x = 150.f;
+                            active_walk_z = room_size.h + 30.f;
+                        } else if (room_name == "M0000_08_08") {
+                            active_walk_x = room_size.w + 30.f;
+                            active_walk_z = 135.f;
                         } else if (room_name == "M0001_00_00") {
                             // After the second Jackal, EnemyDead authors two
                             // joined out_01 boxes. Drive their actual centre;
@@ -3443,17 +3563,35 @@ int main(int argc, char** argv) {
                                 }
                         }
 
-                        // Multi-level overworld rooms author their staircase
-                        // as an ordered set of WALL_UP volumes. Approach the
-                        // first volume belonging to the player's current
-                        // floor; after traversal, the next level selects the
-                        // next authored volume automatically.
+                        // Multi-level overworld rooms author paired WALL_UP /
+                        // WALL_DN volumes. Approach the direction belonging to
+                        // both the player's current floor and story objective;
+                        // the return from Bogard's elevated house must descend
+                        // the same vine the outward route climbed elsewhere.
+                        const bool returning_through_vines =
+                            bogard_house_visited && room_name == "M0000_07_05";
+                        if (returning_through_vines && py >= 175.f)
+                            bogard_return_reached_vine_summit = true;
+                        const bool seek_wall_down =
+                            (bogard_house_visited && room_name == "M0000_06_05") ||
+                            (returning_through_vines &&
+                             bogard_return_reached_vine_summit);
+                        const bool seek_wall_up =
+                            room_name == "M0000_07_05" &&
+                            (!bogard_house_visited ||
+                             !bogard_return_reached_vine_summit);
                         for (const auto& bx : world.boxes) {
                             if (!bx.enabled || bx.no_touch ||
-                                !(bx.flags & mcf::EventBox::kWallUp) ||
-                                py < bx.lo[1] - 20.f || py > bx.hi[1] + 5.f)
+                                (!seek_wall_down && !seek_wall_up) ||
+                                !(bx.flags & (seek_wall_down
+                                    ? mcf::EventBox::kWallDown
+                                    : mcf::EventBox::kWallUp)) ||
+                                (seek_wall_down
+                                    ? (py < bx.lo[1] || py > bx.hi[1])
+                                    : (py < bx.lo[1] - 20.f ||
+                                       py > bx.hi[1] + 5.f)))
                                 continue;
-                            active_wall_ups.push_back(&bx);
+                            active_event_walls.push_back(&bx);
                         }
 
                         // The headless driver is an instrument: route through
@@ -3485,7 +3623,7 @@ int main(int argc, char** argv) {
                                 (px - room_org[0]) / kNavStep)), 0, nav_w - 1);
                             int sz = std::clamp(int(std::lround(
                                 (pz - room_org[2]) / kNavStep)), 0, nav_h - 1);
-                            const int start = sz * nav_w + sx;
+                            int start = sz * nav_w + sx;
                             const bool outside_left = active_walk_x < 0.f;
                             const bool outside_right = active_walk_x >= room_size.w;
                             const bool outside_up = active_walk_z < 0.f;
@@ -3497,6 +3635,9 @@ int main(int argc, char** argv) {
                             for (int z = 0; z < nav_h; ++z)
                                 for (int x = 0; x < nav_w; ++x) {
                                     const int sample = z * nav_w + x;
+                                    const bool any_boundary =
+                                        x == 0 || x == nav_w - 1 ||
+                                        z == 0 || z == nav_h - 1;
                                     const bool unrelated_boundary =
                                         (x == 0 && !outside_left) ||
                                         (x == nav_w - 1 && !outside_right) ||
@@ -3506,8 +3647,10 @@ int main(int argc, char** argv) {
                                     // boundary; retain that one node but never
                                     // let routing use an unrelated room edge as
                                     // a shortcut.
-                                    if (active_wall_ups.empty() &&
-                                        unrelated_boundary && sample != start)
+                                    if (sample != start &&
+                                        ((active_event_walls.empty() && any_boundary) ||
+                                         (returning_through_vines &&
+                                          unrelated_boundary)))
                                         continue;
                                     float floor;
                                     if (col.GetFloorBelow(nav_x(x), nav_z(z),
@@ -3516,6 +3659,38 @@ int main(int argc, char** argv) {
                                                           &floor))
                                         height[size_t(sample)] = floor;
                                 }
+                            // A live position can sit between lattice samples
+                            // on one side of a floor seam while nearest-round
+                            // lands on the other side. Attach it to the nearest
+                            // sampled node on the same floor through a clear
+                            // segment; otherwise BFS starts in the wrong
+                            // connected component despite valid live ground.
+                            float live_floor = py;
+                            float best_attach =
+                                std::numeric_limits<float>::infinity();
+                            int attached = -1;
+                            for (int i = 0; i < int(height.size()); ++i) {
+                                if (height[size_t(i)] >= kChipNoFloor ||
+                                    std::fabs(height[size_t(i)] - live_floor) >= 5.f)
+                                    continue;
+                                const float cx = nav_x(i % nav_w);
+                                const float cz = nav_z(i / nav_w);
+                                const float dx = cx - px;
+                                const float dz = cz - pz;
+                                const float d2 = dx * dx + dz * dz;
+                                if (d2 >= best_attach ||
+                                    col.BlockedXZ(px, pz, cx, cz, live_floor,
+                                                  30.f,
+                                                  mcf::Collision::kWallMask))
+                                    continue;
+                                best_attach = d2;
+                                attached = i;
+                            }
+                            if (attached >= 0) {
+                                start = attached;
+                                sx = start % nav_w;
+                                sz = start / nav_w;
+                            }
                             std::queue<int> pending;
                             if (height[size_t(start)] < kChipNoFloor) {
                                 dist[size_t(start)] = 0;
@@ -3584,7 +3759,7 @@ int main(int argc, char** argv) {
                                 constexpr float kExitApproach = 60.f;
                                 const float cx = gx * kNavStep;
                                 const float cz = gz * kNavStep;
-                                if (active_wall_ups.empty() &&
+                                if (active_event_walls.empty() &&
                                     ((outside_left && cx > kExitApproach) ||
                                      (outside_right &&
                                       cx < room_size.w - kExitApproach) ||
@@ -3592,9 +3767,9 @@ int main(int argc, char** argv) {
                                      (outside_down &&
                                       cz < room_size.h - kExitApproach)))
                                     continue;
-                                bool in_wall_goal = active_wall_ups.empty();
+                                bool in_wall_goal = active_event_walls.empty();
                                 if (!in_wall_goal)
-                                    for (const auto* bx : active_wall_ups)
+                                    for (const auto* bx : active_event_walls)
                                         if (cx >= bx->lo[0] && cx <= bx->hi[0] &&
                                             cz >= bx->lo[2] && cz <= bx->hi[2]) {
                                             in_wall_goal = true;
@@ -3633,11 +3808,19 @@ int main(int argc, char** argv) {
                                 for (int step = goal; step != start;
                                      step = prev[size_t(step)])
                                     reverse_path.push_back(step);
+                                int prior = start;
+                                float route_x = px - room_org[0];
+                                float route_z = pz - room_org[2];
                                 for (auto it = reverse_path.rbegin();
-                                     it != reverse_path.rend(); ++it)
-                                    driver_route.emplace_back(
-                                        float(*it % nav_w) * kNavStep,
-                                        float(*it / nav_w) * kNavStep);
+                                     it != reverse_path.rend(); ++it) {
+                                    const int node = *it;
+                                    if (node % nav_w != prior % nav_w)
+                                        route_x = float(node % nav_w) * kNavStep;
+                                    if (node / nav_w != prior / nav_w)
+                                        route_z = float(node / nav_w) * kNavStep;
+                                    driver_route.emplace_back(route_x, route_z);
+                                    prior = node;
+                                }
                             }
                         }
                         while (!driver_route.empty()) {
@@ -3651,7 +3834,7 @@ int main(int argc, char** argv) {
                         if (!driver_route.empty()) {
                             active_walk_x = driver_route.front().first;
                             active_walk_z = driver_route.front().second;
-                        } else if (!active_wall_ups.empty()) {
+                        } else if (!active_event_walls.empty()) {
                             active_walk_x = driver_route_contact_x;
                             active_walk_z = driver_route_contact_z;
                         }
@@ -3822,7 +4005,11 @@ int main(int argc, char** argv) {
                     // the blocked outward step within one fundamental chip of
                     // its centre; docs/re-frontier.md records the debt.
                     constexpr float kDoorHalfWidth = 30.f;
-                    bool outward[4]{mz < 0.f, mx > 0.f, mz > 0.f, mx < 0.f};
+                    const bool horizontal_exit = std::fabs(mx) > std::fabs(mz);
+                    bool outward[4]{!horizontal_exit && mz < 0.f,
+                                     horizontal_exit && mx > 0.f,
+                                     !horizontal_exit && mz > 0.f,
+                                     horizontal_exit && mx < 0.f};
                     // Transition is character-volume contact, not origin
                     // contact. Multi-level ledges stop the origin several
                     // units inside their visual shell; requiring the point
@@ -3926,9 +4113,31 @@ int main(int argc, char** argv) {
                         driver_route.clear();
                         driver_route_floor =
                             std::numeric_limits<float>::quiet_NaN();
+                        const float traverse_len = std::sqrt(dx * dx + dz * dz);
+                        const float clear_x = px + dx / traverse_len *
+                                                   kEventBoxProbeHeight;
+                        const float clear_z = pz + dz / traverse_len *
+                                                   kEventBoxProbeHeight;
+                        float clear_floor = 0.f;
+                        const bool clear_has_floor = !have_col ||
+                            col.GetFloorBelow(clear_x, clear_z, py + 30.f,
+                                              mcf::Collision::kFloorMask,
+                                              &clear_floor);
+                        const bool clear_blocked = have_col &&
+                            col.BlockedXZ(px, pz, clear_x, clear_z, py, 30.f,
+                                          mcf::Collision::kWallMask);
+                        const bool applied_clear = clear_has_floor &&
+                                                   !clear_blocked;
+                        if (applied_clear) {
+                            px = clear_x;
+                            pz = clear_z;
+                            py = clear_floor;
+                        }
                         lucent::info("world", "traversed event wall {} -> {}, "
-                                     "floor {:.1f}", wall.source->flags,
-                                     wall.destination->flags, py);
+                                     "floor {:.1f}; one-radius clear blocked={}, "
+                                     "floor={} ({:.1f}), applied={}", wall.source->flags,
+                                     wall.destination->flags, py, clear_blocked,
+                                     clear_has_floor, clear_floor, applied_clear);
                         const float local_x = px - room_org[0];
                         const float local_z = pz - room_org[2];
                         if (local_z < 0.f) requestRoomExit(0, local_x, local_z);
@@ -4291,6 +4500,11 @@ int main(int argc, char** argv) {
                 sc.game_time_ms = int(t * (1000.f / 30.f));
                 if (!fade_test) world.fade.Tick(dt * 1000.f);
                 sc.ResumeCoroutines();
+                // AddEnemyZaco is commonly called by Init, after loadRoom's
+                // placement pass. Resolve every newly created random actor in
+                // the same frame; otherwise its literal zero coordinates make
+                // the command look implemented while spawning off the map.
+                placeRandomActors();
                 // Init and event-box coroutines create actors after the room's
                 // first seed.  Seed only those new actors; a second complete
                 // seed would restore HP and erase combat that has happened.
@@ -4599,17 +4813,36 @@ int main(int argc, char** argv) {
                         py = source_floor_y;
                         if (have_col) {
                             float g;
+                            bool source_level_event_wall = false;
+                            for (const auto& bx : world.boxes)
+                                if (bx.enabled && !bx.no_touch &&
+                                    (bx.flags & (mcf::EventBox::kWallUp |
+                                                 mcf::EventBox::kWallDown)) &&
+                                    px > room_org[0] + bx.lo[0] -
+                                             kEventBoxProbeHeight &&
+                                    px < room_org[0] + bx.hi[0] +
+                                             kEventBoxProbeHeight &&
+                                    pz > room_org[2] + bx.lo[2] -
+                                             kEventBoxProbeHeight &&
+                                    pz < room_org[2] + bx.hi[2] +
+                                             kEventBoxProbeHeight &&
+                                    source_floor_y >= bx.lo[1] &&
+                                    source_floor_y <= bx.hi[1]) {
+                                    source_level_event_wall = true;
+                                    break;
+                                }
                             // Preserve a stacked ledge across a shared room
                             // edge. This is the engine's GetFloor contract:
                             // highest floor at or below the query Y. When the
-                            // one-radius inset is still over the shared shell,
-                            // retain the source height until movement reaches
-                            // the destination's actual continuation.
-                            if (col.GetFloorBelow(
+                            // one-radius inset overlaps an authored wall at the
+                            // source level, that wall is the continuation; a
+                            // lower collision shell must not steal ownership
+                            // before character-volume contact can traverse it.
+                            if (!source_level_event_wall && (col.GetFloorBelow(
                                     px, pz, source_floor_y + 30.f,
                                     mcf::Collision::kFloorMask, &g) ||
                                 col.GetFloor(px, pz,
-                                             mcf::Collision::kFloorMask, &g))
+                                             mcf::Collision::kFloorMask, &g)))
                                 py = g;
                         }
                         world.Spawn("MainPlayer", 0, px - room_org[0],
@@ -4658,6 +4891,14 @@ int main(int argc, char** argv) {
                     } else {
                         lucent::error("world", "mapjump to {} failed; staying put", dest);
                     }
+                }
+
+                if (stop_sccnt >= 0 &&
+                    int(sc.GlobalNumber("sccnt", -1)) == stop_sccnt &&
+                    !sc.message_pending && sc.live_coroutines() == 0) {
+                    lucent::info("world", "reached settled scenario state sccnt={}",
+                                 stop_sccnt);
+                    running = false;
                 }
 
                 glViewport(0, 0, W, H);

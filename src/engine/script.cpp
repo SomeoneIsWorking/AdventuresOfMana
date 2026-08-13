@@ -165,6 +165,31 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         return addNpc(S(1), int(N(2)), N(3), N(4), N(5), N(6));
     if (n == "AddNPCSubType")               // (name, id, sub, x, y, z, extent)
         return addNpc(S(1), int(N(2)), N(4), N(5), N(6), N(7));
+    if (n == "AddEnemyZaco") {
+        // AddEnemyZaco @ 0x2c8f1c passes (count, ids-until--1) to
+        // ModeGame::AddEnemyZaco @ 0x2de750. That function calls rand modulo
+        // the number of supplied ids once per spawn, then AddEnemy with zero
+        // XYZ and its random-position flag set.
+        auto* self = FromState(L);
+        const int count = int(N(1));
+        std::vector<int> ids;
+        for (int arg = 2; arg <= 6; ++arg) {
+            const int id = int(N(arg));
+            if (id == -1) break;
+            ids.push_back(id);
+        }
+        if (count <= 0 || ids.empty()) return true;
+        for (int i = 0; i < count; ++i) {
+            const int pick = self && self->random_index
+                ? self->random_index(int(ids.size())) : 0;
+            auto& a = w.Spawn(std::format("enemy{}_{}", ids[size_t(pick)],
+                                          w.NextSpawnSerial()),
+                              ids[size_t(pick)], 0.f, 0.f, 0.f);
+            a.kind = 'E';
+            a.random_place = true;
+        }
+        return true;
+    }
     if (n == "AddEnemy" || n == "AddBoss" || n == "AddParty") {
         // (id, x, y, z). Unlike AddNPC these carry no handle -- the engine
         // assigns one. The handle MUST be unique per spawn, not per type: a

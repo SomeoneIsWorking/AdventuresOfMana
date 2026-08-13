@@ -263,6 +263,31 @@ echo "=== combat self-test ==="
   grep -F "reached requested stop room M0010_00_01" "$bogard_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$bogard_log" || fail=1
 
+  # Continue back down the authored inverse vine route and through the heroine
+  # encounter. This also guards AddEnemyZaco: its Init-time actors must be
+  # created, engine-placed, seeded, defeated, and allowed to fire EnemyDead.
+  # --opening-story makes the run fixed-step/uncapped, silent, and offscreen.
+  echo "=== continuous route through heroine encounter ==="
+  heroine_log=scratch/logs/heroine-story.log
+  ./build/mana --opening-story --continue-story --stop-sccnt 12 \
+    >"$heroine_log" 2>&1 || fail=1
+  # Three climbs outbound, then two on the western return vine before the
+  # three-step eastern descent.
+  test "$(grep -Fc 'traversed event wall 1 -> 2' "$heroine_log")" -eq 5 || fail=1
+  test "$(grep -Fc 'traversed event wall 2 -> 1' "$heroine_log")" -eq 3 || fail=1
+  test "$(grep -Fc 'engine-placed (script gave 0,0, extent 0)' "$heroine_log")" \
+    -eq 3 || fail=1
+  grep -F "enemy stats: 3 from enemydat.bin, 0 with no table entry" \
+    "$heroine_log" || fail=1
+  test "$(grep -Fc 'MainPlayer killed enemy3_' "$heroine_log")" -eq 3 || fail=1
+  grep -F "all live enemies defeated; started EnemyDead coroutine" \
+    "$heroine_log" || fail=1
+  grep -F "reached settled scenario state sccnt=12" "$heroine_log" || fail=1
+  grep -F "end state: sccnt=12, eventScene=0, cinema=false, player-control=true, 0 live coroutine(s)" \
+    "$heroine_log" || fail=1
+  grep -F "video driver: offscreen" "$heroine_log" || fail=1
+  grep -F "audio decoded 0 sounds / 0 frames" "$heroine_log" || fail=1
+
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --camera-selftest >/dev/null 2>&1 || fail=1

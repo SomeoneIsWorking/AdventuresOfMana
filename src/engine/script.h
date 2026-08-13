@@ -59,6 +59,9 @@ public:
     // duration synchronously at the command boundary.
     std::function<float(char kind, int type_id, int motion)> motion_duration;
     std::function<uint32_t(float x, float z)> ground_attribute;
+    // GameRandom's range contract, supplied by the host so native commands
+    // and gameplay use one reproducible sequence in headless runs.
+    std::function<int(int)> random_index;
     // The game's string table. When set, GetIDString returns real text instead
     // of echoing the id back.
     const StringTable* strings = nullptr;
