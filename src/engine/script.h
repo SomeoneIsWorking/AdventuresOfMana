@@ -101,6 +101,9 @@ public:
     // SetPlayerControllEnable covers fades and other explicit locks.
     bool cinema = false;
     bool player_control_enabled = true;
+    // ModeGame stores the current party id at +0x40c. It survives room loads;
+    // AddParty(0,...) removes the companion.
+    int party_id = 0;
 
     std::map<std::string, CallRecord> calls;
     bool trace_first = false;

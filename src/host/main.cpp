@@ -1193,6 +1193,25 @@ int main(int argc, char** argv) {
                                    return a.kind == 'E' && a.random_place &&
                                           !a.random_placed;
                                }));
+                zw.Reset();
+                ck("shipping party id table resolves every script-visible handle",
+                   std::string(mcf::PartyHandle(1)) == "PARTY_HEROINE" &&
+                   std::string(mcf::PartyHandle(9)) == "PARTY_MARCIE" &&
+                   std::string(mcf::PartyHandle(0)).empty() &&
+                   std::string(mcf::PartyHandle(10)).empty());
+                ck("AddParty creates the named persistent heroine actor",
+                   zrun("AddParty(1,150,0,150)\n") && zs.party_id == 1 &&
+                   zw.Find("PARTY_HEROINE") &&
+                   zw.Find("PARTY_HEROINE")->kind == 'C' &&
+                   zw.Find("PARTY_HEROINE")->pos[0] == 150.f);
+                const size_t party_actor_count = zw.actors().size();
+                ck("AddParty of the current id is idempotent",
+                   zrun("AddParty(1,0,0,0)\n") &&
+                   zw.actors().size() == party_actor_count);
+                ck("AddParty zero removes the current companion",
+                   zrun("AddParty(0,0,0,0)\n") && zs.party_id == 0 &&
+                   zw.Find("PARTY_HEROINE") &&
+                   !zw.Find("PARTY_HEROINE")->alive);
             }
             lucent::info("movement", "SELFTEST: {} cases, {} failures", checked, bad);
             return bad ? 1 : 0;
@@ -2778,6 +2797,17 @@ int main(int argc, char** argv) {
                 else
                     lucent::info("world", "started {} Init coroutine", room_name);
             };
+            auto restoreParty = [&]() {
+                const char* handle = mcf::PartyHandle(sc.party_id);
+                if (!*handle || world.Find(handle)) return;
+                auto& party = world.Spawn(handle, sc.party_id,
+                                          px - room_org[0], py - room_org[1],
+                                          pz - room_org[2]);
+                party.kind = 'C';
+                lucent::info("world", "restored {} after room load at "
+                             "room-local ({:.1f},{:.1f},{:.1f})", handle,
+                             party.pos[0], party.pos[1], party.pos[2]);
+            };
             startRoomInit();
 
             // Service whatever the room script asked for. BGM lives in the APK
@@ -3451,6 +3481,10 @@ int main(int argc, char** argv) {
                     float active_walk_x = walk_x, active_walk_z = walk_z;
                     std::vector<const mcf::EventBox*> active_event_walls;
                     if (opening_story) {
+                        const int story_sccnt =
+                            int(sc.GlobalNumber("sccnt", -1));
+                        const bool escorting_heroine =
+                            story_sccnt >= 12 && story_sccnt < 14;
                         if (room_name == "M0001_00_02" ||
                             room_name == "M0001_00_01") {
                             active_walk_x = 165.f;
@@ -3473,12 +3507,32 @@ int main(int argc, char** argv) {
                                     !bogard_house_visited)) {
                             active_walk_x = room_size.w + 30.f;
                             active_walk_z = 135.f;
+                        } else if (room_name == "M0000_09_08" &&
+                                   escorting_heroine) {
+                            active_walk_x = -30.f;
+                            active_walk_z = 135.f;
+                        } else if (room_name == "M0000_08_08" &&
+                                   escorting_heroine) {
+                            active_walk_x = 150.f;
+                            active_walk_z = -30.f;
+                        } else if (room_name == "M0000_08_07" &&
+                                   escorting_heroine) {
+                            active_walk_x = 150.f;
+                            active_walk_z = -30.f;
+                        } else if (room_name == "M0000_08_06" &&
+                                   escorting_heroine) {
+                            active_walk_x = -30.f;
+                            active_walk_z = 105.f;
+                        } else if (room_name == "M0000_07_06" &&
+                                   escorting_heroine) {
+                            active_walk_x = 150.f;
+                            active_walk_z = -30.f;
                         } else if (room_name == "M0000_07_06" &&
                                    !bogard_house_visited) {
                             active_walk_x = 150.f;
                             active_walk_z = -30.f;
                         } else if (room_name == "M0000_07_05" &&
-                                   !bogard_house_visited) {
+                                   (!bogard_house_visited || escorting_heroine)) {
                             // The southern entrance is connected to the east
                             // vines through floors 0 and 90. Floor 150 joins
                             // the two branches, where the west vine reaches the
@@ -3486,7 +3540,7 @@ int main(int argc, char** argv) {
                             active_walk_x = py < 140.f ? 225.f : 105.f;
                             active_walk_z = -30.f;
                         } else if (room_name == "M0000_07_04") {
-                            if (bogard_house_visited) {
+                            if (bogard_house_visited && !escorting_heroine) {
                                 // The west return vine exits into this upper
                                 // cell. Cross its continuous y=180 floor and
                                 // re-enter above the middle/east descent.
@@ -3500,7 +3554,7 @@ int main(int argc, char** argv) {
                             active_walk_x = 285.f;
                             active_walk_z = room_size.h + 30.f;
                         } else if (room_name == "M0000_06_05" &&
-                                   !bogard_house_visited) {
+                                   (!bogard_house_visited || escorting_heroine)) {
                             for (const auto& bx : world.boxes)
                                 if (bx.enabled && !bx.no_touch &&
                                     bx.name == "in_01") {
@@ -3511,7 +3565,9 @@ int main(int argc, char** argv) {
                         } else if (room_name == "M0010_00_01") {
                             const bool greeted_bogard =
                                 sc.GlobalNumber("tmp0") >= 1.0;
-                            const char* wanted = greeted_bogard ? "out_01" : nullptr;
+                            const char* wanted =
+                                greeted_bogard && !escorting_heroine
+                                    ? "out_01" : nullptr;
                             if (wanted) {
                                 for (const auto& bx : world.boxes)
                                     if (bx.enabled && !bx.no_touch &&
@@ -3569,16 +3625,18 @@ int main(int argc, char** argv) {
                         // the return from Bogard's elevated house must descend
                         // the same vine the outward route climbed elsewhere.
                         const bool returning_through_vines =
-                            bogard_house_visited && room_name == "M0000_07_05";
+                            bogard_house_visited && !escorting_heroine &&
+                            room_name == "M0000_07_05";
                         if (returning_through_vines && py >= 175.f)
                             bogard_return_reached_vine_summit = true;
                         const bool seek_wall_down =
-                            (bogard_house_visited && room_name == "M0000_06_05") ||
+                            (bogard_house_visited && !escorting_heroine &&
+                             room_name == "M0000_06_05") ||
                             (returning_through_vines &&
                              bogard_return_reached_vine_summit);
                         const bool seek_wall_up =
                             room_name == "M0000_07_05" &&
-                            (!bogard_house_visited ||
+                            (!bogard_house_visited || escorting_heroine ||
                              !bogard_return_reached_vine_summit);
                         for (const auto& bx : world.boxes) {
                             if (!bx.enabled || bx.no_touch ||
@@ -4847,6 +4905,7 @@ int main(int argc, char** argv) {
                         }
                         world.Spawn("MainPlayer", 0, px - room_org[0],
                                     py - room_org[1], pz - room_org[2]).kind = 'C';
+                        restoreParty();
                         startRoomInit();
                         cam_init = false;
                         serviceAudio();
@@ -4878,6 +4937,7 @@ int main(int argc, char** argv) {
                         }
                         world.Spawn("MainPlayer", 0, px - room_org[0],
                                     py - room_org[1], pz - room_org[2]).kind = 'C';
+                        restoreParty();
                         startRoomInit();
                         // eArrow: UP=0 RI=1 DN=2 LF=3.
                         pdeg = float(j.arrow) * (float(std::numbers::pi) / 2.f);
@@ -5342,6 +5402,20 @@ int main(int argc, char** argv) {
                 lucent::info("world", "player motion {} at {:.1f}/{:.1f}, "
                              "script-moving={}", pl->motion, pl->motion_frame,
                              pl->motion_duration, pl->script_auto_move);
+            if (sc.party_id > 0) {
+                const char* handle = mcf::PartyHandle(sc.party_id);
+                const auto* party = world.Find(handle);
+                if (party && party->alive)
+                    lucent::info("world", "party id {} is {} alive at room-local "
+                                 "({:.1f},{:.1f},{:.1f})", sc.party_id, handle,
+                                 party->pos[0], party->pos[1], party->pos[2]);
+                else
+                    lucent::error("world", "party id {} expects {}, but no live "
+                                  "actor exists after scanning {} actor(s)",
+                                  sc.party_id, handle, world.actors().size());
+            } else {
+                lucent::info("world", "party id 0: no companion requested");
+            }
             lucent::info("combat",
                          "{} frame-overlaps ({} rejected by the faction filter) "
                          "-> {} landed hits -> {} kills; "

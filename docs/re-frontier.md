@@ -17,6 +17,125 @@ Every claim below is greppable: the port marks these in the source with
 `PORT CHOICE`, `STOPGAP` or `not reversed`, so this list can be rebuilt from the
 code rather than from memory.
 
+The structured entries below are the machine-readable execution frontier.
+`python3 tools/re_frontier_check.py` validates their identities, dependencies,
+cycles, statuses, and evidence; the full verifier proves a zero-entry parse is
+rejected. The global `re_frontier.py` workflow can additionally render
+`next`/`hacks` views when pointed at this file. The detailed tables later in
+this file retain the derivations and corrections behind these entries.
+
+## Runtime spine
+
+### runtime.assets — Shipping asset ingestion
+- status: re-verified
+- deps:
+- evidence: Full `tools/verify.sh` parses the exact 9,886-member archive corpus, rejects missing/wrong/extra members, and byte-compares generated tables.
+- where: `src/mcf/`, `tools/asset/`, `tools/verify.sh`
+- gap:
+- notes: This is the ground-truth data layer used by every later runtime step.
+
+### runtime.lua-api — Shipping Lua command surface and semantics
+- status: re-partial
+- deps: runtime.assets
+- evidence: The binary-derived extractor proves exactly 200 registrations/names/implementations and its 199/200 negative fails; 714/715 scripts execute against the bridge.
+- where: `src/engine/script.cpp`, `src/engine/cmd_api.inc`, `docs/cmd-api.md`
+- gap: Many commands still use typed recording stubs; implement semantics in shipping call-frequency and progression order.
+- notes: `AddEnemyZaco` is implemented from its binary wrapper and target function, including late placement.
+
+### runtime.world — Rooms, collision, actors, and transitions
+- status: re-partial
+- deps: runtime.assets, runtime.lua-api
+- evidence: The 993-room census has zero mesh/script failures; world-table sizes score 656/656; continuous gates exercise ordinary, FREE-door, mapjump, event-box, and paired vine transitions.
+- where: `src/engine/world.cpp`, `src/host/main.cpp`, `docs/world-map.md`
+- gap: Exact player/door contact primitives, empty-cell transition behavior, chip occupancy bits, and the engine's event callback policy remain unreversed.
+- notes: Current 15/30-unit contacts are recoverable engine behavior represented by port choices, not final fidelity.
+
+### runtime.random-placement — Engine random placement and RNG sequence
+- status: hack
+- deps: runtime.world
+- evidence: Binary reads establish the random-placement trigger and chip-grid construction, but the port selects nearest-centre chips with fixed-seed `mt19937`.
+- where: `src/host/main.cpp`, `src/engine/script.cpp`
+- gap: Reverse `GameRandom` and `AddCharacterRandomPos` selection, then remove deterministic nearest-centre placement and the substitute RNG.
+- notes: The shortcut is deterministic for tests but does not reproduce shipping choices.
+
+## Playable progression
+
+### progression.opening-heroine — New game through heroine joining
+- status: re-partial
+- deps: runtime.world
+- evidence: Mandatory uncapped, silent, offscreen run starts unseeded, completes both Jackals, waterfall recovery, Bogard route, five upward/three downward vine traversals, three Myconids, `EnemyDead`, and Hasim's scene at settled `sccnt=12`.
+- where: `src/host/main.cpp`, `tools/verify.sh`
+- gap: Continue the authored execution spine from `sccnt=12`; internal progression evidence does not yet establish visual/behavioral parity with a reference Android run.
+- notes: The gate proves continuity and state ownership, not whole-game completion.
+
+### progression.bogard-with-heroine — Return to Bogard and receive the Matock objective
+- status: re-partial
+- deps: progression.opening-heroine
+- evidence: Binary `ModeGame::AddParty` stores the party id at +0x40c and indexes the nine handle relocations at 0x3ea080; the mandatory unseeded run restores PARTY_HEROINE across the authored return route, completes Bogard's pendant/Matock scene, and settles at sccnt=14 offscreen with zero decoded audio.
+- where: `src/engine/script.cpp`, `src/host/main.cpp`, `tools/verify.sh`
+- gap: Party follow AI between room loads and visual/behavioral parity against an Android reference run remain unverified.
+- notes: The story-continuity mechanism is live; this remains partial rather than claiming reference fidelity.
+
+### progression.wendel — Reach Wendel and advance the main quest
+- status: todo
+- deps: progression.bogard-with-heroine
+- evidence: The verified Bogard gate emits the shipping dialogue directing the player east through the cave to Cibba in Wendel.
+- where: `src/host/main.cpp`, `tools/verify.sh`
+- gap: Trace and drive the authored route after the Matock objective; stop at the first missing runtime mechanism.
+- notes:
+
+## Gameplay systems
+
+### gameplay.enemy-ai — Ordinary enemy behavior
+- status: re-partial
+- deps: runtime.world
+- evidence: State transition/timing ownership and state 2 pursuit are binary-derived; all 856 descriptor machines pass exhaustive roulette tests.
+- where: `src/host/main.cpp`, `docs/assets.md`
+- gap: Implement the five unread reachable mode bodies, distance-driven mode-9 timer, route-table seeding, party targeting, occupancy bits, and exact DFS route construction.
+- notes: This is the largest behavior-fidelity gap.
+
+### gameplay.player-combat — Player damage, attacks, rewards, and progression
+- status: re-partial
+- deps: runtime.world
+- evidence: Binary-derived damage/reward formulas and live volume discriminators pass; continuous gates defeat real scripted waves and advance `EnemyDead`.
+- where: `src/host/main.cpp`, `src/engine/world.cpp`
+- gap: Reverse i-frame duration source, charge-meter gate, attack-type ids, weaknesses, and life steal.
+- notes:
+
+## UI and persistence
+
+### ui.status — Shipping status HUD
+- status: hack
+- deps: runtime.assets
+- evidence: Labels and values are shipping data, but the corner layout is explicitly host-authored.
+- where: `src/host/main.cpp`
+- gap: Reverse and implement `ModeGame::Draw_StatusData` @ `0x2f1098`, then remove the authored corner readout.
+- notes:
+
+### ui.level-up — Shipping level-up screen
+- status: hack
+- deps: gameplay.player-combat
+- evidence: Regimen data and effects are binary-derived, but the centred panel layout is host-authored.
+- where: `src/host/main.cpp`
+- gap: Reverse the shipping screen and input flow, then remove the authored panel.
+- notes:
+
+### ui.menus — Ring, shop, and inn interfaces
+- status: todo
+- deps: runtime.lua-api
+- evidence: Shipping item/category/price/string data are decoded.
+- where: `src/host/main.cpp`, `docs/assets.md`
+- gap: Reverse and implement the actual screens and their runtime flows.
+- notes:
+
+### persistence.save-load — Save and load
+- status: todo
+- deps: runtime.lua-api
+- evidence: `_GameSaveAccess` stream shape, core player/inventory fields, names, and current room cell are partially mapped in the binary.
+- where: `docs/open-questions.md`, `docs/re-frontier.md`
+- gap: Map every field and width, room enemy-dead flags, and the 8 KB block before enabling Continue or Load Game.
+- notes: Title entries remain unavailable because no trustworthy save format exists.
+
 ## Port choices
 
 | what | the choice | why the engine's answer is unavailable |

@@ -247,6 +247,17 @@ inline int CharType(const Actor& a) {
     }
 }
 
+// ModeGame::AddParty's id-indexed table @ 0x3ea080. These are also the names
+// GetPartyName() returns in the shipping prelude and the handles room scripts
+// address directly (for example Bogard's PARTY_HEROINE scene).
+inline const char* PartyHandle(int id) {
+    static constexpr const char* kNames[]{
+        "", "PARTY_HEROINE", "PARTY_RED_MAGE", "PARTY_WATTS",
+        "PARTY_BOGARD", "PARTY_CHOCOBO", "PARTY_CHOCOBOT",
+        "PARTY_AMANDA", "PARTY_LESTER", "PARTY_MARCIE"};
+    return id >= 1 && id < int(std::size(kNames)) ? kNames[id] : "";
+}
+
 // Whether `attacker` may damage `defender`, straight out of the two Damage
 // overrides. AppCharacterEnemy::Damage @ 0x2b2b00 reads the attacker's GetType
 // and returns unless it is 1 or 2; AppCharacterPlayer::Damage @ 0x2b5b7c

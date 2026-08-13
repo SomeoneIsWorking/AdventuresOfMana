@@ -196,7 +196,7 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         // room placing three of the same enemy is three actors, and keying on
         // the type id silently collapsed them into one.
         int id = int(N(1));
-        const char* kind = n == "AddBoss" ? "boss" : (n == "AddParty" ? "party" : "enemy");
+        const char* kind = n == "AddBoss" ? "boss" : "enemy";
         if (n == "AddBoss") {
             // AddBoss's public wrapper supplies the literal base name
             // "_BOSS" (0x2c9050), and the first pass through
@@ -213,9 +213,21 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
                 lucent::error("lua", "_BOSS coroutine: {}", self->last_error());
             return true;
         }
+        if (n == "AddParty") {
+            auto* self = FromState(L);
+            if (self && self->party_id == id) return true;
+            if (self && self->party_id > 0)
+                w.Remove(PartyHandle(self->party_id));
+            if (self) self->party_id = id;
+            const char* handle = PartyHandle(id);
+            if (!*handle) return true;  // id 0 is the shipping remove operation
+            auto& a = w.Spawn(handle, id, N(2), N(3), N(4));
+            a.kind = 'C';
+            return true;
+        }
         auto& a = w.Spawn(std::format("{}{}_{}", kind, id, w.NextSpawnSerial()), id,
                           N(2), N(3), N(4));
-        a.kind = n == "AddParty" ? 'C' : 'E';
+        a.kind = 'E';
         return true;
     }
     if (n == "DelNPC" || n == "DeadEnemy") { w.Remove(S(1)); return true; }

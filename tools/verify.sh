@@ -288,6 +288,27 @@ echo "=== combat self-test ==="
   grep -F "video driver: offscreen" "$heroine_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$heroine_log" || fail=1
 
+  # The companion is persistent ModeGame state, not a room-local anonymous
+  # spawn. Return over the authored route, restore PARTY_HEROINE after each
+  # room load, talk to Bogard three times, and complete the pendant/Matock
+  # objective without seeding sccnt.
+  echo "=== continuous heroine return to Bogard ==="
+  bogard_heroine_log=scratch/logs/bogard-heroine-story.log
+  ./build/mana --opening-story --continue-story --stop-sccnt 14 \
+    >"$bogard_heroine_log" 2>&1 || fail=1
+  grep -F "restored PARTY_HEROINE after room load" "$bogard_heroine_log" || fail=1
+  test "$(grep -Fc "talking to 'NPC_01'" "$bogard_heroine_log")" -eq 4 || fail=1
+  grep -F 'message: "Wait. That pendant you'"'"'re wearing... Is that...?"' \
+    "$bogard_heroine_log" || fail=1
+  grep -F 'message: "With a mattock in hand, a young lad of Sumo'"'"'s strength should make quick work of the rocks."' \
+    "$bogard_heroine_log" || fail=1
+  grep -F "reached settled scenario state sccnt=14" "$bogard_heroine_log" || fail=1
+  grep -F "end state: sccnt=14, eventScene=0, cinema=false, player-control=true, 0 live coroutine(s)" \
+    "$bogard_heroine_log" || fail=1
+  grep -F "party id 1 is PARTY_HEROINE alive" "$bogard_heroine_log" || fail=1
+  grep -F "video driver: offscreen" "$bogard_heroine_log" || fail=1
+  grep -F "audio decoded 0 sounds / 0 frames" "$bogard_heroine_log" || fail=1
+
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --camera-selftest >/dev/null 2>&1 || fail=1
@@ -327,6 +348,18 @@ echo "=== combat self-test ==="
 
 echo "=== cmd API ==="
 python3 tools/asset/extract_cmd_api.py >/dev/null || fail=1
+
+echo "=== RE frontier ==="
+python3 tools/re_frontier_check.py || fail=1
+frontier_empty=scratch/logs/re-frontier-empty.md
+sed '/^### /,$d' docs/re-frontier.md >"$frontier_empty"
+if python3 tools/re_frontier_check.py "$frontier_empty" \
+    >scratch/logs/re-frontier-empty.log 2>&1; then
+  fail=1
+fi
+grep -F "RE-FRONTIER FAIL: parsed 0 structured entries" \
+  scratch/logs/re-frontier-empty.log >/dev/null || fail=1
+echo "  zero-entry negative passed (empty parse rejected)"
 # Remove exactly one shipping registration while leaving the rest of the
 # disassembly intact. The extractor must reject 199/200 rather than treating
 # "some registrations found" as success.
