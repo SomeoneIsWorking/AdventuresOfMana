@@ -2187,14 +2187,10 @@ int main(int argc, char** argv) {
                                   bx.name, bx.lo[0], bx.lo[2], bx.hi[0], bx.hi[2]);
             }
 
-                return true;
-            };
-            if (!loadRoom(render_room))
-                throw mcf::Error(std::format("cannot load room {}", render_room));
             // AddEventBox's y0 == -1 is not a literal world height: the
             // engine probes the collision floor at registration and anchors
-            // the box there. Resolve it only after this room's collision mesh
-            // is available; boxes with no floor retain their script bounds.
+            // the box there. This must live in loadRoom, not its initial
+            // caller, because mapjump loads another room through this lambda.
             if (have_col) {
                 for (auto& bx : world.boxes) {
                     if (!bx.floor_y) continue;
@@ -2205,6 +2201,11 @@ int main(int argc, char** argv) {
                         bx.ResolveFloorY(y);
                 }
             }
+
+                return true;
+            };
+            if (!loadRoom(render_room))
+                throw mcf::Error(std::format("cannot load room {}", render_room));
             float ctr[3], radius = 0;
             for (int k = 0; k < 3; ++k) {
                 ctr[k] = (stage.lo[k] + stage.hi[k]) * .5f;

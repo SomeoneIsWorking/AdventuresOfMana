@@ -18,3 +18,6 @@ updated: 2026-08-13
 
 ### Resolution (2026-08-13)
 In AddEventBox at 0x2c8598, y0 == -1 triggers a collision-floor probe; its floor becomes the lower bound and is added to the upper bound. The port now marks that sentinel in the script bridge and resolves it against the room collision mesh after loading.
+
+### Note (2026-08-13)
+Initial implementation resolved floor sentinels only after the startup load. MapJump reuses loadRoom, so the resolution was moved into that common loader; the room census still completes all 993 loads.
