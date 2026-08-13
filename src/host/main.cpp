@@ -270,6 +270,7 @@ int main(int argc, char** argv) {
     int grant_exp = 0;
     bool auto_attack = false;
     bool opening_story = false;
+    bool continue_story = false;
     std::string stop_room;
     int warmup = 0;
     bool fixed_step = false;
@@ -329,6 +330,7 @@ int main(int argc, char** argv) {
             fixed_step = true;
             no_audio = true;
         }
+        else if (a == "--continue-story") continue_story = true;
         else if (a == "--stop-room" && i + 1 < argc) stop_room = argv[++i];
         // --warmup implies --fixed-step: see the loop, a frame count on an
         // uncapped loop is not a duration.
@@ -378,6 +380,7 @@ int main(int argc, char** argv) {
                 "                                         self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
                 "  --opening-story     drive the authored opening through both Jackal fights\n"
+                "  --continue-story    continue the opening driver past waterfall recovery\n"
                 "  --stop-room NAME    exit successfully after loading this room\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
                 "  --auto-advance      dismiss dialogue automatically (headless)\n"
@@ -1056,6 +1059,20 @@ int main(int argc, char** argv) {
                                mcf::Collision::kWallMask) &&
                    !c.BlockedXZ(100.f, 100.f, 110.f, 100.f, 0.f, 30.f,
                                 mcf::Collision::kWallMask));
+                auto stacked =
+                    mcf::ParseScol(ar.Read("sk1/M0000_06_05.scol"));
+                float top = 0.f, lower = 0.f;
+                const bool have_top = stacked.GetFloor(
+                    2070.f, 1200.f, mcf::Collision::kFloorMask, &top);
+                const bool have_lower = stacked.GetFloorBelow(
+                    2070.f, 1200.f, 210.f,
+                    mcf::Collision::kFloorMask, &lower);
+                lucent::info("movement",
+                             "  stacked-floor discriminator: top={} ({:.1f}), "
+                             "below-210={} ({:.1f})",
+                             have_top, top, have_lower, lower);
+                ck("shipping floor query distinguishes stacked ledges",
+                   have_top && have_lower && top == 240.f && lower == 180.f);
             }
             actor.hp = 37;
             actor.max_hp = 40;
@@ -3375,7 +3392,7 @@ int main(int argc, char** argv) {
                             active_walk_x = -30.f;
                             active_walk_z = 135.f;
                         } else if (room_name == "M0000_05_06" &&
-                                   stop_room.empty()) {
+                                   !continue_story) {
                             // The mandatory opening verifier's documented end
                             // is the playable waterfall recovery. A targeted
                             // continuation (`--stop-room`) may keep driving;
@@ -3384,6 +3401,34 @@ int main(int argc, char** argv) {
                             // mechanics become available.
                             active_walk_x = px - room_org[0];
                             active_walk_z = pz - room_org[2];
+                        } else if (room_name == "M0000_05_06" ||
+                                   room_name == "M0000_06_06") {
+                            active_walk_x = room_size.w + 30.f;
+                            active_walk_z = 135.f;
+                        } else if (room_name == "M0000_07_06") {
+                            active_walk_x = 150.f;
+                            active_walk_z = -30.f;
+                        } else if (room_name == "M0000_07_05") {
+                            // The southern entrance is connected to the east
+                            // vines through floors 0 and 90. Floor 150 joins
+                            // the two branches, where the west vine reaches the
+                            // y=180 ledge whose next authored cell is west.
+                            active_walk_x = py < 140.f ? 225.f : 105.f;
+                            active_walk_z = -30.f;
+                        } else if (room_name == "M0000_07_04") {
+                            active_walk_x = -30.f;
+                            active_walk_z = 180.f;
+                        } else if (room_name == "M0000_06_04") {
+                            active_walk_x = 285.f;
+                            active_walk_z = room_size.h + 30.f;
+                        } else if (room_name == "M0000_06_05") {
+                            for (const auto& bx : world.boxes)
+                                if (bx.enabled && !bx.no_touch &&
+                                    bx.name == "in_01") {
+                                    active_walk_x = (bx.lo[0] + bx.hi[0]) * .5f;
+                                    active_walk_z = (bx.lo[2] + bx.hi[2]) * .5f;
+                                    break;
+                                }
                         } else if (room_name == "M0001_00_00") {
                             // After the second Jackal, EnemyDead authors two
                             // joined out_01 boxes. Drive their actual centre;
@@ -3465,9 +3510,10 @@ int main(int argc, char** argv) {
                                         unrelated_boundary && sample != start)
                                         continue;
                                     float floor;
-                                    if (col.GetFloor(nav_x(x), nav_z(z),
-                                                     mcf::Collision::kFloorMask,
-                                                     &floor))
+                                    if (col.GetFloorBelow(nav_x(x), nav_z(z),
+                                                          py + 30.f,
+                                                          mcf::Collision::kFloorMask,
+                                                          &floor))
                                         height[size_t(sample)] = floor;
                                 }
                             std::queue<int> pending;
@@ -3492,10 +3538,12 @@ int main(int argc, char** argv) {
                                         height[size_t(next)] >= kChipNoFloor)
                                         continue;
                                     float mid_floor;
-                                    if (!col.GetFloor((nav_x(hx) + nav_x(nx)) * .5f,
-                                                      (nav_z(hz) + nav_z(nz)) * .5f,
-                                                      mcf::Collision::kFloorMask,
-                                                      &mid_floor))
+                                    if (!col.GetFloorBelow(
+                                            (nav_x(hx) + nav_x(nx)) * .5f,
+                                            (nav_z(hz) + nav_z(nz)) * .5f,
+                                            height[size_t(here)] + 30.f,
+                                            mcf::Collision::kFloorMask,
+                                            &mid_floor))
                                         continue;
                                     if (col.BlockedXZ(nav_x(hx), nav_z(hz),
                                                       nav_x(nx), nav_z(nz),
@@ -3750,9 +3798,9 @@ int main(int argc, char** argv) {
                     attack_left = kAttackFrames;
                     attacking = true;
                 }
-                bool moving = (mx != 0 || mz != 0) && !attacking;   // no moving mid-swing
-                if (moving) {
-                    float ox = px, oz = pz;
+                    bool moving = (mx != 0 || mz != 0) && !attacking;   // no moving mid-swing
+                    if (moving) {
+                        float ox = px, oz = pz;
                     float len = std::sqrt(mx * mx + mz * mz);
                     const float move_step = std::min(kWalk * dt,
                                                      headless_move_limit);
@@ -3763,7 +3811,8 @@ int main(int argc, char** argv) {
                     bool blocked = have_col &&
                         (col.BlockedXZ(ox, oz, px, pz, py, 30.f,
                                        mcf::Collision::kWallMask) ||
-                         !col.GetFloor(px, pz, mcf::Collision::kFloorMask, &g));
+                         !col.GetFloorBelow(px, pz, py + 30.f,
+                                            mcf::Collision::kFloorMask, &g));
                     float lx = px - room_org[0], lz = pz - room_org[2];
                     // SetDoor creates a centred map object on the requested
                     // room side. FREE doors open on body contact (the shipping
@@ -3774,10 +3823,17 @@ int main(int argc, char** argv) {
                     // its centre; docs/re-frontier.md records the debt.
                     constexpr float kDoorHalfWidth = 30.f;
                     bool outward[4]{mz < 0.f, mx > 0.f, mz > 0.f, mx < 0.f};
-                    bool at_side[4]{lz <= kDoorHalfWidth,
-                                    lx >= room_size.w - kDoorHalfWidth,
-                                    lz >= room_size.h - kDoorHalfWidth,
-                                    lx <= kDoorHalfWidth};
+                    // Transition is character-volume contact, not origin
+                    // contact. Multi-level ledges stop the origin several
+                    // units inside their visual shell; requiring the point
+                    // itself to enter the one-chip band can therefore make a
+                    // real open edge impossible to cross.
+                    const float side_contact =
+                        kDoorHalfWidth + kEventBoxProbeHeight;
+                    bool at_side[4]{lz <= side_contact,
+                                    lx >= room_size.w - side_contact,
+                                    lz >= room_size.h - side_contact,
+                                    lx <= side_contact};
                     bool at_door[4]{
                         std::fabs(lx - room_size.w * .5f) <= kDoorHalfWidth,
                         std::fabs(lz - room_size.h * .5f) <= kDoorHalfWidth,
@@ -3833,21 +3889,28 @@ int main(int argc, char** argv) {
                         const float dx = wall_probe_x - ox;
                         const float dz = wall_probe_z - oz;
                         if (std::fabs(dx) > std::fabs(dz)) {
-                            const float edge = dx > 0.f ? wall.source->hi[0]
-                                                        : wall.source->lo[0];
+                            // Finish on the far edge of the paired destination
+                            // volume. Stopping at the source edge leaves the
+                            // origin inside the vine strip; on the following
+                            // frame the ordinary floor query then snaps it
+                            // straight back to the source level.
+                            const float edge = dx > 0.f ? wall.destination->hi[0]
+                                                        : wall.destination->lo[0];
                             px = room_org[0] + std::nextafter(
                                 edge, dx > 0.f ? std::numeric_limits<float>::infinity()
                                                : -std::numeric_limits<float>::infinity());
-                            pz = std::clamp(pz, room_org[2] + wall.source->lo[2],
-                                           room_org[2] + wall.source->hi[2]);
+                            pz = std::clamp(pz,
+                                           room_org[2] + wall.destination->lo[2],
+                                           room_org[2] + wall.destination->hi[2]);
                         } else {
-                            const float edge = dz > 0.f ? wall.source->hi[2]
-                                                        : wall.source->lo[2];
+                            const float edge = dz > 0.f ? wall.destination->hi[2]
+                                                        : wall.destination->lo[2];
                             pz = room_org[2] + std::nextafter(
                                 edge, dz > 0.f ? std::numeric_limits<float>::infinity()
                                                : -std::numeric_limits<float>::infinity());
-                            px = std::clamp(px, room_org[0] + wall.source->lo[0],
-                                           room_org[0] + wall.source->hi[0]);
+                            px = std::clamp(px,
+                                           room_org[0] + wall.destination->lo[0],
+                                           room_org[0] + wall.destination->hi[0]);
                         }
                         // sk1.lua authors WallUp at floor-1 and WallDn at
                         // floor-14. Invert those exact constructors: the vine
@@ -3866,11 +3929,22 @@ int main(int argc, char** argv) {
                         lucent::info("world", "traversed event wall {} -> {}, "
                                      "floor {:.1f}", wall.source->flags,
                                      wall.destination->flags, py);
+                        const float local_x = px - room_org[0];
+                        const float local_z = pz - room_org[2];
+                        if (local_z < 0.f) requestRoomExit(0, local_x, local_z);
+                        else if (local_x > room_size.w)
+                            requestRoomExit(1, local_x, local_z);
+                        else if (local_z > room_size.h)
+                            requestRoomExit(2, local_x, local_z);
+                        else if (local_x < 0.f)
+                            requestRoomExit(3, local_x, local_z);
                     }
                     // Refuse to walk off the collision mesh rather than
                     // silently floating: revert the step if there is no floor.
                     if (blocked && !traversed_event_wall) { px = ox; pz = oz; }
-                    else if (!blocked && !traversed_event_wall && have_col) py = g;
+                    else if (!blocked && !traversed_event_wall && have_col &&
+                             !event_wall_inside)
+                        py = g;
                 }
                 // The opening boss's own script gates its charge on EX_1, and
                 // the requested point lies beyond the physical wall. Reaching
@@ -4504,6 +4578,7 @@ int main(int argc, char** argv) {
 
                 if (room_exit.pending) {
                     room_exit.pending = false;
+                    const float source_floor_y = py;
                     lucent::info("world", "room exit {} -> {} at world "
                                  "({:.1f},{:.1f})", room_exit.arrow,
                                  room_exit.dest, room_exit.world_x,
@@ -4521,10 +4596,20 @@ int main(int argc, char** argv) {
                         if (room_exit.arrow == 1) px += kEventBoxProbeHeight;
                         if (room_exit.arrow == 2) pz += kEventBoxProbeHeight;
                         if (room_exit.arrow == 3) px -= kEventBoxProbeHeight;
-                        py = 0.f;
+                        py = source_floor_y;
                         if (have_col) {
                             float g;
-                            if (col.GetFloor(px, pz, mcf::Collision::kFloorMask, &g))
+                            // Preserve a stacked ledge across a shared room
+                            // edge. This is the engine's GetFloor contract:
+                            // highest floor at or below the query Y. When the
+                            // one-radius inset is still over the shared shell,
+                            // retain the source height until movement reaches
+                            // the destination's actual continuation.
+                            if (col.GetFloorBelow(
+                                    px, pz, source_floor_y + 30.f,
+                                    mcf::Collision::kFloorMask, &g) ||
+                                col.GetFloor(px, pz,
+                                             mcf::Collision::kFloorMask, &g))
                                 py = g;
                         }
                         world.Spawn("MainPlayer", 0, px - room_org[0],

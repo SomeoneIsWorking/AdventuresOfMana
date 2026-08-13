@@ -217,6 +217,12 @@ struct Collision {
     // `mask`. Returns false when the point is over nothing.
     bool GetFloor(float x, float z, uint32_t mask, float* out_y) const;
 
+    // Highest matching floor at or below `max_y`. This is SiCollisionMesh::
+    // GetFloor's actual Y contract: 0x363810..0x363818 rejects a candidate
+    // above the query SiVector3's Y before retaining the highest survivor.
+    bool GetFloorBelow(float x, float z, float max_y, uint32_t mask,
+                       float* out_y) const;
+
     // True if the XZ segment (x0,z0)->(x1,z1) crosses a triangle matching
     // `mask` whose vertical span overlaps [y, y + height].
     bool BlockedXZ(float x0, float z0, float x1, float z1, float y, float height,

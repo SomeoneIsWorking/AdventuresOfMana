@@ -335,6 +335,13 @@ surfaces as floor.
 XZ AABB contains the point, walks its index list, skips triangles whose mask
 misses, and does a barycentric XZ point-in-triangle test.
 
+The input vector's Y is also a bound, not ignored: at `0x363810..0x363818` the
+engine rejects an intersecting triangle above the query Y, then retains the
+highest remaining Y. The port exposes that contract as `GetFloorBelow`; the
+unbounded `GetFloor` convenience remains for queries intentionally cast from
+above the whole room. A shipping stacked-floor discriminator at world
+`(2070,1200)` sees y=240 unbounded and y=180 with a y=210 bound.
+
 ### Verification
 
 All **992/992** files satisfy the complete layout: cells precede triangles,

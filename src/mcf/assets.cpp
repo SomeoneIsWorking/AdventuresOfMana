@@ -341,7 +341,8 @@ Collision ParseScol(std::vector<uint8_t> file) {
     return c;
 }
 
-bool Collision::GetFloor(float x, float z, uint32_t mask, float* out_y) const {
+bool Collision::GetFloorBelow(float x, float z, float max_y, uint32_t mask,
+                              float* out_y) const {
     std::span<const uint8_t> b(data);
     auto vec = [&](uint32_t i, float v[3]) {
         std::memcpy(v, b.data() + vec_off + size_t(i) * 12, 12);
@@ -377,11 +378,17 @@ bool Collision::GetFloor(float x, float z, uint32_t mask, float* out_y) const {
             float w2 = 1.f - w0 - w1;
             if (w0 < 0 || w1 < 0 || w2 < 0) continue;
             float y = w0 * p[0][1] + w1 * p[1][1] + w2 * p[2][1];
+            if (y > max_y) continue;
             if (!hit || y > best) { best = y; hit = true; }
         }
     }
     if (hit) *out_y = best;
     return hit;
+}
+
+bool Collision::GetFloor(float x, float z, uint32_t mask, float* out_y) const {
+    return GetFloorBelow(x, z, std::numeric_limits<float>::infinity(), mask,
+                         out_y);
 }
 
 GroundAttributes ParseGdt(std::vector<uint8_t> file) {

@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-13
 tags:
 depends: src/engine/world.h#Actor, src/engine/world.cpp#World::TickScriptMoves, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
-reconfirmed: 2026-08-13
-verified_at: 2026-08-13 23:39:40
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 01:00:49
 ---
 
 ## Claim
@@ -84,3 +84,7 @@ Re-proved by the complete tools/verify.sh pass against the source landed in 37bd
 ## Re-confirmed 2026-08-13
 
 Re-proved by the complete tools/verify.sh pass whose stronger playable-overworld gate landed in b50191c on 2026-08-13.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh pass on 2026-08-14 after stacked-floor and Bogard-route changes; all parsers passed, all focused self-tests passed, both continuous unseeded story gates passed, and gameplay gates decoded 0 audio.

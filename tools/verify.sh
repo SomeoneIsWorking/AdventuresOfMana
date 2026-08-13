@@ -246,6 +246,23 @@ echo "=== combat self-test ==="
   grep -F "end state: sccnt=10, eventScene=0, cinema=false, player-control=true, 0 live coroutine(s)" \
     "$story_log" || fail=1
 
+  # Continue from the same unseeded new game through the actual overworld
+  # route to Bogard. This is a distinct gate: it exercises stacked-floor
+  # selection, all three vine levels, and the shipping in_01 callback while
+  # remaining uncapped and silent through --opening-story.
+  echo "=== continuous route to Bogard ==="
+  bogard_log=scratch/logs/bogard-story.log
+  ./build/mana --opening-story --continue-story --stop-room M0010_00_01 \
+    --screenshot scratch/screenshots/bogard-story-fallback.png --warmup 4000 \
+    >"$bogard_log" 2>&1 || fail=1
+  test "$(grep -Fc 'traversed event wall 1 -> 2' "$bogard_log")" -eq 3 || fail=1
+  grep -F "room exit 3 -> M0000_06_04" "$bogard_log" || fail=1
+  grep -F "room exit 2 -> M0000_06_05" "$bogard_log" || fail=1
+  grep -F "entered event box 'in_01'" "$bogard_log" || fail=1
+  grep -F "mapjump -> M0010_00_01 at (150,0,195) arrow 0" "$bogard_log" || fail=1
+  grep -F "reached requested stop room M0010_00_01" "$bogard_log" || fail=1
+  grep -F "audio decoded 0 sounds / 0 frames" "$bogard_log" || fail=1
+
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --camera-selftest >/dev/null 2>&1 || fail=1

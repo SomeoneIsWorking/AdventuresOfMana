@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-13
 tags:
 depends: src/host/main.cpp#main, tools/verify.sh
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 01:00:50
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Complete tools/verify.sh pass on 2026-08-13: continuous opening logged SHADOW_KN
 ## What would falsify it
 
 Falsified if the unseeded --opening-story gate no longer reaches M0000_05_06, omits the chase/fall/recovery sequence, fails to commit sccnt=10, or ends with input/cinema/eventScene/coroutine state still locked
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh pass on 2026-08-14 after stacked-floor and Bogard-route changes; all parsers passed, all focused self-tests passed, both continuous unseeded story gates passed, and gameplay gates decoded 0 audio.
