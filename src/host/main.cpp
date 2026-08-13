@@ -251,6 +251,7 @@ int main(int argc, char** argv) {
     bool player_selftest = false;
     bool inventory_selftest = false;
     bool ai_selftest = false;
+    bool eventbox_selftest = false;
     bool name_selftest = false;
     bool boot_chain = false;
     std::string title_phase;   // TEST HOOK: attract | menu | crawl | names
@@ -295,6 +296,7 @@ int main(int argc, char** argv) {
         else if (a == "--player-selftest") player_selftest = true;
         else if (a == "--inventory-selftest") inventory_selftest = true;
         else if (a == "--ai-selftest") ai_selftest = true;
+        else if (a == "--eventbox-selftest") eventbox_selftest = true;
         else if (a == "--nameentry-selftest") name_selftest = true;
         else if (a == "--boot") boot_chain = true;
         else if (a == "--title-phase" && i + 1 < argc) title_phase = argv[++i];
@@ -345,7 +347,7 @@ int main(int argc, char** argv) {
                 "  --string ID         resolve a dialogue id in every language\n"
                 "  --show-string ID    open the message window on that line\n"
                 "  --combat-selftest / --audio-selftest / --text-selftest / --player-selftest\n"
-                "  --inventory-selftest / --ai-selftest / --nameentry-selftest\n"
+                "  --inventory-selftest / --ai-selftest / --eventbox-selftest / --nameentry-selftest\n"
                 "  --boot              boot through the engine's real mode chain\n"
                 "  --title-phase P     TEST HOOK: attract|menu|crawl|names\n"
                 "  --shot-delay N      wait N frames inside --shot-mode before capturing\n"
@@ -825,6 +827,32 @@ int main(int argc, char** argv) {
                                                "(4 vs 8) does not hold"); }
             lucent::info("name", "{} cases, {} failures; length split {}",
                          n, bad, split ? "holds" : "BROKEN");
+            return bad ? 1 : 0;
+        }
+        if (eventbox_selftest) {
+            int bad = 0;
+            auto ck = [&](const char* what, bool got, bool want) {
+                if (got != want) {
+                    ++bad;
+                    lucent::error("eventbox", "SELFTEST FAIL: {} -> {} (want {})",
+                                  what, got, want);
+                } else {
+                    lucent::info("eventbox", "  ok: {} -> {}", what, got);
+                }
+            };
+            mcf::EventBox b;
+            b.lo[0] = 10; b.lo[1] = 20; b.lo[2] = 30;
+            b.hi[0] = 20; b.hi[1] = 40; b.hi[2] = 50;
+            constexpr float ox = 100, oz = 200;
+            ck("strictly inside", b.IsHit(115, 30, 240, ox, oz), true);
+            ck("lower X boundary is outside", b.IsHit(110, 30, 240, ox, oz), false);
+            ck("upper Z boundary is outside", b.IsHit(115, 30, 250, ox, oz), false);
+            ck("below the Y range is outside", b.IsHit(115, 19.9f, 240, ox, oz), false);
+            b.enabled = false;
+            ck("disabled box cannot hit", b.IsHit(115, 30, 240, ox, oz), false);
+            b.enabled = true; b.no_touch = true;
+            ck("no-touch box cannot hit", b.IsHit(115, 30, 240, ox, oz), false);
+            lucent::info("eventbox", "SELFTEST: 6 cases, {} failures", bad);
             return bad ? 1 : 0;
         }
         if (ai_selftest) {
@@ -3234,9 +3262,8 @@ int main(int argc, char** argv) {
                 // once. Firing every frame would re-enter the same transition
                 // forever.
                 for (auto& bx : world.boxes) {
-                    bool in = px >= bx.lo[0] + room_org[0] && px <= bx.hi[0] + room_org[0] &&
-                              pz >= bx.lo[2] + room_org[2] && pz <= bx.hi[2] + room_org[2];
-                    if (in && !bx.inside && bx.enabled && !bx.no_touch) {
+                    bool in = bx.IsHit(px, py, pz, room_org[0], room_org[2]);
+                    if (in && !bx.inside) {
                         lucent::info("world", "entered event box '{}'", bx.name);
                         if (!sc.StartCoroutine(bx.name))
                             lucent::warn("lua", "{}: {}", bx.name, sc.last_error());

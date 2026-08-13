@@ -32,7 +32,7 @@ to find its containing function.
 |---|---|
 | **`ModeGame+0x958`** and the party system around it | AI state 2 reads it while walking the route tables; the port has no party at all |
 | **The save format** — every field, offset and width in `_GameSaveAccess` (`0x30c820`..`0x312cbc`) | the title menu's Continue and Load items are refused because there is no save file to offer. Beware: an earlier attempt disassembled past the end of the function and read a neighbour's code as part of the walk |
-| **The event-box engine side** — storage, the containment test, how the named Lua callback is invoked, what `SetEventBoxNoTouchEvent` changes | `AddEventBox` is the most-called script function (552 calls). The port's own version is edge-triggered on an XZ AABB; whether that is the engine's is untested |
+| **The event-box callback side** — how the named Lua callback is invoked and the engine's edge/continuous triggering policy | `AddEventBox` is the most-called script function (552 calls). Storage, `SetEventBoxNoTouchEvent`, and containment are now read: `IsHit` is a strict enabled 3D box test; its bounds are no longer an open question |
 | **Room transition and blocking** — what happens when the player walks toward a cell whose record has no room name | the port clamps; the engine's answer is unread |
 
 ## Known-different, deliberately

@@ -162,6 +162,16 @@ struct EventBox {
     bool enabled = true;
     bool no_touch = false;   // SetEventBoxNoTouchEvent
     bool inside = false;     // edge-triggered: fire on entry, not every frame
+
+    // AppEventBoxBase::IsHit @ 0x2bb0f8 tests all three axes strictly: a
+    // boundary point is outside. X/Z are room-local in scripts and translated
+    // to world coordinates by AddEventBox; Y is already world height.
+    bool IsHit(float x, float y, float z, float room_x, float room_z) const {
+        return enabled && !no_touch &&
+               x > lo[0] + room_x && x < hi[0] + room_x &&
+               y > lo[1]          && y < hi[1] &&
+               z > lo[2] + room_z && z < hi[2] + room_z;
+    }
 };
 
 // The engine's faction tag for a spawned actor. The player is the one actor the
