@@ -32,6 +32,7 @@ public:
     bool Run(std::string_view name, std::span<const uint8_t> source);
     bool CallFunction(std::string_view fn);
     bool HasFunction(std::string_view fn) const;
+    double GlobalNumber(std::string_view name, double fallback = 0.0) const;
 
     // A map script shares scenario globals (sccnt, scflagNN) with later maps,
     // but its callbacks and active coroutines belong to that map only. Drop
@@ -93,6 +94,10 @@ public:
     // GetGameTimeMs is the game clock the prelude's wait(n) uses. The host
     // advances it once per gameplay frame; it is deliberately not wall time.
     int game_time_ms = 0;
+    // Script-owned input gates. SetCinema covers authored cutscenes;
+    // SetPlayerControllEnable covers fades and other explicit locks.
+    bool cinema = false;
+    bool player_control_enabled = true;
 
     std::map<std::string, CallRecord> calls;
     bool trace_first = false;

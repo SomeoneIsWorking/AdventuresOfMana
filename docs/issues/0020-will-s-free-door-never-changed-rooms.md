@@ -14,8 +14,8 @@ The Lua bridge recorded `SetDoor` but discarded its side and type, and the host 
 
 ## Resolution
 
-Store all four authored door states in `World`, clear them on room reset, and on blocked outward body contact with a centred FREE door load the adjacent engine world-table cell while preserving world position. KEY/CLOSE/BLOCK/WALL and missing doors do not cross. The exact native door-object contact width remains a documented one-chip PORT CHOICE.
+Store all four authored door states in `World`, clear them on room reset, and on blocked outward body contact load the adjacent engine world-table cell while preserving world position. A missing door is an ordinary open cell edge; a centred FREE door opens on contact; KEY/CLOSE/BLOCK/WALL remain closed. The exact native door-object contact width remains a documented one-chip PORT CHOICE.
 
 ## Evidence
 
-`tools/verify.sh` now runs both classes in the shipping executable: M0001_00_02 UP/FREE logs `door exit 0 -> M0001_00_01`; M0001_00_01 DN/KEY ends in the same room and emits no door exit. `--movement-selftest` reports 27/27 including FREE, KEY, and reset state; the full verifier passed on 2026-08-13.
+`tools/verify.sh` now runs all three classes in the shipping executable: M0001_00_02 UP/FREE logs `room exit 0 -> M0001_00_01`; M0001_00_01's ordinary north edge reaches M0001_00_00; its DN/KEY edge ends in the same room and emits no room exit. `--movement-selftest` covers FREE, KEY, and reset state; the full verifier passed on 2026-08-13.

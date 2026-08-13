@@ -477,6 +477,17 @@ bool DispatchAudio(lua_State* L, const CmdDef* def, Script& s) {
         s.has_jump = true;
         return true;
     }
+    if (n == "SetCinema") {
+        s.cinema = lua_toboolean(L, 1) != 0;
+        lucent::debug("lua", "SetCinema({})", s.cinema);
+        return true;
+    }
+    if (n == "SetPlayerControllEnable") {
+        s.player_control_enabled = lua_toboolean(L, 1) != 0;
+        lucent::debug("lua", "SetPlayerControllEnable({})",
+                      s.player_control_enabled);
+        return true;
+    }
     if (n == "BgmPlay")      { s.pending_bgm = N(1); return true; }
     if (n == "GetBgmID")     { lua_pushnumber(L, s.current_bgm); return true; }
     if (n == "SePlay")       { s.pending_se.push_back({N(1), false}); return true; }
@@ -588,6 +599,13 @@ bool Script::HasFunction(std::string_view fn) const {
     return found;
 }
 
+double Script::GlobalNumber(std::string_view name, double fallback) const {
+    lua_getglobal(L_, std::string(name).c_str());
+    double value = lua_isnumber(L_, -1) ? lua_tonumber(L_, -1) : fallback;
+    lua_pop(L_, 1);
+    return value;
+}
+
 void Script::ClearRoomScript() {
     for (int ref : co_) luaL_unref(L_, LUA_REGISTRYINDEX, ref);
     co_.clear();
@@ -596,6 +614,11 @@ void Script::ClearRoomScript() {
         lua_setglobal(L_, fn.c_str());
     }
     room_functions_.clear();
+    // These are transient mode/input locks, not save globals. A coroutine can
+    // intentionally MapJump while a fade owns control; destroying that room's
+    // coroutine must not strand the destination with input permanently off.
+    cinema = false;
+    player_control_enabled = true;
 }
 
 void Script::RememberRoomFunctions(const std::vector<std::string>& before) {

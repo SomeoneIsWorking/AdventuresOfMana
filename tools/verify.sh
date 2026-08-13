@@ -206,15 +206,40 @@ echo "=== combat self-test ==="
     --walk-to 165 -30 --auto-advance \
     --screenshot scratch/screenshots/free-door.png --warmup 300 \
     >"$free_door_log" 2>&1 || fail=1
-  grep -F "door exit 0 -> M0001_00_01" "$free_door_log" || fail=1
+  grep -F "room exit 0 -> M0001_00_01" "$free_door_log" || fail=1
   grep -F "ended in M0001_00_01" "$free_door_log" || fail=1
+
+  open_edge_log=scratch/logs/open-room-edge.log
+  SDL_AUDIODRIVER=dummy ./build/mana --room M0001_00_01 --spawn 165 135 \
+    --walk-to 165 -30 --screenshot scratch/screenshots/open-room-edge.png \
+    --warmup 300 >"$open_edge_log" 2>&1 || fail=1
+  grep -F "room exit 0 -> M0001_00_00" "$open_edge_log" || fail=1
+  grep -F "ended in M0001_00_00" "$open_edge_log" || fail=1
 
   key_door_log=scratch/logs/key-door.log
   SDL_AUDIODRIVER=dummy ./build/mana --room M0001_00_01 --spawn 165 60 \
     --walk-to 165 300 --screenshot scratch/screenshots/key-door.png --warmup 240 \
     >"$key_door_log" 2>&1 || fail=1
   grep -F "ended in M0001_00_01" "$key_door_log" || fail=1
-  if grep -F "door exit" "$key_door_log" >/dev/null; then fail=1; fi
+  if grep -F "room exit" "$key_door_log" >/dev/null; then fail=1; fi
+
+  # Exercise the continuous authored story, not a room seeded with a test
+  # scenario value: two distinct Jackal intros/deaths, Will's completed scene,
+  # both ordinary/free room edges, and the post-fight out_01 callback. This
+  # catches transient input locks leaking across MapJump and cutscene movement
+  # escaping before sccnt is committed.
+  echo "=== continuous opening story ==="
+  story_log=scratch/logs/opening-story.log
+  SDL_AUDIODRIVER=dummy ./build/mana --opening-story \
+    --stop-room M0001_01_03 \
+    --screenshot scratch/screenshots/opening-story-fallback.png --warmup 10000 \
+    >"$story_log" 2>&1 || fail=1
+  test "$(grep -Fc 'MainPlayer killed _BOSS' "$story_log")" -eq 2 || fail=1
+  grep -F 'message: "Arena Guard:\nDraw your blade, boy!' "$story_log" || fail=1
+  grep -F 'message: "Sumo:\nI guess it'"'"'s now or never!"' "$story_log" || fail=1
+  grep -F "entered event box 'out_01'" "$story_log" || fail=1
+  grep -F "reached requested stop room M0001_01_03" "$story_log" || fail=1
+  grep -F "end state: sccnt=4" "$story_log" || fail=1
 
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1

@@ -266,6 +266,8 @@ int main(int argc, char** argv) {
     int auto_levelup = -1;
     int grant_exp = 0;
     bool auto_attack = false;
+    bool opening_story = false;
+    std::string stop_room;
     int warmup = 0;
     bool fixed_step = false;
     bool combat_demo = false;
@@ -313,6 +315,16 @@ int main(int argc, char** argv) {
         else if (a == "--auto-levelup" && i + 1 < argc) auto_levelup = std::atoi(argv[++i]);
         else if (a == "--grant-exp" && i + 1 < argc) grant_exp = std::atoi(argv[++i]);
         else if (a == "--auto-attack") auto_attack = true;
+        else if (a == "--opening-story") {
+            opening_story = true;
+            auto_attack = true;
+            auto_advance = true;
+            walk_to = true;
+            walk_x = 30.f;
+            walk_z = 30.f;
+            fixed_step = true;
+        }
+        else if (a == "--stop-room" && i + 1 < argc) stop_room = argv[++i];
         // --warmup implies --fixed-step: see the loop, a frame count on an
         // uncapped loop is not a duration.
         else if (a == "--warmup" && i + 1 < argc) { warmup = std::atoi(argv[++i]); fixed_step = true; }
@@ -359,6 +371,8 @@ int main(int argc, char** argv) {
                 "  --shot-delay N      wait N frames inside --shot-mode before capturing\n"
                 "                                         self-tests, non-zero on failure\n"
                 "  --auto-attack       swing continuously (headless combat driver)\n"
+                "  --opening-story     drive the authored opening through both Jackal fights\n"
+                "  --stop-room NAME    exit successfully after loading this room\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
                 "  --auto-advance      dismiss dialogue automatically (headless)\n"
                 "  --auto-talk         talk to any NPC in reach (headless)\n"
@@ -1083,6 +1097,16 @@ int main(int argc, char** argv) {
             ck("room reset clears every authored door",
                w.DoorType(0) == mcf::World::kNoDoor &&
                w.DoorType(2) == mcf::World::kNoDoor);
+            ck("SetCinema exposes both locked and unlocked input states",
+               run("cinema-on", "SetCinema(true)\neventScene=101\n") &&
+               script.cinema && script.GlobalNumber("eventScene") == 101.0 &&
+               run("cinema-off", "SetCinema(false)\neventScene=0\n") &&
+               !script.cinema && script.GlobalNumber("eventScene") == 0.0);
+            ck("SetPlayerControllEnable exposes both input states",
+               run("control-off", "SetPlayerControllEnable(false)\n") &&
+               !script.player_control_enabled &&
+               run("control-on", "SetPlayerControllEnable(true)\n") &&
+               script.player_control_enabled);
             lucent::info("movement", "SELFTEST: {} cases, {} failures", checked, bad);
             return bad ? 1 : 0;
         }
@@ -3185,6 +3209,9 @@ int main(int argc, char** argv) {
                 bool player_script_moving = false;
                 if (auto* pl = world.Find("MainPlayer"))
                     player_script_moving = pl->script_auto_move;
+                bool player_input_enabled = !player_script_moving &&
+                    sc.player_control_enabled && !sc.cinema &&
+                    sc.GlobalNumber("eventScene") == 0.0;
                 // Resolve clocks independently of rendering. Lua may poll a
                 // hidden actor or MainPlayer, and neither is allowed to wait
                 // forever merely because the draw loop skipped it.
@@ -3226,12 +3253,33 @@ int main(int argc, char** argv) {
                     if (key[SDL_SCANCODE_UP]    || key[SDL_SCANCODE_W]) mz -= 1;
                     if (key[SDL_SCANCODE_DOWN]  || key[SDL_SCANCODE_S]) mz += 1;
                 }
-                if (player_script_moving) mx = mz = 0.f;
+                if (!player_input_enabled) mx = mz = 0.f;
                 // Headless driver: steer toward a room-local target so the
                 // walk-into-an-event-box path (which is how the game connects
                 // rooms) can be exercised without a human at the keyboard.
-                if (walk_to && !player_script_moving) {
-                    float tx = walk_x + room_org[0], tz = walk_z + room_org[2];
+                if (walk_to && player_input_enabled) {
+                    float active_walk_x = walk_x, active_walk_z = walk_z;
+                    if (opening_story) {
+                        if (room_name == "M0001_00_02" ||
+                            room_name == "M0001_00_01") {
+                            active_walk_x = 165.f;
+                            active_walk_z = -30.f;
+                        } else if (room_name == "M0001_00_00") {
+                            // After the second Jackal, EnemyDead authors two
+                            // joined out_01 boxes. Drive their actual centre;
+                            // before they exist, retain the proven EX_1 combat
+                            // boundary target.
+                            for (const auto& bx : world.boxes)
+                                if (bx.enabled && !bx.no_touch &&
+                                    bx.name == "out_01") {
+                                    active_walk_x = (bx.lo[0] + bx.hi[0]) * .5f;
+                                    active_walk_z = (bx.lo[2] + bx.hi[2]) * .5f;
+                                    break;
+                                }
+                        }
+                    }
+                    float tx = active_walk_x + room_org[0];
+                    float tz = active_walk_z + room_org[2];
                     float dx = tx - px, dz = tz - pz;
                     if (dx * dx + dz * dz > 4.f) { mx = dx; mz = dz; }
                     else if (auto_attack) auto_attack_armed = true;
@@ -3280,7 +3328,8 @@ int main(int argc, char** argv) {
                         sc.message_pending = false;
                         sc.last_message.clear();
                     }
-                } else if (confirm_edge || (auto_talk && frames % 30 == 0)) {
+                } else if (player_input_enabled &&
+                           (confirm_edge || (auto_talk && frames % 30 == 0))) {
                     // Talking. A room script spawns an NPC with a handle and
                     // defines a global of the SAME NAME as its conversation:
                     //   npc_rand("BATTLEMAN", eNPC.BATTLEMAN, 6)
@@ -3324,7 +3373,7 @@ int main(int argc, char** argv) {
                 // animated bone centres; select the nearest hostile here and
                 // leave actual contact entirely to the unchanged hit volumes.
                 float auto_attack_dist2 = 1e30f;
-                if (auto_attack_armed) {
+                if (auto_attack_armed && player_input_enabled) {
                     for (const auto& a : world.actors()) {
                         if (!a.alive || a.defeated ||
                             mcf::CharType(a) != mcf::Actor::kEnemy) continue;
@@ -3362,7 +3411,8 @@ int main(int argc, char** argv) {
                     attack_left = kAttackFrames;
                     attacking = true;
                 }
-                if (confirm && !sc.message_pending && !level_up_open && !attacking) {
+                if (player_input_enabled && confirm && !sc.message_pending &&
+                    !level_up_open && !attacking) {
                     attack_left = kAttackFrames;
                     attacking = true;
                 }
@@ -3399,12 +3449,21 @@ int main(int argc, char** argv) {
                         std::fabs(lz - room_size.h * .5f) <= kDoorHalfWidth};
                     int exit_arrow = -1;
                     if (blocked)
-                        for (int side = 0; side < 4; ++side)
-                            if (outward[side] && at_side[side] && at_door[side] &&
-                                world.DoorType(side) == 0) {
+                        for (int side = 0; side < 4; ++side) {
+                            int door = world.DoorType(side);
+                            // A clear room mark is the ordinary cell edge.
+                            // _SetDoor ORs the side's mark bit into the room;
+                            // OpenDoor clears it in this cell and its neighbor.
+                            // Therefore kNoDoor is traversable across the full
+                            // edge, FREE opens on centred body contact, and the
+                            // other authored types remain closed.
+                            bool passable = door == mcf::World::kNoDoor ||
+                                            (door == 0 && at_door[side]);
+                            if (outward[side] && at_side[side] && passable) {
                                 exit_arrow = side;
                                 break;
                             }
+                        }
                     if (exit_arrow >= 0) {
                         int map = -1, gx = -1, gy = -1;
                         if (std::sscanf(room_name.c_str(), "M%d_%d_%d",
@@ -3444,7 +3503,7 @@ int main(int argc, char** argv) {
                 // the requested point lies beyond the physical wall. Reaching
                 // the authored boundary CELL is therefore the real end of the
                 // headless positioning phase, not reaching the literal point.
-                if (auto_attack && walk_to && have_ground &&
+                if (player_input_enabled && auto_attack && walk_to && have_ground &&
                     (ground.Get(px - room_org[0], pz - room_org[2]) &
                      0x02000000u) != 0)
                     auto_attack_armed = true;
@@ -4073,7 +4132,7 @@ int main(int argc, char** argv) {
 
                 if (room_exit.pending) {
                     room_exit.pending = false;
-                    lucent::info("world", "door exit {} -> {} at world "
+                    lucent::info("world", "room exit {} -> {} at world "
                                  "({:.1f},{:.1f})", room_exit.arrow,
                                  room_exit.dest, room_exit.world_x,
                                  room_exit.world_z);
@@ -4092,6 +4151,11 @@ int main(int argc, char** argv) {
                         startRoomInit();
                         cam_init = false;
                         serviceAudio();
+                        if (!stop_room.empty() && room_name == stop_room) {
+                            lucent::info("world", "reached requested stop room {}",
+                                         stop_room);
+                            running = false;
+                        }
                     } else {
                         lucent::error("world", "door exit to {} failed; staying put",
                                       room_exit.dest);
@@ -4119,6 +4183,11 @@ int main(int argc, char** argv) {
                         pdeg = float(j.arrow) * (float(std::numbers::pi) / 2.f);
                         cam_init = false;
                         serviceAudio();
+                        if (!stop_room.empty() && room_name == stop_room) {
+                            lucent::info("world", "reached requested stop room {}",
+                                         stop_room);
+                            running = false;
+                        }
                     } else {
                         lucent::error("world", "mapjump to {} failed; staying put", dest);
                     }
@@ -4551,6 +4620,15 @@ int main(int argc, char** argv) {
             lucent::info("world", "ended in {} at room-local ({:.1f},{:.1f},{:.1f})",
                          room_name, px - room_org[0], py - room_org[1],
                          pz - room_org[2]);
+            lucent::info("lua", "end state: sccnt={:.0f}, eventScene={:.0f}, "
+                         "cinema={}, player-control={}, {} live coroutine(s)",
+                         sc.GlobalNumber("sccnt", -1),
+                         sc.GlobalNumber("eventScene", -1), sc.cinema,
+                         sc.player_control_enabled, sc.live_coroutines());
+            if (const auto* pl = world.Find("MainPlayer"))
+                lucent::info("world", "player motion {} at {:.1f}/{:.1f}, "
+                             "script-moving={}", pl->motion, pl->motion_frame,
+                             pl->motion_duration, pl->script_auto_move);
             lucent::info("combat",
                          "{} frame-overlaps ({} rejected by the faction filter) "
                          "-> {} landed hits -> {} kills; "
