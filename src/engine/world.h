@@ -166,6 +166,13 @@ struct Actor {
     }
 };
 
+// Ordinary enemies are driven by AppCharacterBase-style table AI in the host.
+// Bosses are driven by their map script's _BOSS coroutine instead; allowing
+// both controllers to write one actor corrupts scripted choreography.
+inline bool UsesHostEnemyAI(const Actor& a) {
+    return a.alive && a.kind == 'E';
+}
+
 // AddEventBox(name, x0,y0,z0, x1,y1,z1, flag) -- the most-called cmd function
 // (552 calls across the shipping scripts). When the player enters the volume the
 // engine calls the global Lua function of the same name, which is how map

@@ -982,6 +982,21 @@ int main(int argc, char** argv) {
             return bad ? 1 : 0;
         }
         if (ai_selftest) {
+            {
+                mcf::Actor enemy;
+                enemy.kind = 'E';
+                mcf::Actor boss;
+                boss.kind = 'B';
+                if (!mcf::UsesHostEnemyAI(enemy) || mcf::UsesHostEnemyAI(boss)) {
+                    lucent::error("ai", "SELFTEST FAIL: host AI ownership: "
+                                  "ordinary enemy={}, scripted boss={}",
+                                  mcf::UsesHostEnemyAI(enemy),
+                                  mcf::UsesHostEnemyAI(boss));
+                    return 1;
+                }
+                lucent::info("ai", "  ok: host AI owns ordinary enemies and "
+                             "refuses script-owned bosses");
+            }
             const char* kEnemyDat = "sk1/enemydat.bin";
             if (!ar.Has(kEnemyDat)) {
                 lucent::error("ai", "{} is not in the archive; NOTHING was "
@@ -3240,7 +3255,7 @@ int main(int argc, char** argv) {
 
                 // Enemies close on the player.
                 for (auto& a : world.actors_mutable()) {
-                    if (!a.alive || (a.kind != 'E' && a.kind != 'B')) continue;
+                    if (!mcf::UsesHostEnemyAI(a)) continue;
                     float ax = a.pos[0] + room_org[0], az = a.pos[2] + room_org[2];
                     float dx = px - ax, dz = pz - az;
                     float d2 = dx * dx + dz * dz;

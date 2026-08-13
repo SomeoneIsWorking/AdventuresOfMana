@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/engine/world.h#Actor, src/engine/world.cpp#World::TickScriptMoves, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:22:05
+verified_at: 2026-08-13 21:27:48
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ Any change to Actor scripted movement state, ChrMoveTo/ChrMoveYTo/IsChrAutoMove 
 ## Re-confirmed 2026-08-13
 
 Re-ran full verify.sh with movement SELFTEST 6/6 and visually inspected the frame-30 hero and frame-60 Jackal opening captures.
+
+## Re-confirmed 2026-08-13
+
+Full verify.sh re-ran movement SELFTEST 6/6 and the opening shipping path after the boss-AI ownership change.

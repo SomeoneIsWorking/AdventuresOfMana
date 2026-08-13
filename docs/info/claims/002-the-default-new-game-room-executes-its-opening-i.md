@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/host/main.cpp#main, src/engine/script.cpp#Script::ResumeCoroutines, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:22:05
+verified_at: 2026-08-13 21:27:48
 ---
 
 ## Claim
@@ -32,3 +32,7 @@ Full SDL_AUDIODRIVER=dummy ./tools/verify.sh passed after camera command integra
 ## Re-confirmed 2026-08-13
 
 Full verify.sh passed after asynchronous scripted movement; the opening lifecycle still produced all three required observations.
+
+## Re-confirmed 2026-08-13
+
+Full verify.sh re-ran the 600-frame opening lifecycle after the boss-AI ownership change and matched Init start, Arena Guard dialogue, and Jackal combat seeding.

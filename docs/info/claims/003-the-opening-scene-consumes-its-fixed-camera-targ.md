@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/engine/world.h#Camera, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:22:05
+verified_at: 2026-08-13 21:27:48
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Re-ran full verify.sh with 6/6 camera command cases and visually inspected the c
 ## Re-confirmed 2026-08-13
 
 Full verify.sh passed after scripted movement and the camera self-test remained 6/6; opening frame target behavior remains visible.
+
+## Re-confirmed 2026-08-13
+
+Full verify.sh re-ran camera SELFTEST 6/6 and the opening shipping path after the boss-AI ownership change.
