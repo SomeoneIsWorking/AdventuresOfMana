@@ -230,8 +230,7 @@ echo "=== combat self-test ==="
   echo "=== continuous opening story ==="
   story_log=scratch/logs/opening-story.log
   ./build/mana --opening-story \
-    --stop-room M0001_01_04 \
-    --screenshot scratch/screenshots/opening-story-fallback.png --warmup 10000 \
+    --screenshot scratch/screenshots/opening-story-fallback.png --warmup 5000 \
     >"$story_log" 2>&1 || fail=1
   test "$(grep -Fc 'MainPlayer killed _BOSS' "$story_log")" -eq 2 || fail=1
   grep -F 'message: "Arena Guard:\nDraw your blade, boy!' "$story_log" || fail=1
@@ -240,8 +239,12 @@ echo "=== combat self-test ==="
   grep -F "scripted movement began for SHADOW" "$story_log" || fail=1
   grep -F "room exit 1 -> M0001_01_03" "$story_log" || fail=1
   grep -F "room exit 2 -> M0001_01_04" "$story_log" || fail=1
-  grep -F "reached requested stop room M0001_01_04" "$story_log" || fail=1
-  grep -F "end state: sccnt=6" "$story_log" || fail=1
+  grep -F "room exit 3 -> M0001_00_04" "$story_log" || fail=1
+  grep -F "mapjump -> M0000_05_06 at (100,0,130)" "$story_log" || fail=1
+  grep -F 'message: "Sumo:\nI-I'"'"'m...alive! But where am I?"' "$story_log" || fail=1
+  grep -F "ended in M0000_05_06" "$story_log" || fail=1
+  grep -F "end state: sccnt=10, eventScene=0, cinema=false, player-control=true, 0 live coroutine(s)" \
+    "$story_log" || fail=1
 
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
