@@ -11,6 +11,7 @@ Actor& World::Spawn(const std::string& handle, int type_id, float x, float y, fl
         a->type_id = type_id;
         a->pos[0] = x; a->pos[1] = y; a->pos[2] = z;
         a->alive = true;
+        a->defeated = false;
         return *a;
     }
     Actor a;
@@ -89,6 +90,23 @@ void World::TickLookTargets() {
     }
 }
 
+bool World::ConsumeEnemyWaveCleared() {
+    bool any = false;
+    for (const auto& a : actors_) {
+        if (a.alive && !a.defeated && CharType(a) == Actor::kEnemy) {
+            any = true;
+            break;
+        }
+    }
+    if (any) {
+        had_live_hostiles_ = true;
+        return false;
+    }
+    if (!had_live_hostiles_) return false;
+    had_live_hostiles_ = false;
+    return true;
+}
+
 bool HitArcSphere(const float a[3], float ar, float arc_deg, float yaw,
                   const float d[3], float dr) {
     float dx = d[0] - a[0], dy = d[1] - a[1], dz = d[2] - a[2];
@@ -111,6 +129,7 @@ void World::Reset() {
     actors_.clear();
     index_.clear();
     spawn_serial_ = 0;
+    had_live_hostiles_ = false;
     boxes.clear();
 }
 

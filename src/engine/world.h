@@ -124,6 +124,10 @@ struct Actor {
     float motion_frame = 0.f;
     float motion_duration = 0.f; // populated from the actor's shipping .smot
     bool alive = true;
+    // HP reaching zero defeats a script-owned boss without removing its
+    // character. The room's EnemyDead coroutine owns its death motion/effects
+    // and finally calls DeadEnemy(handle), which is what clears `alive`.
+    bool defeated = false;
     // Combat status. For 'E'/'B' actors these come from sk1/enemydat.bin: the
     // engine's GetStatusMaxHp reads record +0x04 and Damage subtracts record
     // +0x0C, so these are the game's own numbers, not port inventions.
@@ -184,7 +188,7 @@ struct Actor {
 // Bosses are driven by their map script's _BOSS coroutine instead; allowing
 // both controllers to write one actor corrupts scripted choreography.
 inline bool UsesHostEnemyAI(const Actor& a) {
-    return a.alive && a.kind == 'E';
+    return a.alive && !a.defeated && a.kind == 'E';
 }
 
 // AddEventBox(name, x0,y0,z0, x1,y1,z1, flag) -- the most-called cmd function
@@ -286,6 +290,9 @@ public:
     void TickScriptMoves(float dt, const ScriptMoveBlocked& blocked = {});
     void TickMotions(float frames);
     void TickLookTargets();
+    // ModeGame::Process calls the room's EnemyDead function on the transition
+    // from at least one live type-4 character to zero. Rearms for later waves.
+    bool ConsumeEnemyWaveCleared();
 
     // Monotonic per-World counter for engine-assigned actor handles.
     uint32_t NextSpawnSerial() { return ++spawn_serial_; }
@@ -300,6 +307,7 @@ private:
     std::vector<Actor> actors_;
     std::unordered_map<std::string, size_t> index_;
     uint32_t spawn_serial_ = 0;
+    bool had_live_hostiles_ = false;
 };
 
 }  // namespace mcf

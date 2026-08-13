@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/engine/world.h#Actor, src/engine/world.cpp#World::TickScriptMoves, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:30:34
+verified_at: 2026-08-13 22:46:27
 ---
 
 ## Claim
@@ -68,3 +68,7 @@ Full tools/verify.sh passed on 2026-08-13 after mandatory runtime preflight; mov
 ## Re-confirmed 2026-08-13
 
 Full read-only tools/verify.sh passed on 2026-08-13; movement selftest remained 19/19.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after boss-death progression; movement/wave selftest reported 24/24.

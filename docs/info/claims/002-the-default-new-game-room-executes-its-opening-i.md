@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/host/main.cpp#main, src/engine/script.cpp#Script::ResumeCoroutines, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:30:34
+verified_at: 2026-08-13 22:46:27
 ---
 
 ## Claim
@@ -76,3 +76,7 @@ Full tools/verify.sh passed on 2026-08-13 after mandatory runtime preflight; ope
 ## Re-confirmed 2026-08-13
 
 Full read-only tools/verify.sh passed on 2026-08-13 with mandatory game/assets/source inputs; opening lifecycle retained every required observation.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after boss-death progression; opening lifecycle and the subsequent Will-room transition both passed.

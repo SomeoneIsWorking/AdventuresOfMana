@@ -1057,6 +1057,22 @@ int main(int argc, char** argv) {
                !actor.script_auto_move &&
                actor.Get(mcf::chr_data::kIsHitMap) == 1.f &&
                actor.script_map_hits == 1);
+            ck("an empty world does not report a cleared enemy wave",
+               !w.ConsumeEnemyWaveCleared());
+            auto& foe = w.Spawn("wave-enemy", 0, 0.f, 0.f, 0.f);
+            foe.kind = 'E';
+            ck("a live enemy arms but does not fire the wave transition",
+               !w.ConsumeEnemyWaveCleared());
+            foe.defeated = true;
+            ck("the last enemy defeat fires exactly once",
+               w.ConsumeEnemyWaveCleared());
+            ck("an empty frame after the transition does not refire it",
+               !w.ConsumeEnemyWaveCleared());
+            auto& boss = w.Spawn("wave-boss", 0, 0.f, 0.f, 0.f);
+            boss.kind = 'B';
+            ck("a later boss wave rearms and clears independently",
+               !w.ConsumeEnemyWaveCleared() &&
+               ((boss.defeated = true), w.ConsumeEnemyWaveCleared()));
             lucent::info("movement", "SELFTEST: {} cases, {} failures", checked, bad);
             return bad ? 1 : 0;
         }
@@ -2695,6 +2711,9 @@ int main(int argc, char** argv) {
             // 2 fade out over 800 ms once it is dismissed, 3 leave the mode.
             int game_over_state = 0;
             bool level_up_announced = false;
+            bool auto_attack_armed = auto_attack && !walk_to;
+            bool auto_attack_armed_logged = false;
+            bool auto_attack_target_logged = false;
             // GameRandom @ 0x3da480 is NOT reversed, so this is a stand-in with
             // the same range contract, seeded fixed so a headless run is
             // reproducible. The SHAPE of the roll is the engine's; the sequence
@@ -2710,12 +2729,16 @@ int main(int argc, char** argv) {
             seedCombat = [&] {
                 if (auto* pl = world.Find("MainPlayer")) {
                     auto& av = pl->attack[0];
-                    av.bone = "cog"; av.radius = 45.f; av.arc_deg = 180.f;
-                    av.valid = false;
+                    if (av.bone.empty()) {
+                        av.bone = "cog"; av.radius = 45.f; av.arc_deg = 180.f;
+                        av.valid = false;
+                    }
                     // The player must also be a TARGET, or enemy attack volumes
                     // have nothing to hit and combat stays one-sided.
                     auto& pdv = pl->damage[0];
-                    pdv.bone = "y_ang"; pdv.radius = 15.f; pdv.valid = true;
+                    if (pdv.bone.empty()) {
+                        pdv.bone = "y_ang"; pdv.radius = 15.f; pdv.valid = true;
+                    }
                 }
                 int with_stats = 0, without = 0;
                 for (auto& a : world.actors_mutable()) {
@@ -2824,7 +2847,9 @@ int main(int argc, char** argv) {
                 long atk_no_model = 0, atk_no_bone = 0;
                 long def_no_model = 0, def_no_bone = 0;
                 long pairs_vs_player = 0;   // enemy attack volume vs the player
+                long pairs_from_player = 0, hits_from_player = 0;
                 float closest_vs_player = 1e30f, closest_xz = 0, closest_y = 0;
+                float closest_from_player = 1e30f;
                 float closest = 1e30f;   // nearest volume separation seen
             } cs;
             while (running) {
@@ -3193,6 +3218,7 @@ int main(int argc, char** argv) {
                     float tx = walk_x + room_org[0], tz = walk_z + room_org[2];
                     float dx = tx - px, dz = tz - pz;
                     if (dx * dx + dz * dz > 4.f) { mx = dx; mz = dz; }
+                    else if (auto_attack) auto_attack_armed = true;
                 }
                 // Dismiss a message with the same key that attacks; while one
                 // is up that key must NOT also swing, or every conversation
@@ -3275,8 +3301,50 @@ int main(int argc, char** argv) {
                     attack_left = kAttackFrames;   // swing continuously, for testing
                     attacking = true;
                 }
-                if (auto_attack && !attacking && !level_up_open) {
-                    attack_left = kAttackFrames; attacking = true;
+                const mcf::Actor* auto_attack_target = nullptr;
+                // Headless driver target selection, after its requested
+                // --walk-to phase (if any) has completed. Actor-origin distance
+                // is not a valid attack reach because the narrow phase uses
+                // animated bone centres; select the nearest hostile here and
+                // leave actual contact entirely to the unchanged hit volumes.
+                float auto_attack_dist2 = 1e30f;
+                if (auto_attack_armed) {
+                    for (const auto& a : world.actors()) {
+                        if (!a.alive || a.defeated ||
+                            mcf::CharType(a) != mcf::Actor::kEnemy) continue;
+                        float dx = a.pos[0] + room_org[0] - px;
+                        float dz = a.pos[2] + room_org[2] - pz;
+                        float d2 = dx * dx + dz * dz;
+                        if (d2 <= auto_attack_dist2) {
+                            auto_attack_dist2 = d2;
+                            auto_attack_target = &a;
+                        }
+                    }
+                }
+                if (auto_attack_target) {
+                    if (!auto_attack_target_logged) {
+                        auto_attack_target_logged = true;
+                        lucent::info("combat", "auto attack acquired {} at "
+                                     "origin distance {:.1f}",
+                                     auto_attack_target->handle,
+                                     std::sqrt(auto_attack_dist2));
+                    }
+                    float dx = auto_attack_target->pos[0] + room_org[0] - px;
+                    float dz = auto_attack_target->pos[2] + room_org[2] - pz;
+                    pdeg = std::atan2(dx, dz);
+                    // After the authored positioning phase, close on the
+                    // target until the 45+15 player/enemy volume reach can
+                    // actually be exercised. Movement still goes through the
+                    // room's floor and wall collision below.
+                    if (!attacking && auto_attack_dist2 > 50.f * 50.f) {
+                        mx = dx;
+                        mz = dz;
+                    }
+                }
+                if (auto_attack_target && auto_attack_dist2 <= 50.f * 50.f &&
+                    !attacking && !level_up_open) {
+                    attack_left = kAttackFrames;
+                    attacking = true;
                 }
                 if (confirm && !sc.message_pending && !level_up_open && !attacking) {
                     attack_left = kAttackFrames;
@@ -3298,6 +3366,20 @@ int main(int argc, char** argv) {
                          !col.GetFloor(px, pz, mcf::Collision::kFloorMask, &g));
                     if (blocked) { px = ox; pz = oz; }
                     else if (have_col) py = g;
+                }
+                // The opening boss's own script gates its charge on EX_1, and
+                // the requested point lies beyond the physical wall. Reaching
+                // the authored boundary CELL is therefore the real end of the
+                // headless positioning phase, not reaching the literal point.
+                if (auto_attack && walk_to && have_ground &&
+                    (ground.Get(px - room_org[0], pz - room_org[2]) &
+                     0x02000000u) != 0)
+                    auto_attack_armed = true;
+                if (auto_attack_armed && !auto_attack_armed_logged) {
+                    auto_attack_armed_logged = true;
+                    lucent::info("combat", "auto attack armed at room-local "
+                                 "({:.1f},{:.1f})", px - room_org[0],
+                                 pz - room_org[2]);
                 }
                 // Camera from the game's own slots. Defaults are sk1.lua's where
                 // it states them (NEAR 40, FAR 5000, SPEED 0.3) and the values
@@ -3668,7 +3750,8 @@ int main(int argc, char** argv) {
                 {
                     auto& acts = world.actors_mutable();
                     for (size_t aidx = 0; aidx < acts.size(); ++aidx) {
-                        if (!acts[aidx].alive || acts[aidx].attack.empty()) continue;
+                        if (!acts[aidx].alive || acts[aidx].defeated ||
+                            acts[aidx].attack.empty()) continue;
                         auto an = mcf::ActorModelName(acts[aidx].kind, acts[aidx].type_id);
                         auto ait = cache.find(an);
                         if (ait == cache.end()) { ++cs.atk_no_model; continue; }
@@ -3690,6 +3773,7 @@ int main(int argc, char** argv) {
 
                             for (size_t didx = 0; didx < acts.size(); ++didx) {
                                 if (didx == aidx || !acts[didx].alive ||
+                                    acts[didx].defeated ||
                                     acts[didx].damage.empty()) continue;
                                 auto dn = mcf::ActorModelName(acts[didx].kind,
                                                               acts[didx].type_id);
@@ -3708,6 +3792,11 @@ int main(int argc, char** argv) {
                                           sz = dp[2] - ap[2];
                                     float sep = std::sqrt(sx * sx + sy * sy + sz * sz);
                                     cs.closest = std::min(cs.closest, sep);
+                                    if (acts[aidx].handle == "MainPlayer") {
+                                        ++cs.pairs_from_player;
+                                        cs.closest_from_player =
+                                            std::min(cs.closest_from_player, sep);
+                                    }
                                     if (acts[didx].handle == "MainPlayer") {
                                         ++cs.pairs_vs_player;
                                         if (sep < cs.closest_vs_player) {
@@ -3720,6 +3809,8 @@ int main(int argc, char** argv) {
                                                            acts[aidx].rot_y, dp, dv.radius))
                                         continue;
                                     ++cs.hits;
+                                    if (acts[aidx].handle == "MainPlayer")
+                                        ++cs.hits_from_player;
 
                                     auto& atkA = acts[aidx];
                                     // Both Damage overrides test the ATTACKER's
@@ -3845,7 +3936,17 @@ int main(int argc, char** argv) {
                                             atk, d.defence, d.hp, d.max_hp);
                                     } else {
                                         d.hp = 0;
-                                        d.alive = false;
+                                        d.defeated = true;
+                                        // Script-owned bosses must remain as
+                                        // characters through _BOSSDEAD; it
+                                        // calls DeadEnemy only after the death
+                                        // motion and effects. Ordinary enemy
+                                        // death presentation is native code
+                                        // not yet ported, so retain the prior
+                                        // immediate removal for that class.
+                                        if (d.kind != 'B') d.alive = false;
+                                        d.script_auto_move = false;
+                                        d.look_target.clear();
                                         ++cs.kills;
                                         // The rewards are now CREDITED, through
                                         // the engine's own AddEXP / AddRC caps,
@@ -3880,6 +3981,20 @@ int main(int argc, char** argv) {
                                 }
                             }
                         }
+                    }
+                }
+
+                if (world.ConsumeEnemyWaveCleared()) {
+                    if (sc.HasFunction("EnemyDead")) {
+                        if (sc.StartCoroutine("EnemyDead"))
+                            lucent::info("world", "all live enemies defeated; "
+                                         "started EnemyDead coroutine");
+                        else
+                            lucent::error("lua", "EnemyDead coroutine: {}",
+                                          sc.last_error());
+                    } else {
+                        lucent::info("world", "all live enemies defeated; room "
+                                     "has no EnemyDead handler");
                     }
                 }
 
@@ -4345,6 +4460,12 @@ int main(int argc, char** argv) {
                          cs.pairs ? std::format("{:.1f}", cs.closest) : "n/a",
                          cs.atk_no_model, cs.def_no_model, cs.atk_no_bone,
                          cs.def_no_bone);
+            lucent::info("combat", "player attack tested {} volume pairs, "
+                         "produced {} geometric overlaps; closest separation {}",
+                         cs.pairs_from_player, cs.hits_from_player,
+                         cs.pairs_from_player
+                             ? std::format("{:.1f}", cs.closest_from_player)
+                             : "n/a");
             lucent::info("combat",
                          "player took {} damage over {} hits, ending on {}/{} HP; "
                          "{} enemy-vs-player volume pairs tested, closest {}",

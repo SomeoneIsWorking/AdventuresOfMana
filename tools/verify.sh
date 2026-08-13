@@ -177,6 +177,25 @@ echo "=== combat self-test ==="
   grep -E -- '-> [1-9][0-9]* landed hits' "$boss_log" || fail=1
   grep -E 'player took [1-9][0-9]* damage' "$boss_log" || fail=1
   grep -F "scripted map collision for _BOSS" "$boss_log" || fail=1
+  if grep -F "started EnemyDead coroutine" "$boss_log" >/dev/null; then fail=1; fi
+
+  # Complete the same authored fight. Auto attack waits for the EX_1 boundary,
+  # closes through shipping collision, and swings through the normal player
+  # volume. The last-hostile edge must start EnemyDead exactly once and the
+  # room script must carry the game into Will's scene.
+  echo "=== opening-boss death progression ==="
+  death_log=scratch/logs/opening-boss-death.log
+  SDL_AUDIODRIVER=dummy ./build/mana \
+    --screenshot scratch/screenshots/opening-boss-death.png \
+    --warmup 2200 --auto-advance --auto-attack --walk-to 30 30 \
+    >"$death_log" 2>&1 || fail=1
+  grep -F "MainPlayer killed _BOSS" "$death_log" || fail=1
+  test "$(grep -Fc 'started EnemyDead coroutine' "$death_log")" -eq 1 || fail=1
+  grep -F "mapjump -> M0001_00_02" "$death_log" || fail=1
+  grep -F "started M0001_00_02 Init coroutine" "$death_log" || fail=1
+  grep -F 'text] message: "Sumo:\nDon'"'"'t die on me, Will!"' "$death_log" || fail=1
+  grep -E 'player attack tested [1-9][0-9]* volume pairs, produced [1-9][0-9]* geometric overlaps' \
+    "$death_log" || fail=1
 
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
