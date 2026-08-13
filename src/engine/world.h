@@ -112,6 +112,10 @@ struct Actor {
     // +0x0C, so these are the game's own numbers, not port inventions.
     int hp = 0, max_hp = 0, defence = 0, attack_power = 0;
     int exp = 0, money = 0;
+    // Set by the host after applying the static enemydat record.  Script
+    // coroutines can spawn actors after a room has loaded, so initialization
+    // must be repeatable at the world level without resetting a live actor.
+    bool combat_seeded = false;
     // enemydat +0x68 and +0x64. The speed is used; the AI type is recorded
     // only -- AppCharacterBase::UpdateAI switches 27 ways on it and none of the
     // 27 behaviours is reversed.

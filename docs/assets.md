@@ -2996,10 +2996,12 @@ reasonable-looking choice. `SystemInit` itself is 85 lines of pure assignment
 (every `scflag*` and `v##_##_##` story flag zeroed) with no calls at all, so it
 sets no map.
 
-**The start room comes from `GameSaveDataLoad`**, not from a literal: the
-constructor loads the save *after* `GameParameter::Init` has laid down defaults.
-That localises the remaining question to which `GameParameter` field holds the
-map — still open, and `M0000_00_00` remains a PORT CHOICE.
+`GameSaveDataLoad` can subsequently replace that new-game cell from a save, but
+the default is not open: the new-game arm in `ModeGame` writes `{col,row,world}
+= {0,0,1}`, so a new game begins at `M0001_00_00`. The host now loads that map
+and starts its `Init` coroutine after the player is present. The game prelude's
+`wait(n)` compares `GetGameTimeMs`, so the host advances that clock once per
+30 Hz gameplay frame rather than returning the generic stub value of zero.
 
 One offset trap worth recording: `GameParameter+0x168` is the **item bag**
 (`IsHaveItem`, `AddItem` and `SearchSlotGetCnt` all read it), while the save's

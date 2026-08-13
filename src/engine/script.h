@@ -30,6 +30,13 @@ public:
 
     bool Run(std::string_view name, std::span<const uint8_t> source);
     bool CallFunction(std::string_view fn);
+    bool HasFunction(std::string_view fn) const;
+
+    // A map script shares scenario globals (sccnt, scflagNN) with later maps,
+    // but its callbacks and active coroutines belong to that map only. Drop
+    // those before evaluating the next room without resetting the Lua state.
+    void ClearRoomScript();
+    void RememberRoomFunctions(const std::vector<std::string>& before);
 
     // Event handlers YIELD (fadeout/fadein call coroutine.yield), so the engine
     // runs them as coroutines -- hence NewCoroutine in the cmd API and
@@ -77,12 +84,16 @@ public:
     std::vector<SeReq> pending_se;
     std::vector<int> pending_se_stop;
     bool stop_all_se = false;
+    // GetGameTimeMs is the game clock the prelude's wait(n) uses. The host
+    // advances it once per gameplay frame; it is deliberately not wall time.
+    int game_time_ms = 0;
 
     std::map<std::string, CallRecord> calls;
     bool trace_first = false;
 
 private:
     std::vector<int> co_;      // registry refs to live threads
+    std::vector<std::string> room_functions_;
     lua_State* L_ = nullptr;
     std::string last_error_;
 };

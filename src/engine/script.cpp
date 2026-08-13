@@ -107,6 +107,12 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
     auto S = [&](int i) { return lua_isstring(L, i) ? lua_tostring(L, i) : ""; };
     auto N = [&](int i) { return float(luaL_optnumber(L, i, 0)); };
 
+    if (n == "GetGameTimeMs") {
+        if (auto* self = FromState(L)) lua_pushnumber(L, self->game_time_ms);
+        else                            lua_pushnumber(L, 0);
+        return true;
+    }
+
     // AddNPC(char*, int, float, float, float, float) -- the trailing float is
     // NOT a heading, which is what this used to assume. In the engine it is the
     // extent handed to ModeGame::AddCharacterRandomPos, and the engine decides
@@ -134,9 +140,25 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         // the type id silently collapsed them into one.
         int id = int(N(1));
         const char* kind = n == "AddBoss" ? "boss" : (n == "AddParty" ? "party" : "enemy");
+        if (n == "AddBoss") {
+            // AddBoss's public wrapper supplies the literal base name
+            // "_BOSS" (0x2c9050), and the first pass through
+            // ModeGame::AddBoss formats that base with "%s" (0x2ddfc0).
+            // Composite bosses add suffixed bodies through type-specific
+            // branches that are not mapped yet; do not invent their count.
+            // The base actor and its same-name coroutine are common engine
+            // behavior, including the opening Jackal.
+            auto* self = FromState(L);
+            auto& a = w.Spawn("_BOSS", id, N(2), N(3), N(4));
+            a.kind = 'B';
+            if (self && self->HasFunction("_BOSS") &&
+                !self->StartCoroutine("_BOSS"))
+                lucent::error("lua", "_BOSS coroutine: {}", self->last_error());
+            return true;
+        }
         auto& a = w.Spawn(std::format("{}{}_{}", kind, id, w.NextSpawnSerial()), id,
                           N(2), N(3), N(4));
-        a.kind = n == "AddBoss" ? 'B' : (n == "AddParty" ? 'C' : 'E');
+        a.kind = n == "AddParty" ? 'C' : 'E';
         return true;
     }
     if (n == "DelNPC" || n == "DeadEnemy") { w.Remove(S(1)); return true; }
@@ -439,6 +461,30 @@ bool Script::CallFunction(std::string_view fn) {
     return true;
 }
 
+bool Script::HasFunction(std::string_view fn) const {
+    lua_getglobal(L_, std::string(fn).c_str());
+    bool found = lua_isfunction(L_, -1);
+    lua_pop(L_, 1);
+    return found;
+}
+
+void Script::ClearRoomScript() {
+    for (int ref : co_) luaL_unref(L_, LUA_REGISTRYINDEX, ref);
+    co_.clear();
+    for (const auto& fn : room_functions_) {
+        lua_pushnil(L_);
+        lua_setglobal(L_, fn.c_str());
+    }
+    room_functions_.clear();
+}
+
+void Script::RememberRoomFunctions(const std::vector<std::string>& before) {
+    auto after = Globals();
+    for (const auto& fn : after)
+        if (!std::binary_search(before.begin(), before.end(), fn))
+            room_functions_.push_back(fn);
+}
+
 bool Script::StartCoroutine(std::string_view fn) {
     lua_State* th = lua_newthread(L_);
     int ref = luaL_ref(L_, LUA_REGISTRYINDEX);      // keep it alive
@@ -469,8 +515,10 @@ void Script::ResumeCoroutines() {
         lua_pop(L_, 1);
         int rc = lua_resume(th, nullptr, 0);
         if (rc == LUA_YIELD) { ++i; continue; }
-        if (rc != LUA_OK)
+        if (rc != LUA_OK) {
             last_error_ = lua_tostring(th, -1) ? lua_tostring(th, -1) : "unknown error";
+            lucent::error("lua", "coroutine failed: {}", last_error_);
+        }
         luaL_unref(L_, LUA_REGISTRYINDEX, co_[i]);
         co_.erase(co_.begin() + long(i));
     }

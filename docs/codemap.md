@@ -44,7 +44,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Desktop host (window + GLES2) | **Textured characters + rooms; GPU skinning + .smot playback** | `src/host/main.cpp` |
 | Lua bridge | **Lua 5.3 + all 200 `cmd` bindings; 714/715 scripts run** (stubs record calls) | `src/engine/script.cpp` |
 | Actor system | **Live actors driven by scripts**, rendered and animated in their rooms | `src/engine/world.{h,cpp}`, `src/host/render.cpp` |
-| Game loop + player | **Boots into the game with no arguments**; real-time loop, WASD/arrow movement, floor + wall collision, WAIT/WALK, attack on Space/Z. Start room is a PORT CHOICE (`M0000_00_00`) — the save/new-game path is not reversed | `src/host/main.cpp` |
+| Game loop + player | **Boots into the engine's new-game room (`M0001_00_00`) with no arguments**; real-time loop, WASD/arrow movement, floor + wall collision, WAIT/WALK, attack on Space/Z. Room `Init()` now runs as its own coroutine, advances from the engine-style game clock used by `wait`, and is cleared on map change without losing scenario globals. The opening Jackal receives the engine's `_BOSS` handle and its late spawn is initialized from `enemydat.bin` | `src/host/main.cpp`, `src/engine/script.cpp` |
 | Camera | **Script-driven follow camera** (`eCamGetData` slots) | `src/engine/world.h` |
 | Game over | **The engine's own three-step sequence** (`Process_GameOver`): game-over BGM, `SYS_GAMEOVER_MSG` in the message window, 800 ms fade to black, then end. Only the last step differs — `SetNextMode(5)` is a title screen this port does not have | `src/host/main.cpp` |
 | Fade | **Timed fades with the game's own shader**, verified to darken the frame | `src/host/main.cpp` |
@@ -87,11 +87,9 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 - `room_field.mtex` (240x240, the only NPOT texture) has 58 bytes of mip padding
   the exact-sum rule does not predict.
 - `.stexinfo` record +0x80 (a small u32) is unidentified.
-- ~~Dialogue text is missing from the extracted data entirely?~~ **WRONG, and
-  now RESOLVED.** The text ships in `sk1/str_en.bin` and `sk1/str_ja.bin`:
-  1906 ids, English and UTF-8 Japanese. The earlier search looked for CJK byte
-  runs and inside the per-room assets, and never opened the two files whose
-  names do not say "text". `GetIDString` resolves for real —
+- Dialogue text is resolved from the MPK's `str_en.bin` and `str_ja.bin`
+  members under its `sk1` directory: 1906 ids, English and UTF-8 Japanese.
+  `GetIDString` resolves them in the live script bridge —
   `./build/mana --string SYS_PARTYMSG_2_1`.
 - ~~19 of 53 NPC ids have no model?~~ **ANSWERED: the mapping was wrong, and
   all 35 eNPC ids now resolve** (was 24/36). Two rules: ids 0..9 are the named

@@ -1941,20 +1941,28 @@ int main(int argc, char** argv) {
             std::string room_name = render_room;
             auto loadRoom = [&](const std::string& name) -> bool {
                 room_name = name;
-            stage = mcf::Renderable{};
-            if (!mcf::LoadRenderable(ar, room_name, white, &stage)) {
+                stage = mcf::Renderable{};
+                if (!mcf::LoadRenderable(ar, room_name, white, &stage)) {
                     lucent::error("world", "no model for room {}", room_name);
                     return false;
                 }
 
-            // The Lua state persists ACROSS rooms: scenario flags (sccnt, scflagNN) are
-                // globals that must survive a transition, which is why SystemInit runs
-                // once at startup and not per room.
+                // The Lua state persists ACROSS rooms: scenario flags (sccnt,
+                // scflagNN) must survive a transition, which is why SystemInit
+                // runs once at startup and not per room. Map-local callbacks
+                // and pending threads must not survive: an old Init/event
+                // handler can otherwise run in the new map by its stale name.
+                sc.ClearRoomScript();
                 world.Reset();
-            
-            auto sp = std::format("sk1/{}.lua", room_name);
-            if (ar.Has(sp) && !sc.Run(sp, ar.Read(sp)))
-                lucent::warn("lua", "{}: {}", sp, sc.last_error());
+
+                auto sp = std::format("sk1/{}.lua", room_name);
+                if (ar.Has(sp)) {
+                    auto globals_before = sc.Globals();
+                    if (!sc.Run(sp, ar.Read(sp)))
+                        lucent::warn("lua", "{}: {}", sp, sc.last_error());
+                    else
+                        sc.RememberRoomFunctions(globals_before);
+                }
 
             // Scripts give actor positions in ROOM-LOCAL coordinates while map
             // models are authored in world space. Rooms tile a fixed
@@ -2346,6 +2354,15 @@ int main(int argc, char** argv) {
             }
             world.Spawn("MainPlayer", 0, px, py, pz).kind = 'C';
 
+            auto startRoomInit = [&]() {
+                if (!sc.HasFunction("Init")) return;
+                if (!sc.StartCoroutine("Init"))
+                    lucent::warn("lua", "{} Init: {}", room_name, sc.last_error());
+                else
+                    lucent::info("world", "started {} Init coroutine", room_name);
+            };
+            startRoomInit();
+
             // Service whatever the room script asked for. BGM lives in the APK
             // assets, not the MPK, so it is loaded from a directory on disk.
             auto serviceAudio = [&]() {
@@ -2454,6 +2471,8 @@ int main(int argc, char** argv) {
                 int with_stats = 0, without = 0;
                 for (auto& a : world.actors_mutable()) {
                     if (a.kind != 'E' && a.kind != 'B') continue;
+                    if (a.combat_seeded) continue;
+                    a.combat_seeded = true;
                     auto& dv = a.damage[0];
                     dv.bone = "y_ang"; dv.radius = 15.f; dv.valid = true;
                     auto it = enemy_stats.find(a.type_id);
@@ -3304,8 +3323,13 @@ int main(int argc, char** argv) {
                 }
 
                 t += dt * 30.f;      // motions are keyed in frames at 30fps
+                sc.game_time_ms = int(t * (1000.f / 30.f));
                 if (!fade_test) world.fade.Tick(dt * 1000.f);
                 sc.ResumeCoroutines();
+                // Init and event-box coroutines create actors after the room's
+                // first seed.  Seed only those new actors; a second complete
+                // seed would restore HP and erase combat that has happened.
+                seedCombat();
                 serviceAudio();
                 audio.Update();
 
@@ -3562,6 +3586,8 @@ int main(int argc, char** argv) {
                             float g;
                             if (col.GetFloor(px, pz, mcf::Collision::kFloorMask, &g)) py = g;
                         }
+                        world.Spawn("MainPlayer", 0, px, py, pz).kind = 'C';
+                        startRoomInit();
                         // eArrow: UP=0 RI=1 DN=2 LF=3.
                         pdeg = float(j.arrow) * (float(std::numbers::pi) / 2.f);
                         cam_init = false;

@@ -26,6 +26,19 @@ if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   ./build/mana --eventbox-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --eventbox-selftest >/dev/null 2>&1 || fail=1
 
+  # The first shipping map begins entirely inside Init(), after wait(600).
+  # A Lua chunk that only parses, a frozen GetGameTimeMs stub, or an invented
+  # boss handle all leave this log without the dialogue or the late-spawned
+  # Jackal record.  Keep the proof in the real game path.
+  echo "=== opening-room lifecycle ==="
+  mkdir -p scratch/logs scratch/screenshots
+  init_log=scratch/logs/opening-room-lifecycle.log
+  SDL_AUDIODRIVER=dummy ./build/mana --screenshot scratch/screenshots/opening-room-lifecycle.png \
+    --warmup 600 --auto-advance >"$init_log" 2>&1 || fail=1
+  grep -F "started M0001_00_00 Init coroutine" "$init_log" || fail=1
+  grep -F 'text] message: "Arena Guard:' "$init_log" || fail=1
+  grep -F "enemy stats: 1 from enemydat.bin, 0 with no table entry" "$init_log" || fail=1
+
   echo "=== player self-test ==="
   ./build/mana --player-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --player-selftest >/dev/null 2>&1 || fail=1
