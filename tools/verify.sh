@@ -197,6 +197,25 @@ echo "=== combat self-test ==="
   grep -E 'player attack tested [1-9][0-9]* volume pairs, produced [1-9][0-9]* geometric overlaps' \
     "$death_log" || fail=1
 
+  # Will's room has no event box or MapJump. Its north SetDoor(UP, FREE)
+  # must traverse the world table on body contact, while the destination's
+  # SetDoor(DN, KEY) must produce the opposite result under the same driver.
+  echo "=== free and locked room doors ==="
+  free_door_log=scratch/logs/free-door.log
+  SDL_AUDIODRIVER=dummy ./build/mana --room M0001_00_02 --spawn 165 210 \
+    --walk-to 165 -30 --auto-advance \
+    --screenshot scratch/screenshots/free-door.png --warmup 300 \
+    >"$free_door_log" 2>&1 || fail=1
+  grep -F "door exit 0 -> M0001_00_01" "$free_door_log" || fail=1
+  grep -F "ended in M0001_00_01" "$free_door_log" || fail=1
+
+  key_door_log=scratch/logs/key-door.log
+  SDL_AUDIODRIVER=dummy ./build/mana --room M0001_00_01 --spawn 165 60 \
+    --walk-to 165 300 --screenshot scratch/screenshots/key-door.png --warmup 240 \
+    >"$key_door_log" 2>&1 || fail=1
+  grep -F "ended in M0001_00_01" "$key_door_log" || fail=1
+  if grep -F "door exit" "$key_door_log" >/dev/null; then fail=1; fi
+
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --camera-selftest >/dev/null 2>&1 || fail=1

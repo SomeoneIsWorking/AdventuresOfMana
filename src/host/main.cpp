@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <limits>
 #include <numbers>
 #include <filesystem>
 #include <random>
@@ -1073,6 +1074,15 @@ int main(int argc, char** argv) {
             ck("a later boss wave rearms and clears independently",
                !w.ConsumeEnemyWaveCleared() &&
                ((boss.defeated = true), w.ConsumeEnemyWaveCleared()));
+            ck("SetDoor preserves FREE as distinct from a missing door",
+               run("door-free", "SetDoor(0, 0)\n") &&
+               w.DoorType(0) == 0 && w.DoorType(1) == mcf::World::kNoDoor);
+            ck("SetDoor preserves a locked door type",
+               run("door-key", "SetDoor(2, 1)\n") && w.DoorType(2) == 1);
+            w.Reset();
+            ck("room reset clears every authored door",
+               w.DoorType(0) == mcf::World::kNoDoor &&
+               w.DoorType(2) == mcf::World::kNoDoor);
             lucent::info("movement", "SELFTEST: {} cases, {} failures", checked, bad);
             return bad ? 1 : 0;
         }
@@ -2075,6 +2085,7 @@ int main(int argc, char** argv) {
             mcf::GroundAttributes ground;
             bool have_ground = false;
             float room_org[3]{0, 0, 0};
+            mcf::RoomSize room_size;
             // Chip-resolution pathing state. `chip_walk` is per room;
             // `chip_dist` is rebuilt each frame from the player's chip and
             // shared by every chaser, as one flood fill rather than one per
@@ -2185,7 +2196,6 @@ int main(int argc, char** argv) {
             // 15-unit collision margin giving 330x270 boxes), so the FILENAME
             // is the anchor -- not anything measured off the geometry.
             room_org[0] = room_org[1] = room_org[2] = 0.f;
-            mcf::RoomSize room_size;
             {
                 auto us = room_name.rfind('_');
                 auto us2 = room_name.rfind('_', us - 1);
@@ -2792,6 +2802,12 @@ int main(int argc, char** argv) {
             float eye_cur[3]{};
             bool cam_init = false;
             bool running = true;
+            struct RoomExitReq {
+                bool pending = false;
+                std::string dest;
+                int arrow = 0;
+                float world_x = 0.f, world_z = 0.f;
+            } room_exit;
             // The engine's mode machine. The port reaches gameplay through the
             // same chain the binary does -- ModeInit -> ModeCESA ->
             // ModeMakerLogo -> ModeTitle -> ModeGame -- rather than starting in
@@ -3357,13 +3373,70 @@ int main(int argc, char** argv) {
                     px += mx / len * kWalk * dt;
                     pz += mz / len * kWalk * dt;
                     pdeg = std::atan2(mx, mz);
-                    // Refuse to walk off the collision mesh rather than
-                    // silently floating: revert the step if there is no floor.
                     float g;
                     bool blocked = have_col &&
                         (col.BlockedXZ(ox, oz, px, pz, py, 30.f,
                                        mcf::Collision::kWallMask) ||
                          !col.GetFloor(px, pz, mcf::Collision::kFloorMask, &g));
+                    float lx = px - room_org[0], lz = pz - room_org[2];
+                    // SetDoor creates a centred map object on the requested
+                    // room side. FREE doors open on body contact (the shipping
+                    // eDoor comment says exactly that); the static .scol still
+                    // contains the boundary wall. PORT CHOICE: the object's
+                    // precise collision volume is not reversed, so contact is
+                    // the blocked outward step within one fundamental chip of
+                    // its centre; docs/re-frontier.md records the debt.
+                    constexpr float kDoorHalfWidth = 30.f;
+                    bool outward[4]{mz < 0.f, mx > 0.f, mz > 0.f, mx < 0.f};
+                    bool at_side[4]{lz <= kDoorHalfWidth,
+                                    lx >= room_size.w - kDoorHalfWidth,
+                                    lz >= room_size.h - kDoorHalfWidth,
+                                    lx <= kDoorHalfWidth};
+                    bool at_door[4]{
+                        std::fabs(lx - room_size.w * .5f) <= kDoorHalfWidth,
+                        std::fabs(lz - room_size.h * .5f) <= kDoorHalfWidth,
+                        std::fabs(lx - room_size.w * .5f) <= kDoorHalfWidth,
+                        std::fabs(lz - room_size.h * .5f) <= kDoorHalfWidth};
+                    int exit_arrow = -1;
+                    if (blocked)
+                        for (int side = 0; side < 4; ++side)
+                            if (outward[side] && at_side[side] && at_door[side] &&
+                                world.DoorType(side) == 0) {
+                                exit_arrow = side;
+                                break;
+                            }
+                    if (exit_arrow >= 0) {
+                        int map = -1, gx = -1, gy = -1;
+                        if (std::sscanf(room_name.c_str(), "M%d_%d_%d",
+                                        &map, &gx, &gy) == 3) {
+                            static constexpr int kDx[4]{0, 1, 0, -1};
+                            static constexpr int kDy[4]{-1, 0, 1, 0};
+                            const std::string& next = mcf::WorldRoomName(
+                                map, gx + kDx[exit_arrow], gy + kDy[exit_arrow]);
+                            if (!next.empty()) {
+                                // Cross the room boundary, not the collision
+                                // wall inset one chip inside it. The same world
+                                // coordinate maps to the opposite edge.
+                                float wx = px, wz = pz;
+                                const float inf = std::numeric_limits<float>::infinity();
+                                if (exit_arrow == 0)
+                                    wz = std::nextafter(room_org[2], -inf);
+                                if (exit_arrow == 1)
+                                    wx = std::nextafter(room_org[0] + room_size.w, inf);
+                                if (exit_arrow == 2)
+                                    wz = std::nextafter(room_org[2] + room_size.h, inf);
+                                if (exit_arrow == 3)
+                                    wx = std::nextafter(room_org[0], -inf);
+                                room_exit = {true, next.substr(4), exit_arrow, wx, wz};
+                            }
+                            else
+                                lucent::warn("world", "free door {} in {} leads to "
+                                             "an empty world-table cell",
+                                             exit_arrow, room_name);
+                        }
+                    }
+                    // Refuse to walk off the collision mesh rather than
+                    // silently floating: revert the step if there is no floor.
                     if (blocked) { px = ox; pz = oz; }
                     else if (have_col) py = g;
                 }
@@ -3998,6 +4071,33 @@ int main(int argc, char** argv) {
                     }
                 }
 
+                if (room_exit.pending) {
+                    room_exit.pending = false;
+                    lucent::info("world", "door exit {} -> {} at world "
+                                 "({:.1f},{:.1f})", room_exit.arrow,
+                                 room_exit.dest, room_exit.world_x,
+                                 room_exit.world_z);
+                    if (loadRoom(room_exit.dest)) {
+                        seedCombat();
+                        px = room_exit.world_x;
+                        pz = room_exit.world_z;
+                        py = 0.f;
+                        if (have_col) {
+                            float g;
+                            if (col.GetFloor(px, pz, mcf::Collision::kFloorMask, &g))
+                                py = g;
+                        }
+                        world.Spawn("MainPlayer", 0, px - room_org[0],
+                                    py - room_org[1], pz - room_org[2]).kind = 'C';
+                        startRoomInit();
+                        cam_init = false;
+                        serviceAudio();
+                    } else {
+                        lucent::error("world", "door exit to {} failed; staying put",
+                                      room_exit.dest);
+                    }
+                }
+
                 if (sc.has_jump) {
                     sc.has_jump = false;
                     auto& j = sc.jump;
@@ -4448,6 +4548,9 @@ int main(int argc, char** argv) {
             lucent::info("host", "{} frames; audio decoded {} sounds / {} frames, bgm={}",
                          frames, audio.stat.decoded_sounds, audio.stat.decoded_frames,
                          audio.bgm_id());
+            lucent::info("world", "ended in {} at room-local ({:.1f},{:.1f},{:.1f})",
+                         room_name, px - room_org[0], py - room_org[1],
+                         pz - room_org[2]);
             lucent::info("combat",
                          "{} frame-overlaps ({} rejected by the faction filter) "
                          "-> {} landed hits -> {} kills; "

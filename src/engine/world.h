@@ -273,6 +273,7 @@ bool HitArcSphere(const float atk_pos[3], float atk_radius, float arc_deg, float
 
 class World {
 public:
+    static constexpr int kNoDoor = -1;
     Actor& Spawn(const std::string& handle, int type_id, float x, float y, float z);
     Actor* Find(const std::string& handle);
     bool Remove(const std::string& handle);
@@ -286,6 +287,11 @@ public:
     EventBox* FindBox(const std::string& name);
 
     void Reset();
+
+    // Script door state, indexed by eArrow (UP, RI, DN, LF). A missing door
+    // is distinct from eDoor.FREE == 0.
+    void SetDoor(int arrow, int type);
+    int DoorType(int arrow) const;
     using ScriptMoveBlocked = std::function<bool(const Actor&, float, float)>;
     void TickScriptMoves(float dt, const ScriptMoveBlocked& blocked = {});
     void TickMotions(float frames);
@@ -304,6 +310,7 @@ public:
     static std::string MotionPrefix(const std::string& model, int motion_id);
 
 private:
+    int doors_[4]{kNoDoor, kNoDoor, kNoDoor, kNoDoor};
     std::vector<Actor> actors_;
     std::unordered_map<std::string, size_t> index_;
     uint32_t spawn_serial_ = 0;

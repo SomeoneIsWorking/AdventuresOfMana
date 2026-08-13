@@ -1,5 +1,6 @@
 #include "engine/world.h"
 
+#include <algorithm>
 #include <cmath>
 #include <format>
 #include <numbers>
@@ -131,6 +132,15 @@ void World::Reset() {
     spawn_serial_ = 0;
     had_live_hostiles_ = false;
     boxes.clear();
+    std::fill(std::begin(doors_), std::end(doors_), kNoDoor);
+}
+
+void World::SetDoor(int arrow, int type) {
+    if (arrow >= 0 && arrow < 4) doors_[arrow] = type;
+}
+
+int World::DoorType(int arrow) const {
+    return arrow >= 0 && arrow < 4 ? doors_[arrow] : kNoDoor;
 }
 
 std::string World::MotionPrefix(const std::string& model, int motion_id) {

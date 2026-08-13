@@ -122,6 +122,10 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
                              ? self->ground_attribute(N(1), N(2)) : 0);
         return true;
     }
+    if (n == "SetDoor" || n == "SetDoorForce") {
+        w.SetDoor(int(N(1)), int(N(2)));
+        return true;
+    }
     if (n == "math_LerpSin") {
         int start = int(N(1)), now = int(N(2)), use = int(N(3));
         float len = N(4), angle0 = N(5), angle1 = N(6);
