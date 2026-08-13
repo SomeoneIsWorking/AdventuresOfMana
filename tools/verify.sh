@@ -22,6 +22,10 @@ if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   ./build/mana --combat-selftest >/dev/null || fail=1
   echo "  (18 cases: 9 hit/miss geometry, 9 faction filter)"
 
+  echo "=== event-box self-test ==="
+  ./build/mana --eventbox-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
+  ./build/mana --eventbox-selftest >/dev/null 2>&1 || fail=1
+
   echo "=== player self-test ==="
   ./build/mana --player-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --player-selftest >/dev/null 2>&1 || fail=1

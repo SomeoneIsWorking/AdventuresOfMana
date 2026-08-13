@@ -110,6 +110,14 @@ of the same name**. That is how transitions, cutscenes and shops all start.
 Boxes are **edge-triggered** — fire on entry, not every frame — or a transition
 re-enters itself forever.
 
+`name` selects the handler, **not a unique box**: scripts can register adjacent
+volumes under one callback (for example the two halves of `M0000_01_08`'s
+`in_01`). `SetEventBoxEnable`, `SetEventBoxNoTouchEvent`, and `SetEventBoxFlg`
+therefore apply to every matching volume. Bounds are strict on all axes. The
+player's collision coordinate is its feet on the floor, while the engine probes
+the character centre—15 units above it—so floor-anchored boxes from
+`EvBoxOne`/`EvBoxOneY` can be entered rather than rejecting that lower boundary.
+
 ### Handlers are COROUTINES, not calls
 
 This is the part that cannot be guessed from the signatures. A handler like:

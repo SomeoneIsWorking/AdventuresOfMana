@@ -239,23 +239,33 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         }
         b.flags = uint32_t(N(8));
         b.floor_y = N(3) == -1.f;
-        if (auto* e = w.FindBox(b.name)) *e = b; else w.boxes.push_back(b);
+        // Names identify the callback, not a unique volume. Scripts register
+        // adjacent boxes under one name to form a single trigger region.
+        w.boxes.push_back(std::move(b));
         return true;
     }
     if (n == "SetEventBoxEnable") {
-        if (auto* b = w.FindBox(S(1))) b->enabled = lua_toboolean(L, 2);
+        const auto name = S(1);
+        const bool enabled = lua_toboolean(L, 2);
+        for (auto& b : w.boxes)
+            if (b.name == name) b.enabled = enabled;
         return true;
     }
     if (n == "SetEventBoxNoTouchEvent") {
-        if (auto* b = w.FindBox(S(1))) b->no_touch = true;
+        const auto name = S(1);
+        for (auto& b : w.boxes)
+            if (b.name == name) b.no_touch = true;
         return true;
     }
     if (n == "SetEventBoxFlg") {
-        if (auto* b = w.FindBox(S(1))) {
-            const uint32_t bits = uint32_t(N(2));
-            if (lua_toboolean(L, 3)) b->flags |= bits;
-            else                     b->flags &= ~bits;
-        }
+        const auto name = S(1);
+        const uint32_t bits = uint32_t(N(2));
+        const bool set = lua_toboolean(L, 3);
+        for (auto& b : w.boxes)
+            if (b.name == name) {
+                if (set) b.flags |= bits;
+                else     b.flags &= ~bits;
+            }
         return true;
     }
 

@@ -860,7 +860,29 @@ int main(int argc, char** argv) {
             b.ResolveFloorY(60);
             ck("floor sentinel moves lower bound", b.lo[1] == 60, true);
             ck("floor sentinel translates upper bound", b.hi[1] == 90, true);
-            lucent::info("eventbox", "SELFTEST: 10 cases, {} failures", bad);
+            ck("floor contact is below strict event volume",
+               b.IsHit(15, 60, 35, 0, 0), false);
+            ck("character centre enters floor event volume",
+               b.IsHit(15, 75, 35, 0, 0), true);
+            // A name is one callback and may own multiple physical volumes.
+            // Keeping only the last one makes a script's joined doorway lose
+            // part of its actual trigger area.
+            mcf::World w;
+            b.name = "joined";
+            w.boxes.push_back(b);
+            b.lo[0] = 20; b.hi[0] = 30;
+            w.boxes.push_back(b);
+            ck("same-name volumes coexist", w.boxes.size() == 2, true);
+            ck("first same-name volume remains hittable",
+               w.boxes[0].IsHit(15, 75, 35, 0, 0), true);
+            ck("second same-name volume remains hittable",
+               w.boxes[1].IsHit(25, 75, 35, 0, 0), true);
+            bool both_named = std::all_of(w.boxes.begin(), w.boxes.end(),
+                                          [](const mcf::EventBox& e) {
+                                              return e.name == "joined";
+                                          });
+            ck("same-name volumes retain their callback", both_named, true);
+            lucent::info("eventbox", "SELFTEST: 16 cases, {} failures", bad);
             return bad ? 1 : 0;
         }
         if (ai_selftest) {
@@ -2173,19 +2195,6 @@ int main(int argc, char** argv) {
 
             lucent::info("world", "{} actors, {} placed, {} distinct models",
                          world.actors().size(), placed.size(), cache.size());
-            // Event boxes are how the game connects rooms, so a room that
-            // registered none is worth seeing -- previously indistinguishable
-            // from a room whose script never ran.
-            {
-                size_t live = 0;
-                for (const auto& bx : world.boxes)
-                    if (bx.enabled && !bx.no_touch) ++live;
-                lucent::info("world", "{} event box(es), {} touchable",
-                             world.boxes.size(), live);
-                for (const auto& bx : world.boxes)
-                    lucent::debug("world", "  box '{}' ({:.0f},{:.0f})..({:.0f},{:.0f})",
-                                  bx.name, bx.lo[0], bx.lo[2], bx.hi[0], bx.hi[2]);
-            }
 
             // AddEventBox's y0 == -1 is not a literal world height: the
             // engine probes the collision floor at registration and anchors
@@ -2200,6 +2209,25 @@ int main(int argc, char** argv) {
                     if (col.GetFloor(x, z, mcf::Collision::kFloorMask, &y))
                         bx.ResolveFloorY(y);
                 }
+            }
+
+            // Event boxes are how the game connects rooms, so a room that
+            // registered none is worth seeing -- previously indistinguishable
+            // from a room whose script never ran. Report after resolving the
+            // floor sentinel: a pre-resolution report hid the Y interval that
+            // decides whether a player can actually enter a box.
+            {
+                size_t live = 0;
+                for (const auto& bx : world.boxes)
+                    if (bx.enabled && !bx.no_touch) ++live;
+                lucent::info("world", "{} event box(es), {} touchable",
+                             world.boxes.size(), live);
+                for (const auto& bx : world.boxes)
+                    lucent::info("world", "  box '{}' local ({:.0f},{:.0f},{:.0f}).."
+                                 "({:.0f},{:.0f},{:.0f}){}",
+                                 bx.name, bx.lo[0], bx.lo[1], bx.lo[2],
+                                 bx.hi[0], bx.hi[1], bx.hi[2],
+                                 bx.floor_y ? " (floor unresolved)" : "");
             }
 
                 return true;
@@ -3284,8 +3312,16 @@ int main(int argc, char** argv) {
                 // Event boxes are edge-triggered: entering fires the handler
                 // once. Firing every frame would re-enter the same transition
                 // forever.
+                // Collision and rendering keep `py` at the player's foot on
+                // the floor. AppCharacterBase, however, tests event boxes
+                // with the character position, whose centre is 15 units
+                // above that contact point. Without this distinction every
+                // floor-anchored box rejects the player at its strict lower-Y
+                // boundary.
+                constexpr float kEventBoxProbeHeight = 15.f;
                 for (auto& bx : world.boxes) {
-                    bool in = bx.IsHit(px, py, pz, room_org[0], room_org[2]);
+                    bool in = bx.IsHit(px, py + kEventBoxProbeHeight, pz,
+                                      room_org[0], room_org[2]);
                     if (in && !bx.inside) {
                         lucent::info("world", "entered event box '{}'", bx.name);
                         if (!sc.StartCoroutine(bx.name))
