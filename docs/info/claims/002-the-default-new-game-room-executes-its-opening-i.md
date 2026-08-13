@@ -3,7 +3,7 @@ id: C002
 kind: claim
 status: holds
 created: 2026-08-13
-tags: 
+tags:
 depends: src/host/main.cpp#main, src/engine/script.cpp#Script::ResumeCoroutines, tools/verify.sh
 reconfirmed: 2026-08-13
 verified_at: 2026-08-13 23:36:13
