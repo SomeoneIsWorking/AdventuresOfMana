@@ -171,6 +171,11 @@ struct Actor {
     // that legitimately landed at room-local (0,0).
     bool random_placed = false;
     float place_extent = 0.f;
+    // ModeGame::AddBox stores its supplied item id in the four drop slots at
+    // actor +0x3a24..+0x3a30. A value of 97 is the shipping already-open box.
+    bool treasure_box = false;
+    bool treasure_open = false;
+    int treasure_item = 0;
     bool is_weapon = false;
     std::map<int, float> data;   // sparse: slot -> value
     std::map<int, HitVolume> attack;   // ChrAttackBone*

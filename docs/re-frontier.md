@@ -37,7 +37,7 @@ this file retain the derivations and corrections behind these entries.
 ### runtime.lua-api — Shipping Lua command surface and semantics
 - status: re-partial
 - deps: runtime.assets
-- evidence: The binary-derived extractor proves exactly 200 registrations/names/implementations and its 199/200 negative fails; 714/715 scripts execute against the bridge.
+- evidence: The binary-derived extractor proves exactly 200 registrations/names/implementations and its 199/200 negative fails; 714/715 scripts execute against the bridge. Binary-derived `AddBox`, `OpenDoor`, `AddItem`, `IsAddItem`, and `DelItem` semantics now drive the Matock chest through the shared runtime inventory.
 - where: `src/engine/script.cpp`, `src/engine/cmd_api.inc`, `docs/cmd-api.md`
 - gap: Many commands still use typed recording stubs; implement semantics in shipping call-frequency and progression order.
 - notes: `AddEnemyZaco` is implemented from its binary wrapper and target function, including late placement.
@@ -79,9 +79,9 @@ this file retain the derivations and corrections behind these entries.
 ### progression.wendel — Reach Wendel and advance the main quest
 - status: todo
 - deps: progression.bogard-with-heroine
-- evidence: The verified Bogard gate emits the shipping dialogue directing the player east through the cave to Cibba in Wendel.
+- evidence: The mandatory unseeded, uncapped, silent, renderless-offscreen run opens Bogard's authored north door, enters `M0010_00_00`, opens the binary-derived `_BOX`, executes its room callback, and acquires Matock item 17 in the shared inventory.
 - where: `src/host/main.cpp`, `tools/verify.sh`
-- gap: Trace and drive the authored route after the Matock objective; stop at the first missing runtime mechanism.
+- gap: The chest return reaches the north component of Bogard's main room, but the south exit is outside the planner's measured reachable component; diagnose the real collision/topology owner before driving the cave route.
 - notes:
 
 ## Gameplay systems

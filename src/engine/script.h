@@ -54,6 +54,10 @@ public:
     static std::string ShiftJisToUtf8(std::span<const uint8_t> in);
 
     World* world = nullptr;   // optional; when set, hot cmd calls act
+    // GameParameter's four inventory bags survive room loads just like the
+    // scenario globals. The host owns the concrete state; Lua's AddItem,
+    // DelItem and chest actors all operate on this same instance.
+    Inventory* inventory = nullptr;
     // Motion commands and frame queries occur back-to-back in the same Lua
     // resume. The host owns the archive, so it supplies the real .smot
     // duration synchronously at the command boundary.

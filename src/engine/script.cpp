@@ -126,6 +126,14 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         w.SetDoor(int(N(1)), int(N(2)));
         return true;
     }
+    if (n == "OpenDoor") {
+        // The wrapper @ 0x2cde5c calls ModeGame::OpenDoor(arrow, true).
+        // Its body clears the current cell's directional room mark and the
+        // opposite mark in the adjacent cell. This World instance owns the
+        // current room; kNoDoor is its cleared-mark representation.
+        w.SetDoor(int(N(1)), World::kNoDoor);
+        return true;
+    }
     if (n == "math_LerpSin") {
         int start = int(N(1)), now = int(N(2)), use = int(N(3));
         float len = N(4), angle0 = N(5), angle1 = N(6);
@@ -142,6 +150,40 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
     if (n == "GetGameTimeMs") {
         if (auto* self = FromState(L)) lua_pushnumber(L, self->game_time_ms);
         else                            lua_pushnumber(L, 0);
+        return true;
+    }
+
+    if (n == "IsAddItem") {
+        auto* self = FromState(L);
+        lua_pushboolean(L, self && self->inventory &&
+                           self->inventory->Add(int(N(1)), false));
+        return true;
+    }
+    if (n == "AddItem") {
+        auto* self = FromState(L);
+        lua_pushboolean(L, self && self->inventory &&
+                           self->inventory->Add(int(N(1)), true));
+        return true;
+    }
+    if (n == "DelItem" || n == "DelItemGetCnt") {
+        auto* self = FromState(L);
+        lua_pushboolean(L, self && self->inventory &&
+                           self->inventory->Del(int(N(1))));
+        return true;
+    }
+    if (n == "AddBox") {
+        // AddBox @ 0x2c8c54 converts room-local X/Z to world coordinates and
+        // calls ModeGame::AddBox @ 0x2e1744. That routine spawns NPC type 32
+        // under the literal handle `_BOX`, writes the item id into all four
+        // drop slots, and treats id 97 as the already-open presentation.
+        std::string handle = "_BOX";
+        if (w.Find(handle))
+            handle = std::format("_BOX_{}", w.NextSpawnSerial());
+        auto& a = w.Spawn(handle, 32, N(1), N(2), N(3));
+        a.kind = 'N';
+        a.treasure_box = true;
+        a.treasure_item = int(N(4));
+        a.treasure_open = a.treasure_item == 97;
         return true;
     }
 

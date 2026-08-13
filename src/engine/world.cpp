@@ -13,6 +13,9 @@ Actor& World::Spawn(const std::string& handle, int type_id, float x, float y, fl
         a->pos[0] = x; a->pos[1] = y; a->pos[2] = z;
         a->alive = true;
         a->defeated = false;
+        a->treasure_box = false;
+        a->treasure_open = false;
+        a->treasure_item = 0;
         return *a;
     }
     Actor a;

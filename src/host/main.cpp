@@ -273,6 +273,7 @@ int main(int argc, char** argv) {
     bool continue_story = false;
     std::string stop_room;
     int stop_sccnt = -1;
+    int stop_item = -1;
     int warmup = 0;
     bool fixed_step = false;
     bool combat_demo = false;
@@ -341,6 +342,8 @@ int main(int argc, char** argv) {
         else if (a == "--stop-room" && i + 1 < argc) stop_room = argv[++i];
         else if (a == "--stop-sccnt" && i + 1 < argc)
             stop_sccnt = std::atoi(argv[++i]);
+        else if (a == "--stop-item" && i + 1 < argc)
+            stop_item = std::atoi(argv[++i]);
         // --warmup implies --fixed-step: see the loop, a frame count on an
         // uncapped loop is not a duration.
         else if (a == "--warmup" && i + 1 < argc) { warmup = std::atoi(argv[++i]); fixed_step = true; }
@@ -393,6 +396,7 @@ int main(int argc, char** argv) {
                 "  --continue-story    continue the opening driver past waterfall recovery\n"
                 "  --stop-room NAME    exit successfully after loading this room\n"
                 "  --stop-sccnt N      exit after scenario N settles with no dialogue/coroutines\n"
+                "  --stop-item N       exit after item N is acquired and scripts settle\n"
                 "  --walk-to X Z       walk toward a room-local point (headless)\n"
                 "  --auto-advance      dismiss dialogue automatically (headless)\n"
                 "  --auto-talk         talk to any NPC in reach (headless)\n"
@@ -998,7 +1002,9 @@ int main(int argc, char** argv) {
             mcf::World w;
             auto& actor = w.Spawn("MainPlayer", 0, 0.f, 5.f, 0.f);
             mcf::Script script;
+            mcf::Inventory script_inventory;
             script.world = &w;
+            script.inventory = &script_inventory;
             script.motion_duration = [](char, int, int motion) {
                 return motion == 7 ? 12.f : 0.f;
             };
@@ -1151,6 +1157,9 @@ int main(int argc, char** argv) {
                w.DoorType(0) == 0 && w.DoorType(1) == mcf::World::kNoDoor);
             ck("SetDoor preserves a locked door type",
                run("door-key", "SetDoor(2, 1)\n") && w.DoorType(2) == 1);
+            ck("OpenDoor clears the authored directional room mark",
+               run("door-open", "OpenDoor(2)\n") &&
+               w.DoorType(2) == mcf::World::kNoDoor);
             w.Reset();
             ck("room reset clears every authored door",
                w.DoorType(0) == mcf::World::kNoDoor &&
@@ -1165,6 +1174,22 @@ int main(int argc, char** argv) {
                !script.player_control_enabled &&
                run("control-on", "SetPlayerControllEnable(true)\n") &&
                script.player_control_enabled);
+            ck("Lua inventory commands exercise success and refusal classes",
+               run("inventory-bridge",
+                   "assert(IsAddItem(17))\n"
+                   "assert(AddItem(17))\n"
+                   "assert(DelItem(17))\n"
+                   "assert(not DelItem(17))\n") &&
+               !script_inventory.Has(17));
+            ck("AddBox creates a closed item-bearing shipping box",
+               run("box-closed", "AddBox(150,0,90,17)\n") &&
+               w.Find("_BOX") && w.Find("_BOX")->treasure_box &&
+               !w.Find("_BOX")->treasure_open &&
+               w.Find("_BOX")->treasure_item == 17);
+            w.Reset();
+            ck("shipping item 97 creates the already-open box class",
+               run("box-open", "AddBox(150,0,90,97)\n") &&
+               w.Find("_BOX") && w.Find("_BOX")->treasure_open);
             {
                 mcf::World zw;
                 mcf::Script zs;
@@ -2872,6 +2897,9 @@ int main(int argc, char** argv) {
             // What is NOT modelled is the SAVE -- there is no load path, so
             // this is always a new game's level 1 and its granted equipment.
             mcf::PlayerStats ps;
+            mcf::Inventory inventory;
+            inventory.NewGame();
+            sc.inventory = &inventory;
             lucent::info("player", "level {}  HP {}/{}  MP {}/{}  {} GP  "
                          "power {} stamina {} wisdom {} will {}",
                          ps.level, ps.hp, ps.max_hp(), ps.mp, ps.max_mp(),
@@ -3566,7 +3594,8 @@ int main(int argc, char** argv) {
                             const bool greeted_bogard =
                                 sc.GlobalNumber("tmp0") >= 1.0;
                             const char* wanted =
-                                greeted_bogard && !escorting_heroine
+                                greeted_bogard && !escorting_heroine &&
+                                (story_sccnt != 14 || inventory.Has(17))
                                     ? "out_01" : nullptr;
                             if (wanted) {
                                 for (const auto& bx : world.boxes)
@@ -3578,9 +3607,22 @@ int main(int argc, char** argv) {
                                             (bx.lo[2] + bx.hi[2]) * .5f;
                                         break;
                                     }
+                            } else if (story_sccnt == 14 && !inventory.Has(17)) {
+                                active_walk_x = room_size.w * .5f;
+                                active_walk_z = -30.f;
                             } else if (const auto* npc = world.Find("NPC_01")) {
                                 active_walk_x = npc->pos[0];
                                 active_walk_z = npc->pos[2] + 20.f;
+                            }
+                        } else if (room_name == "M0010_00_00") {
+                            if (!inventory.Has(17)) {
+                                if (const auto* box = world.Find("_BOX")) {
+                                    active_walk_x = box->pos[0];
+                                    active_walk_z = box->pos[2] + 20.f;
+                                }
+                            } else {
+                                active_walk_x = room_size.w * .5f;
+                                active_walk_z = room_size.h + 30.f;
                             }
                         } else if (room_name == "M0000_06_05") {
                             active_walk_x = room_size.w + 30.f;
@@ -3953,6 +3995,38 @@ int main(int argc, char** argv) {
                     }
                 } else if (player_input_enabled &&
                            (confirm_edge || (auto_talk && frames % 30 == 0))) {
+                    // ModeGame::AddBox creates an NPC-like `_BOX` actor whose
+                    // four payload slots all contain the authored item. The
+                    // player activates it at the same one-chip interaction
+                    // reach used below. Inventory refusal leaves it closed;
+                    // success invokes the room's `_BOX` completion callback.
+                    constexpr float kTalkReach = 30.f;
+                    mcf::Actor* nearest_box = nullptr;
+                    float nearest_box_d2 = kTalkReach * kTalkReach;
+                    for (auto& a : world.actors_mutable()) {
+                        if (!a.alive || !a.treasure_box || a.treasure_open)
+                            continue;
+                        const float dx = a.pos[0] + room_org[0] - px;
+                        const float dz = a.pos[2] + room_org[2] - pz;
+                        const float d2 = dx * dx + dz * dz;
+                        if (d2 < nearest_box_d2) {
+                            nearest_box_d2 = d2;
+                            nearest_box = &a;
+                        }
+                    }
+                    if (nearest_box) {
+                        if (!inventory.Add(nearest_box->treasure_item, true)) {
+                            lucent::error("inventory", "box item {} refused: bag full or invalid",
+                                          nearest_box->treasure_item);
+                        } else {
+                            nearest_box->treasure_open = true;
+                            lucent::info("inventory", "opened box and acquired item {}",
+                                         nearest_box->treasure_item);
+                            if (sc.HasFunction("_BOX") && !sc.StartCoroutine("_BOX"))
+                                lucent::error("lua", "_BOX coroutine: {}", sc.last_error());
+                        }
+                    } else if (!(opening_story && room_name == "M0010_00_01" &&
+                                 int(sc.GlobalNumber("sccnt", -1)) >= 14)) {
                     // Talking. A room script spawns an NPC with a handle and
                     // defines a global of the SAME NAME as its conversation:
                     //   npc_rand("BATTLEMAN", eNPC.BATTLEMAN, 6)
@@ -3965,7 +4039,6 @@ int main(int argc, char** argv) {
                     // PORT CHOICE: the reach. The engine's own talk trigger is
                     // not reversed, so this uses one chip (30 units), the game's
                     // fundamental spatial unit, rather than an invented number.
-                    constexpr float kTalkReach = 30.f;
                     const mcf::Actor* best = nullptr;
                     float best_d = kTalkReach * kTalkReach;
                     for (const auto& a : world.actors()) {
@@ -3982,6 +4055,7 @@ int main(int argc, char** argv) {
                         else
                             lucent::debug("world", "'{}' has no conversation: {}",
                                           best->handle, sc.last_error());
+                    }
                     }
                 }
                 bool attacking = attack_left > 0.f;
@@ -4960,7 +5034,19 @@ int main(int argc, char** argv) {
                                  stop_sccnt);
                     running = false;
                 }
+                if (stop_item >= 0 && inventory.Has(stop_item) &&
+                    !sc.message_pending && sc.live_coroutines() == 0) {
+                    lucent::info("inventory", "reached settled requested item {}",
+                                 stop_item);
+                    running = false;
+                }
 
+                // A windowless gameplay run has no pixels to consume. Keep
+                // simulation, script clocks, collision and combat running, but
+                // do not rebuild every skeletal palette merely to throw the
+                // offscreen framebuffer away. Capture runs still render.
+                ++frames;
+                if (!no_window || !shot.empty()) {
                 glViewport(0, 0, W, H);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
                 anim_t = t;
@@ -4984,8 +5070,6 @@ int main(int argc, char** argv) {
                     float hp[3]{px, py, pz};
                     drawOne(hero, hp, heroMotion(moving ? 1 : 0), pdeg);
                 }
-                ++frames;
-
                 // Message window. Drawn before the fade so a transition covers
                 // it, and only when a script has actually set a line.
                 // A message the font cannot draw renders as an empty panel,
@@ -5381,6 +5465,7 @@ int main(int argc, char** argv) {
                     running = false;
                 }
                 SDL_GL_SwapWindow(win);
+                }
             }
             lucent::info("host", "{} frames; audio decoded {} sounds / {} frames, bgm={}",
                          frames, audio.stat.decoded_sounds, audio.stat.decoded_frames,

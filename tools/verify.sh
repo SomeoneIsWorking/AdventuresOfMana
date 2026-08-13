@@ -309,6 +309,16 @@ echo "=== combat self-test ==="
   grep -F "video driver: offscreen" "$bogard_heroine_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$bogard_heroine_log" || fail=1
 
+  echo "=== continuous Matock chest acquisition ==="
+  matock_log=scratch/logs/matock-story.log
+  ./build/mana --opening-story --continue-story --stop-item 17 \
+    >"$matock_log" 2>&1 || fail=1
+  grep -F "room exit 0 -> M0010_00_00" "$matock_log" || fail=1
+  grep -F "opened box and acquired item 17" "$matock_log" || fail=1
+  grep -F "reached settled requested item 17" "$matock_log" || fail=1
+  grep -F "video driver: offscreen" "$matock_log" || fail=1
+  grep -F "audio decoded 0 sounds / 0 frames" "$matock_log" || fail=1
+
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --camera-selftest >/dev/null 2>&1 || fail=1
