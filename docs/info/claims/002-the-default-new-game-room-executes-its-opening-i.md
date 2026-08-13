@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/host/main.cpp#main, src/engine/script.cpp#Script::ResumeCoroutines, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:17:33
+verified_at: 2026-08-13 21:22:05
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Re-ran the positive shipping path: M0001_00_00 matched 3/3 assertions after 600 
 ## Re-confirmed 2026-08-13
 
 Full SDL_AUDIODRIVER=dummy ./tools/verify.sh passed after camera command integration; opening lifecycle still matched all three required observations.
+
+## Re-confirmed 2026-08-13
+
+Full verify.sh passed after asynchronous scripted movement; the opening lifecycle still produced all three required observations.

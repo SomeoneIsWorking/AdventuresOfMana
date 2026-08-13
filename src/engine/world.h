@@ -110,6 +110,11 @@ struct Actor {
     enum Type { kPlayer = 1, kParty = 2, kNpc = 3, kEnemy = 4 };
     float pos[3]{};
     float rot_y = 0;
+    // ChrMoveTo/ChrMoveYTo start an asynchronous move. Shipping helpers poll
+    // IsChrAutoMove and yield until this reaches the destination.
+    float script_move_target[3]{};
+    float script_move_speed = 0.f;
+    bool script_auto_move = false;
     int motion = 0;              // eMOTION index; also the .smot numeric prefix
     bool alive = true;
     // Combat status. For 'E'/'B' actors these come from sk1/enemydat.bin: the
@@ -256,6 +261,7 @@ public:
     EventBox* FindBox(const std::string& name);
 
     void Reset();
+    void TickScriptMoves(float dt);
 
     // Monotonic per-World counter for engine-assigned actor handles.
     uint32_t NextSpawnSerial() { return ++spawn_serial_; }

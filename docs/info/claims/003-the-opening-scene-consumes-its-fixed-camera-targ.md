@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/engine/world.h#Camera, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:17:33
+verified_at: 2026-08-13 21:22:05
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ Any change to Camera state, camera command dispatch, live view construction, or 
 ## Re-confirmed 2026-08-13
 
 Re-ran full verify.sh with 6/6 camera command cases and visually inspected the corrected frame-30 opening view against the saved pre-fix frame.
+
+## Re-confirmed 2026-08-13
+
+Full verify.sh passed after scripted movement and the camera self-test remained 6/6; opening frame target behavior remains visible.

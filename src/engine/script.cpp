@@ -182,8 +182,31 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         lua_pushnumber(L, a ? a->pos[k] : 0);
         return true;
     }
-    if (n == "ChrMoveTo") {                 // (name, x, y, z) -- instant for now
-        if (auto* a = w.Find(S(1))) { a->pos[0] = N(2); a->pos[1] = N(3); a->pos[2] = N(4); }
+    if (n == "ChrMoveTo" || n == "ChrMoveYTo") {
+        // ChrMoveTo(name,speed,x,z) forwards the actor's current Y into
+        // ChrMoveYTo(name,speed,x,y,z) in the binary (0x2cb550..0x2cb574).
+        // A zero speed is the shipping LookAt helper: rotate toward the point
+        // without starting an automatic move.
+        if (auto* a = w.Find(S(1))) {
+            float speed = N(2), x = N(3);
+            float y = n == "ChrMoveYTo" ? N(4) : a->pos[1];
+            float z = n == "ChrMoveYTo" ? N(5) : N(4);
+            float dx = x - a->pos[0], dz = z - a->pos[2];
+            if (dx != 0.f || dz != 0.f) a->rot_y = std::atan2(dx, dz);
+            a->script_auto_move = false;
+            if (speed > 0.f) {
+                a->script_move_target[0] = x;
+                a->script_move_target[1] = y;
+                a->script_move_target[2] = z;
+                a->script_move_speed = speed;
+                a->script_auto_move = true;
+            }
+        }
+        return true;
+    }
+    if (n == "IsChrAutoMove") {
+        auto* a = w.Find(S(1));
+        lua_pushboolean(L, a && a->script_auto_move);
         return true;
     }
     if (n == "ChrMotion" || n == "ChrMotionForce") {

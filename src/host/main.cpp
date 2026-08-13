@@ -253,6 +253,7 @@ int main(int argc, char** argv) {
     bool ai_selftest = false;
     bool eventbox_selftest = false;
     bool camera_selftest = false;
+    bool movement_selftest = false;
     bool name_selftest = false;
     bool boot_chain = false;
     std::string title_phase;   // TEST HOOK: attract | menu | crawl | names
@@ -299,6 +300,7 @@ int main(int argc, char** argv) {
         else if (a == "--ai-selftest") ai_selftest = true;
         else if (a == "--eventbox-selftest") eventbox_selftest = true;
         else if (a == "--camera-selftest") camera_selftest = true;
+        else if (a == "--movement-selftest") movement_selftest = true;
         else if (a == "--nameentry-selftest") name_selftest = true;
         else if (a == "--boot") boot_chain = true;
         else if (a == "--title-phase" && i + 1 < argc) title_phase = argv[++i];
@@ -350,7 +352,7 @@ int main(int argc, char** argv) {
                 "  --show-string ID    open the message window on that line\n"
                 "  --combat-selftest / --audio-selftest / --text-selftest / --player-selftest\n"
                 "  --inventory-selftest / --ai-selftest / --eventbox-selftest / --camera-selftest\n"
-                "  --nameentry-selftest\n"
+                "  --movement-selftest / --nameentry-selftest\n"
                 "  --boot              boot through the engine's real mode chain\n"
                 "  --title-phase P     TEST HOOK: attract|menu|crawl|names\n"
                 "  --shot-delay N      wait N frames inside --shot-mode before capturing\n"
@@ -377,7 +379,7 @@ int main(int argc, char** argv) {
     // a default value and so cannot be tested for emptiness.
     if (render_room.empty() && room.empty() && probe.empty() && !census &&
         !audio_selftest && !combat_selftest && !text_selftest && !player_selftest &&
-        !camera_selftest && !explicit_model && !room_census &&
+        !camera_selftest && !movement_selftest && !explicit_model && !room_census &&
         string_id.empty())
         render_room = kDefaultRoom;
 
@@ -930,6 +932,53 @@ int main(int argc, char** argv) {
                !w.camera.has_eye_pos && w.camera.target_sub[0] == 0.f &&
                w.camera.target_sub[1] == 0.f && w.camera.target_sub[2] == 0.f);
             lucent::info("camera", "SELFTEST: {} cases, {} failures", checked, bad);
+            return bad ? 1 : 0;
+        }
+        if (movement_selftest) {
+            int bad = 0, checked = 0;
+            auto ck = [&](const char* what, bool got) {
+                ++checked;
+                if (!got) {
+                    ++bad;
+                    lucent::error("movement", "SELFTEST FAIL: {}", what);
+                } else {
+                    lucent::info("movement", "  ok: {}", what);
+                }
+            };
+            mcf::World w;
+            auto& actor = w.Spawn("MainPlayer", 0, 0.f, 5.f, 0.f);
+            mcf::Script script;
+            script.world = &w;
+            auto run = [&](const char* name, std::string_view source) {
+                std::vector<uint8_t> bytes(source.begin(), source.end());
+                return script.Run(name, bytes);
+            };
+            ck("ChrMoveTo starts and reports an automatic move",
+               run("movement-start",
+                   "ChrMoveTo('MainPlayer',10,6,8)\n"
+                   "assert(IsChrAutoMove('MainPlayer'))\n"));
+            ck("ChrMoveTo preserves Y and records x/z destination",
+               actor.script_move_target[0] == 6.f &&
+               actor.script_move_target[1] == 5.f &&
+               actor.script_move_target[2] == 8.f);
+            w.TickScriptMoves(0.5f);
+            ck("half duration advances half the 3-4-5 path",
+               actor.script_auto_move && actor.pos[0] == 3.f &&
+               actor.pos[1] == 5.f && actor.pos[2] == 4.f);
+            w.TickScriptMoves(0.5f);
+            ck("destination ends the automatic move",
+               !actor.script_auto_move && actor.pos[0] == 6.f &&
+               actor.pos[1] == 5.f && actor.pos[2] == 8.f &&
+               run("movement-finished",
+                   "assert(not IsChrAutoMove('MainPlayer'))\n"));
+            float before[3]{actor.pos[0], actor.pos[1], actor.pos[2]};
+            ck("speed-zero look-at executes",
+               run("movement-look", "ChrMoveTo('MainPlayer',0,16,8)\n"));
+            ck("speed-zero look-at rotates without translating",
+               !actor.script_auto_move && actor.pos[0] == before[0] &&
+               actor.pos[1] == before[1] && actor.pos[2] == before[2] &&
+               std::abs(actor.rot_y - float(std::numbers::pi / 2.0)) < 0.0001f);
+            lucent::info("movement", "SELFTEST: {} cases, {} failures", checked, bad);
             return bad ? 1 : 0;
         }
         if (ai_selftest) {
@@ -2932,6 +2981,17 @@ int main(int argc, char** argv) {
                     if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
                         running = false;
                 }
+                bool player_script_moving = false;
+                if (auto* pl = world.Find("MainPlayer"))
+                    player_script_moving = pl->script_auto_move;
+                world.TickScriptMoves(dt);
+                if (player_script_moving) {
+                    if (const auto* pl = world.Find("MainPlayer")) {
+                        px = pl->pos[0] + room_org[0];
+                        py = pl->pos[1] + room_org[1];
+                        pz = pl->pos[2] + room_org[2];
+                    }
+                }
                 int nk = 0;
                 const bool* key = SDL_GetKeyboardState(&nk);
                 float mx = 0, mz = 0;
@@ -2941,6 +3001,7 @@ int main(int argc, char** argv) {
                     if (key[SDL_SCANCODE_UP]    || key[SDL_SCANCODE_W]) mz -= 1;
                     if (key[SDL_SCANCODE_DOWN]  || key[SDL_SCANCODE_S]) mz += 1;
                 }
+                if (player_script_moving) mx = mz = 0.f;
                 // Headless driver: steer toward a room-local target so the
                 // walk-into-an-event-box path (which is how the game connects
                 // rooms) can be exercised without a human at the keyboard.

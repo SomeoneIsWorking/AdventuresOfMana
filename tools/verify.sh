@@ -43,6 +43,10 @@ if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --camera-selftest >/dev/null 2>&1 || fail=1
 
+  echo "=== scripted movement self-test ==="
+  ./build/mana --movement-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
+  ./build/mana --movement-selftest >/dev/null 2>&1 || fail=1
+
   echo "=== player self-test ==="
   ./build/mana --player-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --player-selftest >/dev/null 2>&1 || fail=1

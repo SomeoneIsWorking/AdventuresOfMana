@@ -33,6 +33,25 @@ bool World::Remove(const std::string& handle) {
     return true;
 }
 
+void World::TickScriptMoves(float dt) {
+    for (auto& a : actors_) {
+        if (!a.alive || !a.script_auto_move) continue;
+        float dx = a.script_move_target[0] - a.pos[0];
+        float dy = a.script_move_target[1] - a.pos[1];
+        float dz = a.script_move_target[2] - a.pos[2];
+        float left = std::sqrt(dx * dx + dy * dy + dz * dz);
+        float step = a.script_move_speed * dt;
+        if (left <= step || left <= 0.0001f) {
+            for (int k = 0; k < 3; ++k) a.pos[k] = a.script_move_target[k];
+            a.script_auto_move = false;
+            continue;
+        }
+        a.pos[0] += dx / left * step;
+        a.pos[1] += dy / left * step;
+        a.pos[2] += dz / left * step;
+    }
+}
+
 bool HitArcSphere(const float a[3], float ar, float arc_deg, float yaw,
                   const float d[3], float dr) {
     float dx = d[0] - a[0], dy = d[1] - a[1], dz = d[2] - a[2];
