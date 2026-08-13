@@ -24,8 +24,10 @@ before trusting anything below to be the engine's rather than the port's.
 
 ## Verification
 
-`./tools/verify.sh` runs every asset parser over the full 9886-file corpus. It
-refuses to run — rather than reporting a vacuous pass — if the corpus is missing.
+`./tools/verify.sh` runs every asset parser over the exact 9886-member archive
+extraction plus the gameplay/runtime gates. It refuses to run — rather than
+reporting a vacuous pass or a skip — if the game binary, runtime assets, source
+archive, or exact extracted corpus is missing.
 
 ## Subsystems
 

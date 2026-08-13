@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: animation,scripting,bosses
 depends: src/engine/world.h#Actor, src/engine/world.cpp#TickMotions, src/engine/script.cpp#IsChrMotionFinish, src/host/main.cpp#missing_actor_models, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:24:46
+verified_at: 2026-08-13 22:27:35
 ---
 
 ## Claim
@@ -52,3 +52,7 @@ Full tools/verify.sh passed on 2026-08-13 after strict parser and cmd-API instru
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after exact MPK corpus identity gating; late boss model, BGM 2, and movement remained observed.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after mandatory runtime preflight; late boss model, BGM 2, and movement remained observed.

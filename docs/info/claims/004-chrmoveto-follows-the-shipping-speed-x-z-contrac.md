@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/engine/world.h#Actor, src/engine/world.cpp#World::TickScriptMoves, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:24:46
+verified_at: 2026-08-13 22:27:35
 ---
 
 ## Claim
@@ -60,3 +60,7 @@ Full tools/verify.sh passed on 2026-08-13 after strict parser and cmd-API instru
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after exact MPK corpus identity gating; movement selftest remained 19/19.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after mandatory runtime preflight; movement selftest remained 19/19.

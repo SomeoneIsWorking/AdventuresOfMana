@@ -4,16 +4,43 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+check_runtime() {
+  if [ ! -x "$1" ]; then
+    echo "FATAL: game binary $1 is missing or not executable; 0 gameplay checks ran."
+    return 1
+  fi
+  if [ ! -d "$2" ]; then
+    echo "FATAL: runtime asset directory $2 is missing; 0 gameplay checks ran."
+    return 1
+  fi
+}
+
+check_runtime build/mana scratch/raw/assets || exit 1
+mkdir -p scratch/logs
+
 archive=scratch/raw/assets/sk1/sk1.mpk
 if [ ! -f "$archive" ]; then
   echo "FATAL: $archive is missing; corpus identity cannot be verified."
   echo "       A file count alone cannot prove scratch/dump came from this archive."
   exit 1
 fi
-mkdir -p scratch/logs
 python3 tools/asset/mpk.py "$archive" --check-dir scratch/dump || exit 1
 
 fail=0
+
+echo "=== runtime preflight negatives ==="
+preflight_log=scratch/logs/runtime-preflight-negative.log
+if check_runtime scratch/logs/DOES_NOT_EXIST scratch/raw/assets \
+    >"$preflight_log" 2>&1; then
+  fail=1
+fi
+grep -F "0 gameplay checks ran" "$preflight_log" >/dev/null || fail=1
+if check_runtime build/mana scratch/logs/DOES_NOT_EXIST \
+    >"$preflight_log" 2>&1; then
+  fail=1
+fi
+grep -F "0 gameplay checks ran" "$preflight_log" >/dev/null || fail=1
+echo "  missing-binary and missing-assets negatives passed"
 
 # Prove exact corpus identity can produce the other answer. Work on one known
 # member with an EXIT trap so interruption restores it before any parser runs.
@@ -105,8 +132,7 @@ for t in stex smdl smot scol; do
   grep -Ei '1 (files )?FAILED|0/1.*failed' "$neg_log" >/dev/null || fail=1
 done
 echo "  empty-corpus and malformed-input negatives passed for 4 parsers"
-if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
-  echo "=== combat self-test ==="
+echo "=== combat self-test ==="
   ./build/mana --combat-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
 
   echo "=== event-box self-test ==="
@@ -177,9 +203,6 @@ if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   echo "=== room census ==="
   ./build/mana --room-census 2>&1 | grep "^\[census\]" || fail=1
   ./build/mana --room-census >/dev/null 2>&1 || fail=1
-else
-  echo "=== audio self-test SKIPPED (build/mana or scratch/raw/assets missing) ==="
-fi
 
 echo "=== cmd API ==="
 python3 tools/asset/extract_cmd_api.py >/dev/null || fail=1

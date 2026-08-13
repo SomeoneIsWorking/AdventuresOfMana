@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: bosses,combat,collision,scripting
 depends: src/mcf/assets.cpp#ParseGdt, src/mcf/assets.cpp#Collision::BlockedXZ, src/engine/script.cpp#ChrAttackBoneValid, src/engine/world.cpp#TickScriptMoves, src/host/main.cpp#ground_attribute, src/host/main.cpp#hit_this_swing, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:24:47
+verified_at: 2026-08-13 22:27:36
 ---
 
 ## Claim
@@ -40,3 +40,7 @@ Full tools/verify.sh passed on 2026-08-13 after strict parser and cmd-API instru
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after exact MPK corpus identity gating; landed hits, player damage, and _BOSS collision remained observed.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after mandatory runtime preflight; landed hits, player damage, and _BOSS collision remained observed.
