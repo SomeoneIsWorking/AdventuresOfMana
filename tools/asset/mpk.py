@@ -57,6 +57,7 @@ def main():
     ap.add_argument('archive')
     ap.add_argument('-o', '--outdir')
     ap.add_argument('-l', '--list', action='store_true')
+    ap.add_argument('-e', '--entry', help='extract exactly this archive path')
     a = ap.parse_args()
 
     f = open(a.archive, 'rb')
@@ -71,6 +72,23 @@ def main():
 
     if not a.outdir:
         sys.exit("need -o OUTDIR (or --list)")
+
+    if a.entry:
+        matches = [e for e in ents if e[0] == a.entry]
+        if not matches:
+            sys.exit("scanned %d entries, matched 0 for %r" % (len(ents), a.entry))
+        if len(matches) != 1:
+            sys.exit("scanned %d entries, matched %d for %r; refusing ambiguous extraction" %
+                     (len(ents), len(matches), a.entry))
+        name, flag, off, csize, usize = matches[0]
+        data = extract_one(f, data_off, off, csize, usize)
+        p = os.path.join(a.outdir, name)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'wb') as g:
+            g.write(data)
+        print("scanned %d entries, extracted 1: %s (%d bytes)" %
+              (len(ents), name, len(data)), file=sys.stderr)
+        return
 
     ok = failed = 0
     errors = []

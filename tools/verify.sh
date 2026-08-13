@@ -13,6 +13,30 @@ fi
 echo "corpus: $n files"
 
 fail=0
+
+# A single-file RE query must not require inflating all 9,886 payload streams.
+# Exercise the shipping path and the absent-entry discriminator: a silent empty
+# result here would make every subsequent conclusion from an absent file false.
+if [ -f scratch/raw/assets/sk1/sk1.mpk ]; then
+  echo "=== MPK one-entry extraction ==="
+  mkdir -p scratch/logs/mpk-entry-selftest
+  mpk_one=scratch/logs/mpk-entry-selftest/sk1/M0001_00_00.lua
+  mpk_log=scratch/logs/mpk-entry-selftest.log
+  python3 tools/asset/mpk.py scratch/raw/assets/sk1/sk1.mpk \
+    -o scratch/logs/mpk-entry-selftest -e sk1/M0001_00_00.lua 2>"$mpk_log" || fail=1
+  grep -F "scanned 9886 entries, extracted 1: sk1/M0001_00_00.lua" "$mpk_log" || fail=1
+  cmp -s "$mpk_one" scratch/dump/sk1/M0001_00_00.lua || fail=1
+  if python3 tools/asset/mpk.py scratch/raw/assets/sk1/sk1.mpk \
+      -o scratch/logs/mpk-entry-selftest -e sk1/DOES_NOT_EXIST.lua \
+      >"$mpk_log" 2>&1; then
+    fail=1
+  fi
+  grep -F "scanned 9886 entries, matched 0 for 'sk1/DOES_NOT_EXIST.lua'" \
+    "$mpk_log" || fail=1
+else
+  echo "=== MPK one-entry extraction SKIPPED (shipping archive missing) ==="
+fi
+
 for t in stex smdl smot scol roomdata strings enemydat; do
   echo "=== $t ==="
   python3 "tools/asset/$t.py" || fail=1

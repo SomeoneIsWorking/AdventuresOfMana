@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/engine/world.h#Actor, src/engine/world.cpp#World::TickScriptMoves, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:02:27
+verified_at: 2026-08-13 22:11:39
 ---
 
 ## Claim
@@ -44,3 +44,7 @@ Full verify.sh re-ran movement SELFTEST 13/13 including exact path distance acco
 ## Re-confirmed 2026-08-13
 
 Full shipping verifier passed on 2026-08-13; movement selftest reported 19 cases and 0 failures, including blocked scripted movement and ISHITMAP behavior.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after commit 6e0e4f1 and the MPK tooling change; movement selftest remained 19/19.

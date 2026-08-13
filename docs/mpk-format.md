@@ -66,6 +66,14 @@ output buffer, so a length check passes by construction. Under that broken test
 700 consecutive candidate base offsets all "passed"; under the consumption test
 exactly one does (113664).
 
+For targeted inspection, `mpk.py -e <exact/archive/path> -o <directory>` scans
+the validated directory but inflates only the named payload. It reports the
+number of directory entries scanned and refuses both zero matches and ambiguous
+duplicate matches; an absent entry therefore cannot masquerade as an empty
+successful extraction. `tools/verify.sh` extracts the opening room script,
+byte-compares it with the full-corpus copy, and also exercises the missing-name
+failure path.
+
 ## Status
 
 - [x] Header layout
@@ -73,3 +81,4 @@ exactly one does (113664).
 - [x] Codec: LHA `-lh5-`, dicbit 13
 - [x] Directory entry layout
 - [x] Full extraction of all 9886 entries
+- [x] Exact one-entry extraction with positive and missing-entry gates

@@ -32,7 +32,7 @@ refuses to run — rather than reporting a vacuous pass — if the corpus is mis
 | Subsystem | Status | Where |
 |---|---|---|
 | `cmd` Lua API extraction | **DONE — verified 200/200 names+impls** | `tools/asset/extract_cmd_api.py` -> `docs/cmd-api.md` |
-| MPK archive reader | **DONE — 9886/9886 extracted, validated** | `tools/asset/mpk.py`, `tools/asset/lha.py` |
+| MPK archive reader | **DONE — 9886/9886 extracted, validated.** Exact `-e` extraction scans the directory but inflates one requested payload, refuses zero/duplicate matches, and is regression-tested against the full-corpus byte copy plus a missing-name negative | `tools/asset/mpk.py`, `tools/asset/lha.py` |
 | Texture format (`.stex`/`SMDI`) | **DONE — 1319/1319 descriptors parse, image verified** | `tools/asset/stex.py` |
 | Model format (`.smdl`/`Smd3`) | **DONE — 1375/1375 parse, geometry rendered; material blend flag (word 9) drives alpha blending** | `tools/asset/smdl.py`, `render_smdl.py` |
 | Motion format (`.smot`/`Smot`) | **DONE — 1721/1721 parse; quaternions verified. 98 of 60,803 time arrays unexplained** | `tools/asset/smot.py` |

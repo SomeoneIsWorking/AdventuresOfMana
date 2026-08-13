@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: animation,scripting,bosses
 depends: src/engine/world.h#Actor, src/engine/world.cpp#TickMotions, src/engine/script.cpp#IsChrMotionFinish, src/host/main.cpp#missing_actor_models, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:02:32
+verified_at: 2026-08-13 22:11:40
 ---
 
 ## Claim
@@ -36,3 +36,7 @@ Full verify.sh observed late boss asset load, BGM 2, and subsequent scripted bos
 ## Re-confirmed 2026-08-13
 
 Full shipping verifier passed on 2026-08-13; the opening resolved the late boss, advanced its motion, switched to BGM 2, moved the boss, and reached combat.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after commit 6e0e4f1 and the MPK tooling change; late boss model, BGM 2, and scripted movement were observed.

@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: bosses,combat,collision,scripting
 depends: src/mcf/assets.cpp#ParseGdt, src/mcf/assets.cpp#Collision::BlockedXZ, src/engine/script.cpp#ChrAttackBoneValid, src/engine/world.cpp#TickScriptMoves, src/host/main.cpp#ground_attribute, src/host/main.cpp#hit_this_swing, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:02:36
+verified_at: 2026-08-13 22:11:41
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ Any change to GDT parsing/query, GetGroundAttribute, BlockedXZ or wall candidate
 ## Re-confirmed 2026-08-13
 
 Full shipping verifier passed on 2026-08-13; the 600-frame opening-boss boundary produced a _BOSS scripted map collision, 2 landed hits, 6 player damage over 2 hits, and 155 measured bone-0 fallbacks; movement selftest was 19/19.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after commit 6e0e4f1 and the MPK tooling change; opening attack path again produced landed hits, player damage, and _BOSS map collision.
