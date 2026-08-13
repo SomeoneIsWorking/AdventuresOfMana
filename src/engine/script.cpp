@@ -237,6 +237,7 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
             b.lo[k] = std::min(a, c);
             b.hi[k] = std::max(a, c);
         }
+        b.flags = uint32_t(N(8));
         if (auto* e = w.FindBox(b.name)) *e = b; else w.boxes.push_back(b);
         return true;
     }
@@ -246,6 +247,14 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
     }
     if (n == "SetEventBoxNoTouchEvent") {
         if (auto* b = w.FindBox(S(1))) b->no_touch = true;
+        return true;
+    }
+    if (n == "SetEventBoxFlg") {
+        if (auto* b = w.FindBox(S(1))) {
+            const uint32_t bits = uint32_t(N(2));
+            if (lua_toboolean(L, 3)) b->flags |= bits;
+            else                     b->flags &= ~bits;
+        }
         return true;
     }
 

@@ -159,6 +159,7 @@ struct Actor {
 struct EventBox {
     std::string name;
     float lo[3]{}, hi[3]{};
+    uint32_t flags = 0;      // SetEventBoxFlg: engine ORs/clears requested bits
     bool enabled = true;
     bool no_touch = false;   // SetEventBoxNoTouchEvent
     bool inside = false;     // edge-triggered: fire on entry, not every frame

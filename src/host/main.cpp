@@ -852,7 +852,11 @@ int main(int argc, char** argv) {
             ck("disabled box cannot hit", b.IsHit(115, 30, 240, ox, oz), false);
             b.enabled = true; b.no_touch = true;
             ck("no-touch box cannot hit", b.IsHit(115, 30, 240, ox, oz), false);
-            lucent::info("eventbox", "SELFTEST: 6 cases, {} failures", bad);
+            b.no_touch = false; b.flags = 0x01; b.flags |= 0x40;
+            ck("flag set preserves existing bits", b.flags == 0x41, true);
+            b.flags &= ~uint32_t(0x01);
+            ck("flag clear preserves other bits", b.flags == 0x40, true);
+            lucent::info("eventbox", "SELFTEST: 8 cases, {} failures", bad);
             return bad ? 1 : 0;
         }
         if (ai_selftest) {
