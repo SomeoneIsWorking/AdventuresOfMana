@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/host/main.cpp#main, src/engine/script.cpp#Script::ResumeCoroutines, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:15:25
+verified_at: 2026-08-13 22:20:09
 ---
 
 ## Claim
@@ -60,3 +60,7 @@ Full tools/verify.sh passed on 2026-08-13 after commit 6e0e4f1 and the MPK tooli
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after parser exit-status repair; opening lifecycle retained all required observations.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after strict parser and cmd-API instrumentation; opening lifecycle retained every required observation.

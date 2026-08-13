@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: bosses,scripting,combat
 depends: src/engine/script.cpp#Dispatch, src/engine/script.h#motion_duration, src/engine/world.cpp#TickLookTargets, src/engine/world.cpp#TickScriptMoves, src/host/main.cpp#resolveMotionDuration, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:15:28
+verified_at: 2026-08-13 22:20:12
 ---
 
 ## Claim
@@ -36,3 +36,7 @@ Full tools/verify.sh passed on 2026-08-13 after commit 6e0e4f1 and the MPK tooli
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after parser exit-status repair; live scripted Jackal behavior remained observed.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after strict parser and cmd-API instrumentation; live scripted Jackal behavior remained observed.

@@ -32,7 +32,8 @@ if [ -f scratch/raw/assets/sk1/sk1.mpk ]; then
     fail=1
   fi
   grep -F "scanned 9886 entries, matched 0 for 'sk1/DOES_NOT_EXIST.lua'" \
-    "$mpk_log" || fail=1
+    "$mpk_log" >/dev/null || fail=1
+  echo "  missing-entry negative passed (9886 scanned, 0 matched)"
 else
   echo "=== MPK one-entry extraction SKIPPED (shipping archive missing) ==="
 fi
@@ -55,13 +56,14 @@ for t in stex smdl smot scol; do
       python3 "$parser_root/tools/asset/$t.py") >"$neg_log" 2>&1; then
     fail=1
   fi
-  grep -F "FATAL: scanned 0" "$neg_log" || fail=1
+  grep -F "FATAL: scanned 0" "$neg_log" >/dev/null || fail=1
   if python3 "tools/asset/$t.py" scratch/logs/parser-malformed.bin \
       >"$neg_log" 2>&1; then
     fail=1
   fi
-  grep -Ei '1 (files )?FAILED|0/1.*failed' "$neg_log" || fail=1
+  grep -Ei '1 (files )?FAILED|0/1.*failed' "$neg_log" >/dev/null || fail=1
 done
+echo "  empty-corpus and malformed-input negatives passed for 4 parsers"
 if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   echo "=== combat self-test ==="
   ./build/mana --combat-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
@@ -140,6 +142,19 @@ fi
 
 echo "=== cmd API ==="
 python3 tools/asset/extract_cmd_api.py >/dev/null || fail=1
+# Remove exactly one shipping registration while leaving the rest of the
+# disassembly intact. The extractor must reject 199/200 rather than treating
+# "some registrations found" as success.
+cmd_api_negative=scratch/logs/cmd-api-one-missing.asm
+sed '0,/tolua_function@plt/s//tolua_broken@plt/' \
+  scratch/raw/full.asm >"$cmd_api_negative"
+if python3 tools/asset/extract_cmd_api.py scratch/raw/libmcfandroid.so \
+    "$cmd_api_negative" >scratch/logs/cmd-api-negative.log 2>&1; then
+  fail=1
+fi
+grep -F "FATAL: cmd API incomplete: registrations 199/200" \
+  scratch/logs/cmd-api-negative.log >/dev/null || fail=1
+echo "  one-registration-missing negative passed (199/200 rejected)"
 
 # Regenerates docs/object-table.md and src/engine/object_table.inc, and checks
 # every .odt id still resolves. Needs the game binary, which is not in the repo.

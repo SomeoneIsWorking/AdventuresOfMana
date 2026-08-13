@@ -12,6 +12,7 @@ import re, struct, sys, subprocess, os
 
 SO  = sys.argv[1] if len(sys.argv) > 1 else "scratch/raw/libmcfandroid.so"
 ASM = sys.argv[2] if len(sys.argv) > 2 else "scratch/raw/full.asm"
+EXPECTED_API = 200
 
 data = open(SO, 'rb').read()
 phoff, = struct.unpack_from('<Q', data, 0x20)
@@ -122,6 +123,11 @@ named = [a for a in api if a[0]]
 resolved = [a for a in api if a[2]]
 print(f"  names resolved: {len(named)}/{len(api)}", file=sys.stderr)
 print(f"  impls  resolved: {len(resolved)}/{len(api)}", file=sys.stderr)
+if len(api) != EXPECTED_API or len(named) != EXPECTED_API or len(resolved) != EXPECTED_API:
+    sys.exit("FATAL: cmd API incomplete: registrations %d/%d, names %d/%d, "
+             "implementations %d/%d" %
+             (len(api), EXPECTED_API, len(named), EXPECTED_API,
+              len(resolved), EXPECTED_API))
 
 demangle = subprocess.run(['c++filt'], input='\n'.join(
     (a[2] or '').replace('@plt', '') for a in api), capture_output=True, text=True).stdout.split('\n')
