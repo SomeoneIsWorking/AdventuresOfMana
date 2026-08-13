@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: bosses,scripting,combat
 depends: src/engine/script.cpp#Dispatch, src/engine/script.h#motion_duration, src/engine/world.cpp#TickLookTargets, src/engine/world.cpp#TickScriptMoves, src/host/main.cpp#resolveMotionDuration, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 23:35:14
+verified_at: 2026-08-13 23:36:13
 ---
 
 ## Claim
@@ -60,3 +60,7 @@ Full tools/verify.sh passed on 2026-08-13 after boss-death progression; live scr
 ## Re-confirmed 2026-08-13
 
 Re-proved by the complete tools/verify.sh pass on 2026-08-13 after the opening-router, actor mapping, coordinate, scripted-transition, and silent-test changes; every claim-specific runtime/self-test gate passed on the shipping corpus.
+
+## Re-confirmed 2026-08-13
+
+Re-proved by the complete tools/verify.sh pass against the source landed in 37bda36 on 2026-08-13; every claim-specific runtime/self-test gate passed on the shipping corpus.
