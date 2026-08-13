@@ -74,6 +74,14 @@ successful extraction. `tools/verify.sh` extracts the opening room script,
 byte-compares it with the full-corpus copy, and also exercises the missing-name
 failure path.
 
+`mpk.py --check-dir <directory>` compares an extraction against the archive's
+directory itself: exact relative path set and every entry's declared
+uncompressed size. A raw count is insufficient because one missing asset plus
+one unrelated file still totals 9,886. The full verifier requires this check
+before running any parser, then temporarily exercises one missing member, one
+wrong-sized member, and one extra member; an exit trap restores the shipping
+corpus before parser work begins.
+
 ## Status
 
 - [x] Header layout
@@ -82,3 +90,4 @@ failure path.
 - [x] Directory entry layout
 - [x] Full extraction of all 9886 entries
 - [x] Exact one-entry extraction with positive and missing-entry gates
+- [x] Exact extracted-corpus identity with missing/size/extra negative gates

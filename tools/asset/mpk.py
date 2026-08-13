@@ -58,6 +58,7 @@ def main():
     ap.add_argument('-o', '--outdir')
     ap.add_argument('-l', '--list', action='store_true')
     ap.add_argument('-e', '--entry', help='extract exactly this archive path')
+    ap.add_argument('-c', '--check-dir', help='verify an extracted directory exactly')
     a = ap.parse_args()
 
     f = open(a.archive, 'rb')
@@ -70,8 +71,38 @@ def main():
             print("%10d %10d  %s" % (csize, usize, name))
         return
 
+    if a.check_dir:
+        expected = {}
+        duplicates = []
+        for name, flag, off, csize, usize in ents:
+            if name in expected:
+                duplicates.append(name)
+            expected[name] = usize
+        actual = {}
+        if os.path.isdir(a.check_dir):
+            for base, dirs, files in os.walk(a.check_dir):
+                for leaf in files:
+                    path = os.path.join(base, leaf)
+                    rel = os.path.relpath(path, a.check_dir).replace(os.sep, '/')
+                    actual[rel] = os.path.getsize(path)
+        missing = sorted(set(expected) - set(actual))
+        extra = sorted(set(actual) - set(expected))
+        wrong_size = sorted(name for name in set(expected) & set(actual)
+                            if expected[name] != actual[name])
+        print("archive directory: %d expected, %d present; %d missing, %d extra, "
+              "%d wrong size" %
+              (len(expected), len(actual), len(missing), len(extra), len(wrong_size)))
+        for label, names in (("duplicate archive name", duplicates),
+                             ("missing", missing), ("extra", extra),
+                             ("wrong size", wrong_size)):
+            for name in names[:8]:
+                print("  %s: %s" % (label, name))
+        if duplicates or missing or extra or wrong_size:
+            sys.exit(1)
+        return
+
     if not a.outdir:
-        sys.exit("need -o OUTDIR (or --list)")
+        sys.exit("need -o OUTDIR (or --list/--check-dir)")
 
     if a.entry:
         matches = [e for e in ents if e[0] == a.entry]

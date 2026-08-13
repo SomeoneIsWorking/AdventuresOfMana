@@ -4,29 +4,70 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-n=$(find scratch/dump -type f 2>/dev/null | wc -l)
-if [ "$n" -lt 9886 ]; then
-  echo "FATAL: scratch/dump holds $n files, expected 9886."
-  echo "       Run: python3 tools/asset/mpk.py <sk1.mpk> -o scratch/dump"
+archive=scratch/raw/assets/sk1/sk1.mpk
+if [ ! -f "$archive" ]; then
+  echo "FATAL: $archive is missing; corpus identity cannot be verified."
+  echo "       A file count alone cannot prove scratch/dump came from this archive."
   exit 1
 fi
-echo "corpus: $n files"
+mkdir -p scratch/logs
+python3 tools/asset/mpk.py "$archive" --check-dir scratch/dump || exit 1
 
 fail=0
+
+# Prove exact corpus identity can produce the other answer. Work on one known
+# member with an EXIT trap so interruption restores it before any parser runs.
+echo "=== MPK corpus identity negatives ==="
+corpus_member=scratch/dump/sk1/M0001_00_00.lua
+corpus_hold=scratch/logs/mpk-corpus-held.lua
+corpus_log=scratch/logs/mpk-corpus-negative.log
+(
+  restore_corpus_member() {
+    if [ -f "$corpus_hold" ]; then
+      rm -f "$corpus_member"
+      mv "$corpus_hold" "$corpus_member"
+    fi
+  }
+  trap restore_corpus_member EXIT INT TERM
+  mv "$corpus_member" "$corpus_hold"
+  if python3 tools/asset/mpk.py "$archive" --check-dir scratch/dump \
+      >"$corpus_log" 2>&1; then
+    exit 1
+  fi
+  grep -F "9886 expected, 9885 present; 1 missing" "$corpus_log" >/dev/null || exit 1
+  : > "$corpus_member"
+  if python3 tools/asset/mpk.py "$archive" --check-dir scratch/dump \
+      >"$corpus_log" 2>&1; then
+    exit 1
+  fi
+  grep -F "1 wrong size" "$corpus_log" >/dev/null || exit 1
+) || fail=1
+corpus_extra=scratch/dump/CODEX_VERIFY_EXTRA
+(
+  trap 'rm -f "$corpus_extra"' EXIT INT TERM
+  : > "$corpus_extra"
+  if python3 tools/asset/mpk.py "$archive" --check-dir scratch/dump \
+      >"$corpus_log" 2>&1; then
+    exit 1
+  fi
+  grep -F "9886 expected, 9887 present; 0 missing, 1 extra" \
+    "$corpus_log" >/dev/null || exit 1
+) || fail=1
+echo "  one-missing, one-wrong-size, and one-extra negatives passed"
 
 # A single-file RE query must not require inflating all 9,886 payload streams.
 # Exercise the shipping path and the absent-entry discriminator: a silent empty
 # result here would make every subsequent conclusion from an absent file false.
-if [ -f scratch/raw/assets/sk1/sk1.mpk ]; then
+if [ -f "$archive" ]; then
   echo "=== MPK one-entry extraction ==="
   mkdir -p scratch/logs/mpk-entry-selftest
   mpk_one=scratch/logs/mpk-entry-selftest/sk1/M0001_00_00.lua
   mpk_log=scratch/logs/mpk-entry-selftest.log
-  python3 tools/asset/mpk.py scratch/raw/assets/sk1/sk1.mpk \
+  python3 tools/asset/mpk.py "$archive" \
     -o scratch/logs/mpk-entry-selftest -e sk1/M0001_00_00.lua 2>"$mpk_log" || fail=1
   grep -F "scanned 9886 entries, extracted 1: sk1/M0001_00_00.lua" "$mpk_log" || fail=1
   cmp -s "$mpk_one" scratch/dump/sk1/M0001_00_00.lua || fail=1
-  if python3 tools/asset/mpk.py scratch/raw/assets/sk1/sk1.mpk \
+  if python3 tools/asset/mpk.py "$archive" \
       -o scratch/logs/mpk-entry-selftest -e sk1/DOES_NOT_EXIST.lua \
       >"$mpk_log" 2>&1; then
     fail=1
