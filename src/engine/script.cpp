@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <numbers>
 
 #include <lucent/log.h>
 
@@ -107,6 +108,27 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
     auto S = [&](int i) { return lua_isstring(L, i) ? lua_tostring(L, i) : ""; };
     auto N = [&](int i) { return float(luaL_optnumber(L, i, 0)); };
 
+    if (n == "math_atan2") {
+        lua_pushnumber(L, std::atan2(N(1), N(2)));
+        return true;
+    }
+    if (n == "bit_and") {
+        lua_pushnumber(L, uint32_t(N(1)) & uint32_t(N(2)));
+        return true;
+    }
+    if (n == "math_LerpSin") {
+        int start = int(N(1)), now = int(N(2)), use = int(N(3));
+        float len = N(4), angle0 = N(5), angle1 = N(6);
+        int elapsed = now - start;
+        float angle = angle0;
+        if (elapsed >= 0) {
+            if (elapsed > use || use == 0) angle = angle1;
+            else angle += (angle1 - angle0) * float(elapsed) / float(use);
+        }
+        lua_pushnumber(L, std::sin(angle * float(std::numbers::pi) / 180.f) * len);
+        return true;
+    }
+
     if (n == "GetGameTimeMs") {
         if (auto* self = FromState(L)) lua_pushnumber(L, self->game_time_ms);
         else                            lua_pushnumber(L, 0);
@@ -164,12 +186,25 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
     if (n == "DelNPC" || n == "DeadEnemy") { w.Remove(S(1)); return true; }
 
     if (n == "ChrSetData") {                // (name, slot, value)
-        if (auto* a = w.Find(S(1))) a->data[int(N(2))] = N(3);
+        if (auto* a = w.Find(S(1))) {
+            int slot = int(N(2));
+            int value = int(N(3));
+            if (slot == chr_data::kHP) a->hp = value;
+            else if (slot == chr_data::kMaxHP) a->max_hp = value;
+            else a->data[slot] = N(3);
+        }
         return true;
     }
     if (n == "ChrGetData") {
         auto* a = w.Find(S(1));
-        lua_pushnumber(L, a ? a->Get(int(N(2))) : 0);
+        int slot = int(N(2));
+        float value = 0.f;
+        if (a) {
+            if (slot == chr_data::kHP) value = float(a->hp);
+            else if (slot == chr_data::kMaxHP) value = float(a->max_hp);
+            else value = a->Get(slot);
+        }
+        lua_pushnumber(L, value);
         return true;
     }
     if (n == "ChrSetPos") {
@@ -210,8 +245,12 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         return true;
     }
     if (n == "ChrMotion" || n == "ChrMotionForce") {
-        if (auto* a = w.Find(S(1)))
+        if (auto* a = w.Find(S(1))) {
             a->SetMotion(int(N(2)), n == "ChrMotionForce");
+            if (auto* self = FromState(L); self && self->motion_duration)
+                a->motion_duration = self->motion_duration(a->kind, a->type_id,
+                                                            a->motion);
+        }
         return true;
     }
     if (n == "ChrMotionGetID") {
@@ -233,6 +272,17 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         auto* a = w.Find(S(1));
         lua_pushboolean(L, !a || (a->motion_duration > 0.f &&
                                   a->motion_frame >= a->motion_duration));
+        return true;
+    }
+    if (n == "ChrLookTarget") {
+        if (auto* a = w.Find(S(1))) {
+            a->look_target = S(2);
+            w.TickLookTargets();
+        }
+        return true;
+    }
+    if (n == "ChrLookTargetOff") {
+        if (auto* a = w.Find(S(1))) a->look_target.clear();
         return true;
     }
     if (n == "ChrIsAlive") {

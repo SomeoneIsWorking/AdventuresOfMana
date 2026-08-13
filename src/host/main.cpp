@@ -949,6 +949,9 @@ int main(int argc, char** argv) {
             auto& actor = w.Spawn("MainPlayer", 0, 0.f, 5.f, 0.f);
             mcf::Script script;
             script.world = &w;
+            script.motion_duration = [](char, int, int motion) {
+                return motion == 7 ? 12.f : 0.f;
+            };
             auto run = [&](const char* name, std::string_view source) {
                 std::vector<uint8_t> bytes(source.begin(), source.end());
                 return script.Run(name, bytes);
@@ -964,11 +967,13 @@ int main(int argc, char** argv) {
             w.TickScriptMoves(0.5f);
             ck("half duration advances half the 3-4-5 path",
                actor.script_auto_move && actor.pos[0] == 3.f &&
-               actor.pos[1] == 5.f && actor.pos[2] == 4.f);
+               actor.pos[1] == 5.f && actor.pos[2] == 4.f &&
+               actor.script_distance_moved == 5.f);
             w.TickScriptMoves(0.5f);
             ck("destination ends the automatic move",
                !actor.script_auto_move && actor.pos[0] == 6.f &&
                actor.pos[1] == 5.f && actor.pos[2] == 8.f &&
+               actor.script_distance_moved == 10.f &&
                run("movement-finished",
                    "assert(not IsChrAutoMove('MainPlayer'))\n"));
             float before[3]{actor.pos[0], actor.pos[1], actor.pos[2]};
@@ -978,7 +983,26 @@ int main(int argc, char** argv) {
                !actor.script_auto_move && actor.pos[0] == before[0] &&
                actor.pos[1] == before[1] && actor.pos[2] == before[2] &&
                std::abs(actor.rot_y - float(std::numbers::pi / 2.0)) < 0.0001f);
-            actor.motion_duration = 12.f;
+            ck("math_LerpSin follows pre-start, midpoint and end clamps",
+               run("lerp-sin",
+                   "assert(math.abs(math_LerpSin(10,5,20,2,30,90)-1) < 0.0001)\n"
+                   "assert(math.abs(math_LerpSin(10,20,20,2,30,90)-1.7320508) < 0.0001)\n"
+                   "assert(math.abs(math_LerpSin(10,31,20,2,30,90)-2) < 0.0001)\n"));
+            ck("math_atan2 and bit_and return both nonzero and zero classes",
+               run("math-bits",
+                   "assert(math.abs(math_atan2(1,0)-math.pi/2) < 0.0001)\n"
+                   "assert(bit_and(6,3) == 2 and bit_and(4,1) == 0)\n"));
+            actor.hp = 37;
+            actor.max_hp = 40;
+            ck("ChrGetData HP reads live combat state and ChrSetData writes it",
+               run("combat-status", "assert(ChrGetData('MainPlayer',0) == 37)\n"
+                                      "assert(ChrGetData('MainPlayer',1) == 40)\n"
+                                      "ChrSetData('MainPlayer',0,12)\n"
+                                      "assert(ChrGetData('MainPlayer',0) == 12)\n") &&
+               actor.hp == 12);
+            ck("ChrMotion resolves its end frame synchronously",
+               run("motion-start", "ChrMotionForce('MainPlayer', 7)\n"
+                                     "assert(ChrMotionGetEndFrame('MainPlayer') == 12)\n"));
             w.TickMotions(5.f);
             ck("motion clock reports an unfinished shipping-duration motion",
                run("motion-mid", "assert(ChrMotionGetFrame('MainPlayer') == 5)\n"
@@ -989,8 +1013,9 @@ int main(int argc, char** argv) {
                run("motion-end", "assert(ChrMotionGetFrame('MainPlayer') == 12)\n"
                                   "assert(IsChrMotionFinish('MainPlayer'))\n"));
             ck("ChrMotionForce restarts even the current motion",
-               run("motion-force", "ChrMotionForce('MainPlayer', 0)\n"
+               run("motion-force", "ChrMotionForce('MainPlayer', 7)\n"
                                     "assert(ChrMotionGetFrame('MainPlayer') == 0)\n"
+                                    "assert(ChrMotionGetEndFrame('MainPlayer') == 12)\n"
                                     "assert(not IsChrMotionFinish('MainPlayer'))\n"));
             lucent::info("movement", "SELFTEST: {} cases, {} failures", checked, bad);
             return bad ? 1 : 0;
@@ -2008,6 +2033,7 @@ int main(int argc, char** argv) {
             std::map<std::string, mcf::Renderable> cache;   // survives transitions
             std::set<std::string> missing_actor_models;
             std::set<std::string> missing_actor_motions;
+            std::set<std::string> reported_script_moves;
             std::map<std::string, mcf::Motion> motions;     // survives transitions
 
             mcf::World world;
@@ -2466,6 +2492,17 @@ int main(int argc, char** argv) {
                 hero_motions[id] = mcf::ParseSmot(ar.Read(f));
                 return &hero_motions[id];
             };
+            auto resolveMotionDuration = [&](char kind, int type_id, int motion) {
+                auto nm = mcf::ActorModelName(kind, type_id);
+                if (nm.empty()) return 0.f;
+                auto file = ar.FindByPrefix(mcf::World::MotionPrefix(nm, motion));
+                if (file.empty()) return 0.f;
+                auto mit = motions.find(file);
+                if (mit == motions.end())
+                    mit = motions.emplace(file, mcf::ParseSmot(ar.Read(file))).first;
+                return mit->second.duration;
+            };
+            sc.motion_duration = resolveMotionDuration;
             auto actorMotion = [&](mcf::Actor& a) -> const mcf::Motion* {
                 auto nm = mcf::ActorModelName(a.kind, a.type_id);
                 if (nm.empty()) return nullptr; // eNPC.TRANS is intentionally invisible
@@ -3053,7 +3090,13 @@ int main(int argc, char** argv) {
                 // forever merely because the draw loop skipped it.
                 for (auto& a : world.actors_mutable())
                     if (a.alive) actorMotion(a);
+                world.TickLookTargets();
                 world.TickScriptMoves(dt);
+                for (const auto& a : world.actors())
+                    if (a.script_distance_moved > 0.f &&
+                        reported_script_moves.insert(a.handle).second)
+                        lucent::info("world", "scripted movement began for {}",
+                                     a.handle);
                 world.TickMotions(dt * 30.f);
                 if (player_script_moving) {
                     if (const auto* pl = world.Find("MainPlayer")) {

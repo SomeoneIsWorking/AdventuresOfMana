@@ -40,6 +40,7 @@ if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   grep -F "enemy stats: 1 from enemydat.bin, 0 with no table entry" "$init_log" || fail=1
   grep -F "loaded late actor _BOSS model B0000_00" "$init_log" || fail=1
   grep -F "bgm 2:" "$init_log" || fail=1
+  grep -F "scripted movement began for _BOSS" "$init_log" || fail=1
 
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1

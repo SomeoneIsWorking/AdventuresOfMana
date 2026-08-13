@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <format>
+#include <numbers>
 
 namespace mcf {
 
@@ -42,6 +43,7 @@ void World::TickScriptMoves(float dt) {
         float left = std::sqrt(dx * dx + dy * dy + dz * dz);
         float step = a.script_move_speed * dt;
         if (left <= step || left <= 0.0001f) {
+            a.script_distance_moved += left;
             for (int k = 0; k < 3; ++k) a.pos[k] = a.script_move_target[k];
             a.script_auto_move = false;
             continue;
@@ -49,6 +51,7 @@ void World::TickScriptMoves(float dt) {
         a.pos[0] += dx / left * step;
         a.pos[1] += dy / left * step;
         a.pos[2] += dz / left * step;
+        a.script_distance_moved += step;
     }
 }
 
@@ -56,6 +59,20 @@ void World::TickMotions(float frames) {
     for (auto& a : actors_) {
         if (!a.alive || a.motion_duration <= 0.f) continue;
         a.motion_frame = std::min(a.motion_frame + frames, a.motion_duration);
+    }
+}
+
+void World::TickLookTargets() {
+    for (auto& a : actors_) {
+        if (!a.alive || a.look_target.empty()) continue;
+        const Actor* target = Find(a.look_target);
+        if (!target || !target->alive) continue;
+        float dx = target->pos[0] - a.pos[0];
+        float dz = target->pos[2] - a.pos[2];
+        if (dx == 0.f && dz == 0.f) continue;
+        float deg = std::atan2(dz, dx) * (180.f / float(std::numbers::pi));
+        a.data[chr_data::kLookAtDeg] = deg;
+        a.rot_y = std::atan2(dx, dz);
     }
 }
 

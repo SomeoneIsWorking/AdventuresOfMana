@@ -28,6 +28,7 @@ enum : int {
     kScale = 100, kFlight = 101, kMapCollision = 102, kObjCollision = 103,
     kThWepCollision = 104, kChrCollision = 105, kFloorType = 106,
     kRotateSmooth = 107, kTalkTarget = 108, kInsideRoom = 109,
+    kLookAtDeg = 116, kIsHitMap = 117,
 };
 }
 
@@ -115,6 +116,8 @@ struct Actor {
     float script_move_target[3]{};
     float script_move_speed = 0.f;
     bool script_auto_move = false;
+    float script_distance_moved = 0.f;
+    std::string look_target;
     int motion = 0;              // eMOTION index; also the .smot numeric prefix
     float motion_frame = 0.f;
     float motion_duration = 0.f; // populated from the actor's shipping .smot
@@ -279,6 +282,7 @@ public:
     void Reset();
     void TickScriptMoves(float dt);
     void TickMotions(float frames);
+    void TickLookTargets();
 
     // Monotonic per-World counter for engine-assigned actor handles.
     uint32_t NextSpawnSerial() { return ++spawn_serial_; }

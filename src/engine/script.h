@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <span>
 #include <string>
@@ -52,6 +53,10 @@ public:
     static std::string ShiftJisToUtf8(std::span<const uint8_t> in);
 
     World* world = nullptr;   // optional; when set, hot cmd calls act
+    // Motion commands and frame queries occur back-to-back in the same Lua
+    // resume. The host owns the archive, so it supplies the real .smot
+    // duration synchronously at the command boundary.
+    std::function<float(char kind, int type_id, int motion)> motion_duration;
     // The game's string table. When set, GetIDString returns real text instead
     // of echoing the id back.
     const StringTable* strings = nullptr;
