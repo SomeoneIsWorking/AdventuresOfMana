@@ -30,7 +30,6 @@ to find its containing function.
 
 | question | why it blocks something |
 |---|---|
-| **actor `+0xc68`** — every writer and reader, and the layout of `+0xc60..+0xc80` | it is a factor in BOTH the AI movement equation and the distance timer. Named as the biggest AI gap in `docs/re-frontier.md` |
 | **`ModeGame+0x958`** and the party system around it | AI state 2 reads it while walking the route tables; the port has no party at all |
 | **The save format** — every field, offset and width in `_GameSaveAccess` (`0x30c820`..`0x312cbc`) | the title menu's Continue and Load items are refused because there is no save file to offer. Beware: an earlier attempt disassembled past the end of the function and read a neighbour's code as part of the walk |
 | **The event-box engine side** — storage, the containment test, how the named Lua callback is invoked, what `SetEventBoxNoTouchEvent` changes | `AddEventBox` is the most-called script function (552 calls). The port's own version is edge-triggered on an XZ AABB; whether that is the engine's is untested |

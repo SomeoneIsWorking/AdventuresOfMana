@@ -1575,28 +1575,14 @@ Of the three, one resolves and one is a well-bounded dead end.
 **`+0x3948`** is written only inside `UpdateAI` itself, so it is local to the
 wander setup rather than sourced from data.
 
-**`+0xc68` has no writer that could be found**, and the search is worth stating
-with its denominators because a bare "not found" is indistinguishable from not
-looking:
-
-* no plain `str` at a fixed offset anywhere in the binary writes it, except a
-  `strb wzr` in `AppCharacterBase::Dead` — a *byte* zero, while all ten reads
-  are `ldr s`, so that store is not the source;
-* it is not a script slot: `ChrSetData`'s jump table was extracted in full
-  (table at `.rodata` `0xa06a2`, branch base `0x2c9ab0`, 141 slots, 42 distinct
-  handlers) and **none** of the 141 maps to `+0xc68`;
-* the obvious hypothesis — that it is a multiplier derived from the adjacent
-  WALKMODE field at `+0xc60` — was **tested and falsified**: slot 124's handler
-  at `0x2c9e04` writes `+0xc60` and branches away without touching `+0xc68`;
-* `AppCharacterBase::Update` (`0x2abce0`, 1,390 instructions) does not write it;
-* nor does any resolvable register-indexed store — the form that hides from an
-  offset scan, and the one that writes the `+0x377c` block. Across all **313**
-  character-class functions there are 41 such stores; 25 resolve to a constant
-  index and none covers `+0xc68`. **The residual is the other 16**, whose index
-  register could not be traced, and that is where it must be.
-
-So it is computed somewhere else, most likely per-frame, and the distance-driven
-timer stays unimplementable rather than being filled in with a guessed 1.0.
+**`+0xc68` is the constructor's 1.0 multiplier.** The earlier scan looked only
+for scalar stores and therefore missed `AppCharacterBase::C2` @ `0x2a631c`:
+`ldr q0, [0x9de50]` followed by `str q0, [this + 0xc64]` @ `0x2a63dc` writes
+four floats at once: `{+0xc64=8.0, +0xc68=1.0, +0xc6c=1.0, +0xc70=-20.0}`.
+`SetEnemyId` later replaces `+0xc64` with the per-enemy move speed, but no later
+writer changes `+0xc68`. It is not a script slot either: `ChrSetData`'s full
+141-slot table has no handler for it. The field is consequently a fixed,
+engine-established multiplier, not a per-frame value or a missing data source.
 
 That table extraction did validate itself on the way past. It says slot 123 maps
 to `+0xc64`; `sk1.lua` — the game's own script prelude, in Shift-JIS —
@@ -1621,18 +1607,11 @@ ScaleVector(dir, dir, step)
 The identical product is the divisor in mode 9's timer, which is the consistency
 check on both readings: `time = distance / speed`.
 
-With `+0x3918 = 1.0f` (the constructor default, verified) and `s14 = 1.0` (its
-default; `0x2a9d10` sets 2.0 only when `+0xc4c == 1`), this reduces to
-`move_speed * (+0xc68) * dt`. **The port's `move_speed * dt` is therefore the
-engine's own equation with the remaining factors at their defaults**, not an
-approximation of it — so the port is the special case rather than wrong, and the
-two extra factors are named here for when they can be sourced.
-
-Neither site guards against `+0xc68` being zero, and here it is a MULTIPLIER, so
-a zero would freeze every enemy. Enemies do move in the shipping game, so the
-field is reliably nonzero and something must write it. Nothing found does — see
-the bounded search below — which localises the gap to the 16 register-indexed
-stores whose index could not be resolved.
+With `+0xc68 = 1.0f` and `+0x3918 = 1.0f` (both constructor defaults) and
+`s14 = 1.0` (its default; `0x2a9d10` sets 2.0 only when `+0xc4c == 1`), this
+reduces to `move_speed * dt`. **The port's `move_speed * dt` is the complete
+engine equation on its default path**, not an approximation. Mode 9's
+distance-driven timer is now implementable from the reversed values.
 
 #### A flaw in how "who writes actor+X" was being asked
 
@@ -1651,8 +1630,9 @@ which 13 are outside character-named functions, but those are `ChrGetData`,
 This matters for the port: **the `{base, range}` durations are not the only
 source of a state's length**. The port currently implements only the rolled
 form, which is correct for the states it was verified against but is not the
-whole mechanism. The distance-driven form is recorded and NOT implemented,
-because what feeds `+0x3948`, `+0xc68` and `+0x3918` is not read.
+whole mechanism. The distance-driven form is fully specified: `+0x3948` is its
+locally selected distance and `+0xc68` and `+0x3918` are both constructor-default
+1.0 multipliers.
 
 ### What the AI STATES do
 
