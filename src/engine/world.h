@@ -116,6 +116,8 @@ struct Actor {
     float script_move_speed = 0.f;
     bool script_auto_move = false;
     int motion = 0;              // eMOTION index; also the .smot numeric prefix
+    float motion_frame = 0.f;
+    float motion_duration = 0.f; // populated from the actor's shipping .smot
     bool alive = true;
     // Combat status. For 'E'/'B' actors these come from sk1/enemydat.bin: the
     // engine's GetStatusMaxHp reads record +0x04 and Damage subtracts record
@@ -163,6 +165,13 @@ struct Actor {
     float Get(int slot, float dflt = 0) const {
         auto it = data.find(slot);
         return it == data.end() ? dflt : it->second;
+    }
+
+    void SetMotion(int id, bool force = false) {
+        if (!force && motion == id) return;
+        motion = id;
+        motion_frame = 0.f;
+        motion_duration = 0.f;
     }
 };
 
@@ -269,6 +278,7 @@ public:
 
     void Reset();
     void TickScriptMoves(float dt);
+    void TickMotions(float frames);
 
     // Monotonic per-World counter for engine-assigned actor handles.
     uint32_t NextSpawnSerial() { return ++spawn_serial_; }

@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/host/main.cpp#main, src/engine/script.cpp#Script::ResumeCoroutines, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:27:48
+verified_at: 2026-08-13 21:35:20
 ---
 
 ## Claim
@@ -36,3 +36,11 @@ Full verify.sh passed after asynchronous scripted movement; the opening lifecycl
 ## Re-confirmed 2026-08-13
 
 Full verify.sh re-ran the 600-frame opening lifecycle after the boss-AI ownership change and matched Init start, Arena Guard dialogue, and Jackal combat seeding.
+
+## Re-confirmed 2026-08-13
+
+Full verify.sh re-ran the strengthened 600-frame opening gate and observed Init, dialogue, combat seeding, late boss asset load, and BGM 2.
+
+## Re-confirmed 2026-08-13
+
+Final full verify.sh re-ran the strengthened opening gate after decoupling motion resolution from rendering.

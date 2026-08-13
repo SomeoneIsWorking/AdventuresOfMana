@@ -210,12 +210,29 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         return true;
     }
     if (n == "ChrMotion" || n == "ChrMotionForce") {
-        if (auto* a = w.Find(S(1))) a->motion = int(N(2));
+        if (auto* a = w.Find(S(1)))
+            a->SetMotion(int(N(2)), n == "ChrMotionForce");
         return true;
     }
     if (n == "ChrMotionGetID") {
         auto* a = w.Find(S(1));
         lua_pushnumber(L, a ? a->motion : 0);
+        return true;
+    }
+    if (n == "ChrMotionGetFrame") {
+        auto* a = w.Find(S(1));
+        lua_pushnumber(L, a ? a->motion_frame : 0.f);
+        return true;
+    }
+    if (n == "ChrMotionGetEndFrame") {
+        auto* a = w.Find(S(1));
+        lua_pushnumber(L, a ? a->motion_duration : 0.f);
+        return true;
+    }
+    if (n == "IsChrMotionFinish") {
+        auto* a = w.Find(S(1));
+        lua_pushboolean(L, !a || (a->motion_duration > 0.f &&
+                                  a->motion_frame >= a->motion_duration));
         return true;
     }
     if (n == "ChrIsAlive") {

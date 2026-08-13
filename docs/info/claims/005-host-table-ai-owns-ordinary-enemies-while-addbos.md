@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: ai,bosses,scripting
 depends: src/engine/world.h#UsesHostEnemyAI, src/engine/script.cpp#AddBoss, src/host/main.cpp#ai_selftest
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:27:48
+verified_at: 2026-08-13 21:35:21
 ---
 
 ## Claim
@@ -24,3 +24,11 @@ Any change to AddBoss coroutine startup, UsesHostEnemyAI, the host AI loop, the 
 ## Re-confirmed 2026-08-13
 
 AI SELFTEST accepted ordinary E and refused scripted B, swept 856 shipping machines with 0 failures, and full verify.sh passed.
+
+## Re-confirmed 2026-08-13
+
+Full verify.sh re-ran AI SELFTEST over both ownership classes and 856 shipping machines after dynamic actor asset loading.
+
+## Re-confirmed 2026-08-13
+
+Final full verify.sh re-ran both AI ownership classes and all 856 shipping machines.

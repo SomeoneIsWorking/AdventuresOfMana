@@ -978,6 +978,20 @@ int main(int argc, char** argv) {
                !actor.script_auto_move && actor.pos[0] == before[0] &&
                actor.pos[1] == before[1] && actor.pos[2] == before[2] &&
                std::abs(actor.rot_y - float(std::numbers::pi / 2.0)) < 0.0001f);
+            actor.motion_duration = 12.f;
+            w.TickMotions(5.f);
+            ck("motion clock reports an unfinished shipping-duration motion",
+               run("motion-mid", "assert(ChrMotionGetFrame('MainPlayer') == 5)\n"
+                                  "assert(ChrMotionGetEndFrame('MainPlayer') == 12)\n"
+                                  "assert(not IsChrMotionFinish('MainPlayer'))\n"));
+            w.TickMotions(7.f);
+            ck("motion clock reaches and reports its exact end frame",
+               run("motion-end", "assert(ChrMotionGetFrame('MainPlayer') == 12)\n"
+                                  "assert(IsChrMotionFinish('MainPlayer'))\n"));
+            ck("ChrMotionForce restarts even the current motion",
+               run("motion-force", "ChrMotionForce('MainPlayer', 0)\n"
+                                    "assert(ChrMotionGetFrame('MainPlayer') == 0)\n"
+                                    "assert(not IsChrMotionFinish('MainPlayer'))\n"));
             lucent::info("movement", "SELFTEST: {} cases, {} failures", checked, bad);
             return bad ? 1 : 0;
         }
@@ -1992,6 +2006,8 @@ int main(int argc, char** argv) {
             struct PlacedObj { const mcf::Renderable* r; float pos[3]; };
             std::vector<PlacedObj> objects;
             std::map<std::string, mcf::Renderable> cache;   // survives transitions
+            std::set<std::string> missing_actor_models;
+            std::set<std::string> missing_actor_motions;
             std::map<std::string, mcf::Motion> motions;     // survives transitions
 
             mcf::World world;
@@ -2449,6 +2465,39 @@ int main(int argc, char** argv) {
                 if (f.empty()) return nullptr;
                 hero_motions[id] = mcf::ParseSmot(ar.Read(f));
                 return &hero_motions[id];
+            };
+            auto actorMotion = [&](mcf::Actor& a) -> const mcf::Motion* {
+                auto nm = mcf::ActorModelName(a.kind, a.type_id);
+                if (nm.empty()) return nullptr; // eNPC.TRANS is intentionally invisible
+                auto it = cache.find(nm);
+                if (it == cache.end()) {
+                    mcf::Renderable late;
+                    if (!mcf::LoadRenderable(ar, nm, white, &late)) {
+                        if (missing_actor_models.insert(nm).second)
+                            lucent::warn("world", "late actor {} (kind {} id {}) "
+                                         "has no model {}", a.handle, a.kind,
+                                         a.type_id, nm);
+                        return nullptr;
+                    }
+                    lucent::info("world", "loaded late actor {} model {}", a.handle, nm);
+                    it = cache.emplace(nm, std::move(late)).first;
+                }
+                if (it->second.model.bones.empty()) return nullptr;
+                auto prefix = mcf::World::MotionPrefix(nm, a.motion);
+                auto file = ar.FindByPrefix(prefix);
+                if (file.empty()) {
+                    auto key = std::format("{}:{}", nm, a.motion);
+                    if (missing_actor_motions.insert(key).second)
+                        lucent::warn("world", "actor {} model {} has no motion {} "
+                                     "(prefix {}); finish polling cannot advance",
+                                     a.handle, nm, a.motion, prefix);
+                    return nullptr;
+                }
+                auto mit = motions.find(file);
+                if (mit == motions.end())
+                    mit = motions.emplace(file, mcf::ParseSmot(ar.Read(file))).first;
+                a.motion_duration = mit->second.duration;
+                return &mit->second;
             };
             float px = ctr[0], pz = ctr[2], py = 0, pdeg = 0;
             if (has_spawn) { px = spawn_x + room_org[0]; pz = spawn_z + room_org[2]; }
@@ -2999,7 +3048,13 @@ int main(int argc, char** argv) {
                 bool player_script_moving = false;
                 if (auto* pl = world.Find("MainPlayer"))
                     player_script_moving = pl->script_auto_move;
+                // Resolve clocks independently of rendering. Lua may poll a
+                // hidden actor or MainPlayer, and neither is allowed to wait
+                // forever merely because the draw loop skipped it.
+                for (auto& a : world.actors_mutable())
+                    if (a.alive) actorMotion(a);
                 world.TickScriptMoves(dt);
+                world.TickMotions(dt * 30.f);
                 if (player_script_moving) {
                     if (const auto* pl = world.Find("MainPlayer")) {
                         px = pl->pos[0] + room_org[0];
@@ -3182,7 +3237,8 @@ int main(int argc, char** argv) {
                     pl->pos[1] = py - room_org[1];
                     pl->pos[2] = pz - room_org[2];
                     pl->rot_y = pdeg;
-                    pl->motion = attacking ? kMotionAttack : (moving ? kMotionWalk : kMotionWait);
+                    pl->SetMotion(attacking ? kMotionAttack :
+                                  (moving ? kMotionWalk : kMotionWait));
                     // Only the middle of the swing connects, so a held key does
                     // not produce a continuous damage beam.
                     auto it = pl->attack.find(0);
@@ -3269,11 +3325,11 @@ int main(int argc, char** argv) {
                     float reach = 15.f;   // the player's damage sphere
                     if (auto it = a.attack.find(0); it != a.attack.end())
                         reach += it->second.radius;
-                    if (d < reach * 0.7f) { a.motion = kMotionWait; continue; }
+                    if (d < reach * 0.7f) { a.SetMotion(kMotionWait); continue; }
                     // The enemy's OWN speed, from enemydat +0x68 -- 12 and 24
                     // units/s dominate, against the invented 30 this replaces.
                     // Nine of the 107 enemies have 0 and simply do not move.
-                    if (a.move_speed <= 0.f) { a.motion = kMotionWait; continue; }
+                    if (a.move_speed <= 0.f) { a.SetMotion(kMotionWait); continue; }
 
                     // --- The AI state machine ---------------------------------
                     // RE-VERIFIED: the countdown, the weighted transition and
@@ -3389,12 +3445,12 @@ int main(int argc, char** argv) {
                                     a.pos[0] += wx / wd * st;
                                     a.pos[2] += wz / wd * st;
                                     a.rot_y = std::atan2(wx, wz);
-                                    a.motion = kMotionWalk;
+                                    a.SetMotion(kMotionWalk);
                                 }
                             }
                             continue;
                         }
-                        if (a.ai_state != 2) { a.motion = kMotionWait; continue; }
+                        if (a.ai_state != 2) { a.SetMotion(kMotionWait); continue; }
                     }
                     // Chase along the distance field when there is one, exactly
                     // as state 2 does @ 0x2a9d44: find my chip, step to the
@@ -3428,7 +3484,7 @@ int main(int argc, char** argv) {
                     a.pos[0] += tx / tl * step;
                     a.pos[2] += tz / tl * step;
                     a.rot_y = std::atan2(tx, tz);
-                    a.motion = kMotionWalk;
+                    a.SetMotion(kMotionWalk);
                 }
 
                 // Game over, steps 2 and 3. The engine fades for 800 ms
@@ -3738,23 +3794,16 @@ int main(int argc, char** argv) {
                 for (const auto& o : objects) drawOne(*o.r, o.pos, nullptr);
                 // Draw from LIVE actor state: `placed` was a load-time snapshot,
                 // so enemies that move would have rendered at their spawn point.
-                for (const auto& a : world.actors()) {
+                for (auto& a : world.actors_mutable()) {
                     if (!a.alive || a.handle == "MainPlayer") continue;
                     auto nm = mcf::ActorModelName(a.kind, a.type_id);
                     if (nm.empty()) continue;   // eNPC.TRANS: invisible by design
                     auto it = cache.find(nm);
-                    if (it == cache.end()) continue;
-                    const mcf::Motion* mo = nullptr;
-                    if (!it->second.model.bones.empty()) {
-                        auto f = ar.FindByPrefix(mcf::World::MotionPrefix(nm, a.motion));
-                        if (!f.empty()) {
-                            auto mit = motions.find(f);
-                            if (mit == motions.end()) mit = motions.emplace(f, mcf::ParseSmot(ar.Read(f))).first;
-                            mo = &mit->second;
-                        }
-                    }
+                    if (it == cache.end()) continue; // actorMotion reported why
+                    const mcf::Motion* mo = actorMotion(a);
                     float wp[3]{a.pos[0] + room_org[0], a.pos[1] + room_org[1],
                                 a.pos[2] + room_org[2]};
+                    anim_t = a.motion_frame;
                     drawOne(it->second, wp, mo, a.rot_y);
                 }
                 if (have_hero) {

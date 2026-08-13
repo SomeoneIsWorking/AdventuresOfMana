@@ -52,6 +52,13 @@ void World::TickScriptMoves(float dt) {
     }
 }
 
+void World::TickMotions(float frames) {
+    for (auto& a : actors_) {
+        if (!a.alive || a.motion_duration <= 0.f) continue;
+        a.motion_frame = std::min(a.motion_frame + frames, a.motion_duration);
+    }
+}
+
 bool HitArcSphere(const float a[3], float ar, float arc_deg, float yaw,
                   const float d[3], float dr) {
     float dx = d[0] - a[0], dy = d[1] - a[1], dz = d[2] - a[2];

@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/engine/world.h#Actor, src/engine/world.cpp#World::TickScriptMoves, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:27:48
+verified_at: 2026-08-13 21:35:21
 ---
 
 ## Claim
@@ -28,3 +28,11 @@ Re-ran full verify.sh with movement SELFTEST 6/6 and visually inspected the fram
 ## Re-confirmed 2026-08-13
 
 Full verify.sh re-ran movement SELFTEST 6/6 and the opening shipping path after the boss-AI ownership change.
+
+## Re-confirmed 2026-08-13
+
+Full verify.sh re-ran movement/motion SELFTEST 9/9 and the opening shipping path after per-actor motion changes.
+
+## Re-confirmed 2026-08-13
+
+Final full verify.sh re-ran movement/motion SELFTEST 9/9 and the opening shipping path.
