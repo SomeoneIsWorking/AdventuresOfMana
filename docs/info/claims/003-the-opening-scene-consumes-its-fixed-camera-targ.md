@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/engine/world.h#Camera, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:27:35
+verified_at: 2026-08-13 22:30:34
 ---
 
 ## Claim
@@ -68,3 +68,7 @@ Full tools/verify.sh passed on 2026-08-13 after exact MPK corpus identity gating
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after mandatory runtime preflight; camera selftest remained 6/6.
+
+## Re-confirmed 2026-08-13
+
+Full read-only tools/verify.sh passed on 2026-08-13; camera selftest remained 6/6.

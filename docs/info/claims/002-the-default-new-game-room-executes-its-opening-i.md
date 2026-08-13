@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/host/main.cpp#main, src/engine/script.cpp#Script::ResumeCoroutines, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:27:34
+verified_at: 2026-08-13 22:30:34
 ---
 
 ## Claim
@@ -72,3 +72,7 @@ Full tools/verify.sh passed on 2026-08-13 after exact MPK corpus identity gating
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after mandatory runtime preflight; opening lifecycle retained every required observation.
+
+## Re-confirmed 2026-08-13
+
+Full read-only tools/verify.sh passed on 2026-08-13 with mandatory game/assets/source inputs; opening lifecycle retained every required observation.

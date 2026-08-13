@@ -27,7 +27,9 @@ before trusting anything below to be the engine's rather than the port's.
 `./tools/verify.sh` runs every asset parser over the exact 9886-member archive
 extraction plus the gameplay/runtime gates. It refuses to run — rather than
 reporting a vacuous pass or a skip — if the game binary, runtime assets, source
-archive, or exact extracted corpus is missing.
+binary, source archive, or exact extracted corpus is missing. Generated object,
+weapon, and item tables are emitted under `scratch/` and byte-compared against
+the five tracked artifacts; verification never rewrites them.
 
 ## Subsystems
 

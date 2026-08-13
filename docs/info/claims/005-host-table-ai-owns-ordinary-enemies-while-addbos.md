@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: ai,bosses,scripting
 depends: src/engine/world.h#UsesHostEnemyAI, src/engine/script.cpp#AddBoss, src/host/main.cpp#ai_selftest
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:27:35
+verified_at: 2026-08-13 22:30:34
 ---
 
 ## Claim
@@ -60,3 +60,7 @@ Full tools/verify.sh passed on 2026-08-13 after exact MPK corpus identity gating
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after mandatory runtime preflight; AI selftest remained 856 machines / 0 failures.
+
+## Re-confirmed 2026-08-13
+
+Full read-only tools/verify.sh passed on 2026-08-13; AI selftest remained 856 machines / 0 failures.
