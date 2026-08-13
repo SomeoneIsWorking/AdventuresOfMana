@@ -856,7 +856,11 @@ int main(int argc, char** argv) {
             ck("flag set preserves existing bits", b.flags == 0x41, true);
             b.flags &= ~uint32_t(0x01);
             ck("flag clear preserves other bits", b.flags == 0x40, true);
-            lucent::info("eventbox", "SELFTEST: 8 cases, {} failures", bad);
+            b.floor_y = true; b.lo[1] = -1; b.hi[1] = 30;
+            b.ResolveFloorY(60);
+            ck("floor sentinel moves lower bound", b.lo[1] == 60, true);
+            ck("floor sentinel translates upper bound", b.hi[1] == 90, true);
+            lucent::info("eventbox", "SELFTEST: 10 cases, {} failures", bad);
             return bad ? 1 : 0;
         }
         if (ai_selftest) {
@@ -2187,6 +2191,20 @@ int main(int argc, char** argv) {
             };
             if (!loadRoom(render_room))
                 throw mcf::Error(std::format("cannot load room {}", render_room));
+            // AddEventBox's y0 == -1 is not a literal world height: the
+            // engine probes the collision floor at registration and anchors
+            // the box there. Resolve it only after this room's collision mesh
+            // is available; boxes with no floor retain their script bounds.
+            if (have_col) {
+                for (auto& bx : world.boxes) {
+                    if (!bx.floor_y) continue;
+                    const float x = (bx.lo[0] + bx.hi[0]) * .5f + room_org[0];
+                    const float z = (bx.lo[2] + bx.hi[2]) * .5f + room_org[2];
+                    float y = 0.f;
+                    if (col.GetFloor(x, z, mcf::Collision::kFloorMask, &y))
+                        bx.ResolveFloorY(y);
+                }
+            }
             float ctr[3], radius = 0;
             for (int k = 0; k < 3; ++k) {
                 ctr[k] = (stage.lo[k] + stage.hi[k]) * .5f;

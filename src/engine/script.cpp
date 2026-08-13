@@ -238,6 +238,7 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
             b.hi[k] = std::max(a, c);
         }
         b.flags = uint32_t(N(8));
+        b.floor_y = N(3) == -1.f;
         if (auto* e = w.FindBox(b.name)) *e = b; else w.boxes.push_back(b);
         return true;
     }

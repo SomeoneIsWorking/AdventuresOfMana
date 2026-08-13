@@ -160,6 +160,7 @@ struct EventBox {
     std::string name;
     float lo[3]{}, hi[3]{};
     uint32_t flags = 0;      // SetEventBoxFlg: engine ORs/clears requested bits
+    bool floor_y = false;    // AddEventBox y0 == -1: resolve lower bound from floor
     bool enabled = true;
     bool no_touch = false;   // SetEventBoxNoTouchEvent
     bool inside = false;     // edge-triggered: fire on entry, not every frame
@@ -172,6 +173,15 @@ struct EventBox {
                x > lo[0] + room_x && x < hi[0] + room_x &&
                y > lo[1]          && y < hi[1] &&
                z > lo[2] + room_z && z < hi[2] + room_z;
+    }
+
+    // AddEventBox @ 0x2c8598 probes the floor for y0 == -1, replacing only
+    // the sentinel lower bound and translating the upper bound by that floor.
+    void ResolveFloorY(float y) {
+        if (!floor_y) return;
+        lo[1] = y;
+        hi[1] += y;
+        floor_y = false;
     }
 };
 
