@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: ai,bosses,scripting
 depends: src/engine/world.h#UsesHostEnemyAI, src/engine/script.cpp#AddBoss, src/host/main.cpp#ai_selftest
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:46:28
+verified_at: 2026-08-13 23:35:14
 ---
 
 ## Claim
@@ -68,3 +68,7 @@ Full read-only tools/verify.sh passed on 2026-08-13; AI selftest remained 856 ma
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after boss-death progression; AI selftest remained 856 machines / 0 failures and boss script ownership remained intact.
+
+## Re-confirmed 2026-08-13
+
+Re-proved by the complete tools/verify.sh pass on 2026-08-13 after the opening-router, actor mapping, coordinate, scripted-transition, and silent-test changes; every claim-specific runtime/self-test gate passed on the shipping corpus.

@@ -15,6 +15,8 @@
 #include <numbers>
 #include <filesystem>
 #include <random>
+#include <queue>
+#include <deque>
 #include <map>
 #include <string>
 #include <vector>
@@ -243,6 +245,7 @@ int main(int argc, char** argv) {
     std::string room, render_room;
     std::string bgm_dir = assets;
     bool audio_selftest = false;
+    bool no_audio = false;
     std::string probe;
     float spawn_x = 0, spawn_z = 0;
     bool has_spawn = false;
@@ -296,6 +299,7 @@ int main(int argc, char** argv) {
         else if (a == "--render-room" && i + 1 < argc) render_room = argv[++i];
         else if (a == "--bgm-dir" && i + 1 < argc) bgm_dir = argv[++i];
         else if (a == "--audio-selftest") audio_selftest = true;
+        else if (a == "--no-audio") no_audio = true;
         else if (a == "--combat-selftest") combat_selftest = true;
         else if (a == "--text-selftest") text_selftest = true;
         else if (a == "--player-selftest") player_selftest = true;
@@ -323,6 +327,7 @@ int main(int argc, char** argv) {
             walk_x = 30.f;
             walk_z = 30.f;
             fixed_step = true;
+            no_audio = true;
         }
         else if (a == "--stop-room" && i + 1 < argc) stop_room = argv[++i];
         // --warmup implies --fixed-step: see the loop, a frame count on an
@@ -350,6 +355,7 @@ int main(int argc, char** argv) {
                 "  --room NAME         start in this room (default %s)\n"
                 "  --archive PATH      sk1.mpk (default %s; see $MANA_ASSETS)\n"
                 "  --bgm-dir PATH      directory holding bgmNNN*.ogg\n"
+                "  --no-audio          skip playback and audio decoding\n"
                 "  --lang en|ja        dialogue language (default en)\n"
                 "  --spawn X Z         start at these room-local coordinates\n"
                 "\nControls: WASD / arrows to move, Space or Z to attack, Esc to quit.\n"
@@ -974,6 +980,15 @@ int main(int argc, char** argv) {
                 std::vector<uint8_t> bytes(source.begin(), source.end());
                 return script.Run(name, bytes);
             };
+            ck("NPC-tagged enemy ids resolve the enemy model namespace",
+               mcf::ActorModelName('N', 100) == "E0000_00" &&
+               mcf::ActorModelName('N', 173) == "E0073_00");
+            ck("NPC-tagged boss ids resolve the boss model namespace",
+               mcf::ActorModelName('N', 1010) == "B0010_00" &&
+               mcf::ActorModelName('N', 1020) == "B0020_00");
+            ck("ordinary and party NPC mappings remain distinct",
+               mcf::ActorModelName('N', 10) == "N0000_00" &&
+               mcf::ActorModelName('N', 5) == "C0005_00");
             ck("ChrMoveTo starts and reports an automatic move",
                run("movement-start",
                    "ChrMoveTo('MainPlayer',10,6,8)\n"
@@ -1434,7 +1449,8 @@ int main(int argc, char** argv) {
             // are driving engine state rather than just executing.
             mcf::World world;
             mcf::Audio audio;
-            audio.Init();          // logs and disables itself if there is no device
+            if (!no_audio)
+                audio.Init();      // logs and disables itself if there is no device
             mcf::Script sc;
             sc.world = &world;
             sc.audio = &audio;
@@ -1863,6 +1879,8 @@ int main(int argc, char** argv) {
         if (!win) throw mcf::Error(std::format("SDL_CreateWindow: {}", SDL_GetError()));
         SDL_GLContext ctx = SDL_GL_CreateContext(win);
         if (!ctx) throw mcf::Error(std::format("SDL_GL_CreateContext: {}", SDL_GetError()));
+        if (!force_window && !SDL_GL_SetSwapInterval(0))
+            lucent::warn("host", "could not disable swap pacing: {}", SDL_GetError());
         lucent::info("host", "GL_VERSION  {}", (const char*)glGetString(GL_VERSION));
         lucent::info("host", "GL_RENDERER {}", (const char*)glGetString(GL_RENDERER));
         // Say which driver we got. "windowless" is easy to believe and hard to
@@ -2132,7 +2150,8 @@ int main(int argc, char** argv) {
 
             mcf::World world;
             mcf::Audio audio;
-            audio.Init();          // logs and disables itself if there is no device
+            if (!no_audio)
+                audio.Init();      // logs and disables itself if there is no device
             mcf::Script sc;
             sc.world = &world;
             sc.audio = &audio;
@@ -2665,6 +2684,18 @@ int main(int argc, char** argv) {
             // Service whatever the room script asked for. BGM lives in the APK
             // assets, not the MPK, so it is loaded from a directory on disk.
             auto serviceAudio = [&]() {
+                if (no_audio) {
+                    if (sc.pending_bgm >= 0) {
+                        sc.current_bgm = sc.pending_bgm;
+                        lucent::info("audio", "bgm {} requested (audio disabled)",
+                                     sc.pending_bgm);
+                    }
+                    sc.stop_all_se = false;
+                    sc.pending_se_stop.clear();
+                    sc.pending_se.clear();
+                    sc.pending_bgm = -1;
+                    return;
+                }
                 if (sc.stop_all_se) { audio.StopAllSe(); sc.stop_all_se = false; }
                 for (int id : sc.pending_se_stop) audio.StopSe(id);
                 sc.pending_se_stop.clear();
@@ -2832,6 +2863,39 @@ int main(int argc, char** argv) {
                 int arrow = 0;
                 float world_x = 0.f, world_z = 0.f;
             } room_exit;
+            auto requestRoomExit = [&](int side, float lx, float lz) {
+                constexpr float kDoorHalfWidth = 30.f;
+                const int door = world.DoorType(side);
+                const bool at_door = (side == 0 || side == 2)
+                    ? std::fabs(lx - room_size.w * .5f) <= kDoorHalfWidth
+                    : std::fabs(lz - room_size.h * .5f) <= kDoorHalfWidth;
+                if (door != mcf::World::kNoDoor && !(door == 0 && at_door))
+                    return false;
+                int map = -1, gx = -1, gy = -1;
+                if (std::sscanf(room_name.c_str(), "M%d_%d_%d",
+                                &map, &gx, &gy) != 3)
+                    return false;
+                static constexpr int kDx[4]{0, 1, 0, -1};
+                static constexpr int kDy[4]{-1, 0, 1, 0};
+                const std::string& next = mcf::WorldRoomName(
+                    map, gx + kDx[side], gy + kDy[side]);
+                if (next.empty()) {
+                    lucent::warn("world", "room edge {} in {} leads to an "
+                                 "empty world-table cell", side, room_name);
+                    return false;
+                }
+                float wx = room_org[0] + lx;
+                float wz = room_org[2] + lz;
+                const float inf = std::numeric_limits<float>::infinity();
+                if (side == 0) wz = std::nextafter(room_org[2], -inf);
+                if (side == 1)
+                    wx = std::nextafter(room_org[0] + room_size.w, inf);
+                if (side == 2)
+                    wz = std::nextafter(room_org[2] + room_size.h, inf);
+                if (side == 3) wx = std::nextafter(room_org[0], -inf);
+                room_exit = {true, next.substr(4), side, wx, wz};
+                return true;
+            };
             // The engine's mode machine. The port reaches gameplay through the
             // same chain the binary does -- ModeInit -> ModeCESA ->
             // ModeMakerLogo -> ModeTitle -> ModeGame -- rather than starting in
@@ -2871,6 +2935,10 @@ int main(int argc, char** argv) {
             uint64_t prev = SDL_GetTicks();
             float t = anim_t;
             int frames = 0;
+            std::string driver_route_room;
+            float driver_route_goal_x = std::numeric_limits<float>::quiet_NaN();
+            float driver_route_goal_z = std::numeric_limits<float>::quiet_NaN();
+            std::deque<std::pair<float, float>> driver_route;
             const float kWalk = 60.f;   // units/sec; rooms are 300x240
             // A silent combat loop is ambiguous: nothing in range, or the test
             // never ran at all. These make the negative say which.
@@ -3242,6 +3310,22 @@ int main(int argc, char** argv) {
                         px = pl->pos[0] + room_org[0];
                         py = pl->pos[1] + room_org[1];
                         pz = pl->pos[2] + room_org[2];
+                        const float lx = pl->pos[0];
+                        const float lz = pl->pos[2];
+                        // Authored PlMoveToChip destinations intentionally use
+                        // a chip just beyond the room (for example x=10 in a
+                        // ten-chip room). Scripted and manual movement must
+                        // therefore feed the same transition owner.
+                        if (lz < 0.f && pl->script_move_target[2] < 0.f)
+                            requestRoomExit(0, lx, lz);
+                        else if (lx > room_size.w &&
+                                 pl->script_move_target[0] > room_size.w)
+                            requestRoomExit(1, lx, lz);
+                        else if (lz > room_size.h &&
+                                 pl->script_move_target[2] > room_size.h)
+                            requestRoomExit(2, lx, lz);
+                        else if (lx < 0.f && pl->script_move_target[0] < 0.f)
+                            requestRoomExit(3, lx, lz);
                     }
                 }
                 int nk = 0;
@@ -3254,6 +3338,8 @@ int main(int argc, char** argv) {
                     if (key[SDL_SCANCODE_DOWN]  || key[SDL_SCANCODE_S]) mz += 1;
                 }
                 if (!player_input_enabled) mx = mz = 0.f;
+                float headless_move_limit =
+                    std::numeric_limits<float>::infinity();
                 // Headless driver: steer toward a room-local target so the
                 // walk-into-an-event-box path (which is how the game connects
                 // rooms) can be exercised without a human at the keyboard.
@@ -3264,6 +3350,9 @@ int main(int argc, char** argv) {
                             room_name == "M0001_00_01") {
                             active_walk_x = 165.f;
                             active_walk_z = -30.f;
+                        } else if (room_name == "M0001_01_03") {
+                            active_walk_x = -30.f;
+                            active_walk_z = 135.f;
                         } else if (room_name == "M0001_00_00") {
                             // After the second Jackal, EnemyDead authors two
                             // joined out_01 boxes. Drive their actual centre;
@@ -3277,11 +3366,181 @@ int main(int argc, char** argv) {
                                     break;
                                 }
                         }
+
+                        // The headless driver is an instrument: route through
+                        // the shipping floor and wall queries instead of
+                        // assuming that a straight line, or even a 30-unit
+                        // chip-centre line, represents a traversable corridor.
+                        // The 7.5-unit lattice is the room ground-attribute
+                        // resolution and preserves doorways that lie between
+                        // the coarser AI chip centres.
+                        const bool route_changed =
+                            driver_route_room != room_name ||
+                            driver_route_goal_x != active_walk_x ||
+                            driver_route_goal_z != active_walk_z;
+                        if (have_col && route_changed) {
+                            driver_route_room = room_name;
+                            driver_route_goal_x = active_walk_x;
+                            driver_route_goal_z = active_walk_z;
+                            driver_route.clear();
+                            constexpr float kNavStep = 7.5f;
+                            const int nav_w = int(std::lround(room_size.w / kNavStep)) + 1;
+                            const int nav_h = int(std::lround(room_size.h / kNavStep)) + 1;
+                            auto nav_x = [&](int x) { return room_org[0] + x * kNavStep; };
+                            auto nav_z = [&](int z) { return room_org[2] + z * kNavStep; };
+                            int sx = std::clamp(int(std::lround(
+                                (px - room_org[0]) / kNavStep)), 0, nav_w - 1);
+                            int sz = std::clamp(int(std::lround(
+                                (pz - room_org[2]) / kNavStep)), 0, nav_h - 1);
+                            const int start = sz * nav_w + sx;
+                            const bool outside_left = active_walk_x < 0.f;
+                            const bool outside_right = active_walk_x >= room_size.w;
+                            const bool outside_up = active_walk_z < 0.f;
+                            const bool outside_down = active_walk_z >= room_size.h;
+                            std::vector<float> height(size_t(nav_w) * size_t(nav_h),
+                                                      kChipNoFloor);
+                            std::vector<int> prev(height.size(), -1);
+                            std::vector<int> dist(height.size(), -1);
+                            for (int z = 0; z < nav_h; ++z)
+                                for (int x = 0; x < nav_w; ++x) {
+                                    const int sample = z * nav_w + x;
+                                    const bool unrelated_boundary =
+                                        (x == 0 && !outside_left) ||
+                                        (x == nav_w - 1 && !outside_right) ||
+                                        (z == 0 && !outside_up) ||
+                                        (z == nav_h - 1 && !outside_down);
+                                    // The arrival itself may be on the opposite
+                                    // boundary; retain that one node but never
+                                    // let routing use an unrelated room edge as
+                                    // a shortcut.
+                                    if (unrelated_boundary && sample != start)
+                                        continue;
+                                    float floor;
+                                    if (col.GetFloor(nav_x(x), nav_z(z),
+                                                     mcf::Collision::kFloorMask,
+                                                     &floor))
+                                        height[size_t(sample)] = floor;
+                                }
+                            std::queue<int> pending;
+                            if (height[size_t(start)] < kChipNoFloor) {
+                                dist[size_t(start)] = 0;
+                                pending.push(start);
+                            }
+                            static constexpr int kDx[4] = {1, -1, 0, 0};
+                            static constexpr int kDz[4] = {0, 0, 1, -1};
+                            while (!pending.empty()) {
+                                const int here = pending.front();
+                                pending.pop();
+                                const int hx = here % nav_w;
+                                const int hz = here / nav_w;
+                                for (int k = 0; k < 4; ++k) {
+                                    const int nx = hx + kDx[k];
+                                    const int nz = hz + kDz[k];
+                                    if (nx < 0 || nz < 0 || nx >= nav_w || nz >= nav_h)
+                                        continue;
+                                    const int next = nz * nav_w + nx;
+                                    if (dist[size_t(next)] >= 0 ||
+                                        height[size_t(next)] >= kChipNoFloor)
+                                        continue;
+                                    float mid_floor;
+                                    if (!col.GetFloor((nav_x(hx) + nav_x(nx)) * .5f,
+                                                      (nav_z(hz) + nav_z(nz)) * .5f,
+                                                      mcf::Collision::kFloorMask,
+                                                      &mid_floor))
+                                        continue;
+                                    if (col.BlockedXZ(nav_x(hx), nav_z(hz),
+                                                      nav_x(nx), nav_z(nz),
+                                                      height[size_t(here)], 30.f,
+                                                      mcf::Collision::kWallMask))
+                                        continue;
+                                    dist[size_t(next)] = dist[size_t(here)] + 1;
+                                    prev[size_t(next)] = here;
+                                    pending.push(next);
+                                }
+                            }
+                            int goal = -1;
+                            float best = std::numeric_limits<float>::infinity();
+                            int reached = 0;
+                            for (int i = 0; i < int(dist.size()); ++i) {
+                                if (dist[size_t(i)] < 0) continue;
+                                ++reached;
+                                const int gx = i % nav_w;
+                                const int gz = i / nav_w;
+                                // Manual transition detection consumes a
+                                // blocked outward step from within one chip of
+                                // the requested side; the static boundary wall
+                                // itself is intentionally not a reachable nav
+                                // sample. Route to that contact band, then let
+                                // the unchanged outside target exercise the
+                                // transition.
+                                // Stop the planned path within two chips of
+                                // the side. The live mover then closes the
+                                // remaining distance until its blocked step
+                                // enters the one-chip transition contact band.
+                                // Requiring a sampled node inside that band is
+                                // wrong: the static wall may be inset between
+                                // lattice points even though a continuous
+                                // approach reaches the transition probe.
+                                constexpr float kExitApproach = 60.f;
+                                const float cx = gx * kNavStep;
+                                const float cz = gz * kNavStep;
+                                if ((outside_left && cx > kExitApproach) ||
+                                    (outside_right &&
+                                     cx < room_size.w - kExitApproach) ||
+                                    (outside_up && cz > kExitApproach) ||
+                                    (outside_down &&
+                                     cz < room_size.h - kExitApproach))
+                                    continue;
+                                const float dx = cx - active_walk_x;
+                                const float dz = cz - active_walk_z;
+                                const float score = dx * dx + dz * dz;
+                                if (score < best) {
+                                    best = score;
+                                    goal = i;
+                                }
+                            }
+                            if (goal < 0) {
+                                lucent::error("host",
+                                    "opening route from nav ({},{}) scanned {} "
+                                    "of {} samples but found no reachable target "
+                                    "for ({:.1f},{:.1f}) in {}",
+                                    sx, sz, reached, height.size(),
+                                    active_walk_x, active_walk_z, room_name);
+                                running = false;
+                                mx = mz = 0.f;
+                            } else if (goal != start) {
+                                std::vector<int> reverse_path;
+                                for (int step = goal; step != start;
+                                     step = prev[size_t(step)])
+                                    reverse_path.push_back(step);
+                                for (auto it = reverse_path.rbegin();
+                                     it != reverse_path.rend(); ++it)
+                                    driver_route.emplace_back(
+                                        float(*it % nav_w) * kNavStep,
+                                        float(*it / nav_w) * kNavStep);
+                            }
+                        }
+                        while (!driver_route.empty()) {
+                            const float dx = driver_route.front().first -
+                                             (px - room_org[0]);
+                            const float dz = driver_route.front().second -
+                                             (pz - room_org[2]);
+                            if (dx * dx + dz * dz > .01f) break;
+                            driver_route.pop_front();
+                        }
+                        if (!driver_route.empty()) {
+                            active_walk_x = driver_route.front().first;
+                            active_walk_z = driver_route.front().second;
+                        }
                     }
                     float tx = active_walk_x + room_org[0];
                     float tz = active_walk_z + room_org[2];
                     float dx = tx - px, dz = tz - pz;
-                    if (dx * dx + dz * dz > 4.f) { mx = dx; mz = dz; }
+                    if (dx * dx + dz * dz > .01f) {
+                        mx = dx;
+                        mz = dz;
+                        headless_move_limit = std::sqrt(dx * dx + dz * dz);
+                    }
                     else if (auto_attack) auto_attack_armed = true;
                 }
                 // Dismiss a message with the same key that attacks; while one
@@ -3420,8 +3679,10 @@ int main(int argc, char** argv) {
                 if (moving) {
                     float ox = px, oz = pz;
                     float len = std::sqrt(mx * mx + mz * mz);
-                    px += mx / len * kWalk * dt;
-                    pz += mz / len * kWalk * dt;
+                    const float move_step = std::min(kWalk * dt,
+                                                     headless_move_limit);
+                    px += mx / len * move_step;
+                    pz += mz / len * move_step;
                     pdeg = std::atan2(mx, mz);
                     float g;
                     bool blocked = have_col &&
@@ -3463,36 +3724,9 @@ int main(int argc, char** argv) {
                                 exit_arrow = side;
                                 break;
                             }
-                        }
+                    }
                     if (exit_arrow >= 0) {
-                        int map = -1, gx = -1, gy = -1;
-                        if (std::sscanf(room_name.c_str(), "M%d_%d_%d",
-                                        &map, &gx, &gy) == 3) {
-                            static constexpr int kDx[4]{0, 1, 0, -1};
-                            static constexpr int kDy[4]{-1, 0, 1, 0};
-                            const std::string& next = mcf::WorldRoomName(
-                                map, gx + kDx[exit_arrow], gy + kDy[exit_arrow]);
-                            if (!next.empty()) {
-                                // Cross the room boundary, not the collision
-                                // wall inset one chip inside it. The same world
-                                // coordinate maps to the opposite edge.
-                                float wx = px, wz = pz;
-                                const float inf = std::numeric_limits<float>::infinity();
-                                if (exit_arrow == 0)
-                                    wz = std::nextafter(room_org[2], -inf);
-                                if (exit_arrow == 1)
-                                    wx = std::nextafter(room_org[0] + room_size.w, inf);
-                                if (exit_arrow == 2)
-                                    wz = std::nextafter(room_org[2] + room_size.h, inf);
-                                if (exit_arrow == 3)
-                                    wx = std::nextafter(room_org[0], -inf);
-                                room_exit = {true, next.substr(4), exit_arrow, wx, wz};
-                            }
-                            else
-                                lucent::warn("world", "free door {} in {} leads to "
-                                             "an empty world-table cell",
-                                             exit_arrow, room_name);
-                        }
+                        requestRoomExit(exit_arrow, lx, lz);
                     }
                     // Refuse to walk off the collision mesh rather than
                     // silently floating: revert the step if there is no floor.
@@ -3849,7 +4083,7 @@ int main(int argc, char** argv) {
                 // seed would restore HP and erase combat that has happened.
                 seedCombat();
                 serviceAudio();
-                audio.Update();
+                if (!no_audio) audio.Update();
 
                 // Event boxes are edge-triggered: entering fires the handler
                 // once. Firing every frame would re-enter the same transition
@@ -4177,7 +4411,8 @@ int main(int argc, char** argv) {
                             float g;
                             if (col.GetFloor(px, pz, mcf::Collision::kFloorMask, &g)) py = g;
                         }
-                        world.Spawn("MainPlayer", 0, px, py, pz).kind = 'C';
+                        world.Spawn("MainPlayer", 0, px - room_org[0],
+                                    py - room_org[1], pz - room_org[2]).kind = 'C';
                         startRoomInit();
                         // eArrow: UP=0 RI=1 DN=2 LF=3.
                         pdeg = float(j.arrow) * (float(std::numbers::pi) / 2.f);
@@ -4620,6 +4855,11 @@ int main(int argc, char** argv) {
             lucent::info("world", "ended in {} at room-local ({:.1f},{:.1f},{:.1f})",
                          room_name, px - room_org[0], py - room_org[1],
                          pz - room_org[2]);
+            if (!driver_route.empty())
+                lucent::info("host", "opening route has {} waypoint(s) left; "
+                             "next is ({:.1f},{:.1f})",
+                             driver_route.size(), driver_route.front().first,
+                             driver_route.front().second);
             lucent::info("lua", "end state: sccnt={:.0f}, eventScene={:.0f}, "
                          "cinema={}, player-control={}, {} live coroutine(s)",
                          sc.GlobalNumber("sccnt", -1),

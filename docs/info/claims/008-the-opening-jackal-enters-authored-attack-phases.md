@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: bosses,combat,collision,scripting
 depends: src/mcf/assets.cpp#ParseGdt, src/mcf/assets.cpp#Collision::BlockedXZ, src/engine/script.cpp#ChrAttackBoneValid, src/engine/world.cpp#TickScriptMoves, src/host/main.cpp#ground_attribute, src/host/main.cpp#hit_this_swing, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:46:29
+verified_at: 2026-08-13 23:35:14
 ---
 
 ## Claim
@@ -52,3 +52,7 @@ Full read-only tools/verify.sh passed on 2026-08-13; landed hits, player damage,
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after boss-death progression; nonlethal attack path retained landed boss hits/player damage/map collision, while lethal path used a player-origin overlap.
+
+## Re-confirmed 2026-08-13
+
+Re-proved by the complete tools/verify.sh pass on 2026-08-13 after the opening-router, actor mapping, coordinate, scripted-transition, and silent-test changes; every claim-specific runtime/self-test gate passed on the shipping corpus.

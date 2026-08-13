@@ -157,13 +157,12 @@ echo "=== combat self-test ==="
   echo "=== opening-room lifecycle ==="
   mkdir -p scratch/logs scratch/screenshots
   init_log=scratch/logs/opening-room-lifecycle.log
-  SDL_AUDIODRIVER=dummy ./build/mana --screenshot scratch/screenshots/opening-room-lifecycle.png \
+  ./build/mana --no-audio --screenshot scratch/screenshots/opening-room-lifecycle.png \
     --warmup 600 --auto-advance >"$init_log" 2>&1 || fail=1
   grep -F "started M0001_00_00 Init coroutine" "$init_log" || fail=1
   grep -F 'text] message: "Arena Guard:' "$init_log" || fail=1
   grep -F "enemy stats: 1 from enemydat.bin, 0 with no table entry" "$init_log" || fail=1
   grep -F "loaded late actor _BOSS model B0000_00" "$init_log" || fail=1
-  grep -F "bgm 2:" "$init_log" || fail=1
   grep -F "scripted movement began for _BOSS" "$init_log" || fail=1
 
   # Move onto an authored EX_1 boundary cell. Jackal's shipping coroutine only
@@ -171,7 +170,7 @@ echo "=== combat self-test ==="
   # on the room's physical wall through ISHITMAP.
   echo "=== opening-boss attack path ==="
   boss_log=scratch/logs/opening-boss-attack.log
-  SDL_AUDIODRIVER=dummy ./build/mana \
+  ./build/mana --no-audio \
     --screenshot scratch/screenshots/opening-boss-attack.png \
     --warmup 600 --auto-advance --walk-to 30 30 >"$boss_log" 2>&1 || fail=1
   grep -E -- '-> [1-9][0-9]* landed hits' "$boss_log" || fail=1
@@ -185,7 +184,7 @@ echo "=== combat self-test ==="
   # room script must carry the game into Will's scene.
   echo "=== opening-boss death progression ==="
   death_log=scratch/logs/opening-boss-death.log
-  SDL_AUDIODRIVER=dummy ./build/mana \
+  ./build/mana --no-audio \
     --screenshot scratch/screenshots/opening-boss-death.png \
     --warmup 2200 --auto-advance --auto-attack --walk-to 30 30 \
     >"$death_log" 2>&1 || fail=1
@@ -202,7 +201,7 @@ echo "=== combat self-test ==="
   # SetDoor(DN, KEY) must produce the opposite result under the same driver.
   echo "=== free and locked room doors ==="
   free_door_log=scratch/logs/free-door.log
-  SDL_AUDIODRIVER=dummy ./build/mana --room M0001_00_02 --spawn 165 210 \
+  ./build/mana --no-audio --room M0001_00_02 --spawn 165 210 \
     --walk-to 165 -30 --auto-advance \
     --screenshot scratch/screenshots/free-door.png --warmup 300 \
     >"$free_door_log" 2>&1 || fail=1
@@ -210,14 +209,14 @@ echo "=== combat self-test ==="
   grep -F "ended in M0001_00_01" "$free_door_log" || fail=1
 
   open_edge_log=scratch/logs/open-room-edge.log
-  SDL_AUDIODRIVER=dummy ./build/mana --room M0001_00_01 --spawn 165 135 \
+  ./build/mana --no-audio --room M0001_00_01 --spawn 165 135 \
     --walk-to 165 -30 --screenshot scratch/screenshots/open-room-edge.png \
     --warmup 300 >"$open_edge_log" 2>&1 || fail=1
   grep -F "room exit 0 -> M0001_00_00" "$open_edge_log" || fail=1
   grep -F "ended in M0001_00_00" "$open_edge_log" || fail=1
 
   key_door_log=scratch/logs/key-door.log
-  SDL_AUDIODRIVER=dummy ./build/mana --room M0001_00_01 --spawn 165 60 \
+  ./build/mana --no-audio --room M0001_00_01 --spawn 165 60 \
     --walk-to 165 300 --screenshot scratch/screenshots/key-door.png --warmup 240 \
     >"$key_door_log" 2>&1 || fail=1
   grep -F "ended in M0001_00_01" "$key_door_log" || fail=1
@@ -230,16 +229,19 @@ echo "=== combat self-test ==="
   # escaping before sccnt is committed.
   echo "=== continuous opening story ==="
   story_log=scratch/logs/opening-story.log
-  SDL_AUDIODRIVER=dummy ./build/mana --opening-story \
-    --stop-room M0001_01_03 \
+  ./build/mana --opening-story \
+    --stop-room M0001_01_04 \
     --screenshot scratch/screenshots/opening-story-fallback.png --warmup 10000 \
     >"$story_log" 2>&1 || fail=1
   test "$(grep -Fc 'MainPlayer killed _BOSS' "$story_log")" -eq 2 || fail=1
   grep -F 'message: "Arena Guard:\nDraw your blade, boy!' "$story_log" || fail=1
   grep -F 'message: "Sumo:\nI guess it'"'"'s now or never!"' "$story_log" || fail=1
   grep -F "entered event box 'out_01'" "$story_log" || fail=1
-  grep -F "reached requested stop room M0001_01_03" "$story_log" || fail=1
-  grep -F "end state: sccnt=4" "$story_log" || fail=1
+  grep -F "scripted movement began for SHADOW" "$story_log" || fail=1
+  grep -F "room exit 1 -> M0001_01_03" "$story_log" || fail=1
+  grep -F "room exit 2 -> M0001_01_04" "$story_log" || fail=1
+  grep -F "reached requested stop room M0001_01_04" "$story_log" || fail=1
+  grep -F "end state: sccnt=6" "$story_log" || fail=1
 
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
@@ -275,8 +277,8 @@ echo "=== combat self-test ==="
   # Loads every room in the game headlessly. Non-zero on a mesh/script failure
   # or an unresolved object id.
   echo "=== room census ==="
-  ./build/mana --room-census 2>&1 | grep "^\[census\]" || fail=1
-  ./build/mana --room-census >/dev/null 2>&1 || fail=1
+  ./build/mana --no-audio --room-census 2>&1 | grep "^\[census\]" || fail=1
+  ./build/mana --no-audio --room-census >/dev/null 2>&1 || fail=1
 
 echo "=== cmd API ==="
 python3 tools/asset/extract_cmd_api.py >/dev/null || fail=1

@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-13
 tags: gameplay,progression,cutscenes
 depends: src/engine/script.cpp#ClearRoomScript, src/engine/script.cpp#GlobalNumber, src/host/main.cpp#opening_story, tools/verify.sh
+reconfirmed: 2026-08-13
+verified_at: 2026-08-13 23:35:14
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ A new game progresses continuously through both opening Jackal fights and the es
 ## What would falsify it
 
 Any change to Lua coroutine/global lifetime, input gating, fades, room transitions, door/edge traversal, combat death progression, event boxes, opening scripts, story driver, or its verifier assertions
+
+## Re-confirmed 2026-08-13
+
+Re-proved by the complete tools/verify.sh pass on 2026-08-13 after the opening-router, actor mapping, coordinate, scripted-transition, and silent-test changes; every claim-specific runtime/self-test gate passed on the shipping corpus.

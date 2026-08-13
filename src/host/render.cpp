@@ -119,6 +119,13 @@ std::string ActorModelName(char kind, int type_id) {
         // model by design, so returning a name at all would make the room
         // census report a missing asset that does not exist.
         if (type_id < 0) return {};
+        // `npc()` is also the authored cutscene-character constructor. The
+        // Lua enum deliberately folds enemy and boss model namespaces into
+        // eNPC with ENEMY=100 and BOSS=1000, then adds the corresponding enum
+        // id (for example Julius is 1000+20). Decode those tagged ranges
+        // before applying the ordinary-NPC offset.
+        if (type_id >= 1000) return std::format("B{:04d}_00", type_id - 1000);
+        if (type_id >= 100) return std::format("E{:04d}_00", type_id - 100);
         if (type_id < 10) return std::format("C{:04d}_00", type_id);
         return std::format("N{:04d}_00", type_id - 10);
     }

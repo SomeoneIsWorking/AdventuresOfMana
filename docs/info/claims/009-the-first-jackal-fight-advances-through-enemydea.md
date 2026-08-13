@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/host/main.cpp#seedCombat, src/engine/world.cpp#World::ConsumeEnemyWaveCleared, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:46:53
+verified_at: 2026-08-13 23:35:14
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ Any change to player volume seeding, Actor alive/defeated lifecycle, World::Cons
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13: lethal opening path recorded one player-origin pair/overlap, killed _BOSS, started EnemyDead exactly once, mapjumped to M0001_00_02, started destination Init, and displayed Will dialogue; nonlethal boundary path contained no EnemyDead start; wave selftest was 24/24.
+
+## Re-confirmed 2026-08-13
+
+Re-proved by the complete tools/verify.sh pass on 2026-08-13 after the opening-router, actor mapping, coordinate, scripted-transition, and silent-test changes; every claim-specific runtime/self-test gate passed on the shipping corpus.

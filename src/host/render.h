@@ -46,7 +46,9 @@ bool BoneLocalPos(const Model& m, const Motion* motion, float time,
 // positive eBOSS ids have B<id>_00 (counting distinct ids > 0; several names
 // alias the same id).
 //
-// NPCs need two rules, and together they resolve all 35 eNPC ids:
+// Ordinary NPCs need two rules, and together they resolve all 35 direct eNPC
+// ids. The enum also tags cutscene enemies/bosses as 100+eENEMY and
+// 1000+eBOSS; ActorModelName decodes those into E/B namespaces first.
 //   id 0..9   -> C<id>_00   the named party members, id-for-id on the CHARACTER
 //                           prefix (0 is the hero)
 //   id >= 10  -> N<id-10>_00
