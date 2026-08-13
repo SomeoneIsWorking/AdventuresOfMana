@@ -252,6 +252,7 @@ int main(int argc, char** argv) {
     bool inventory_selftest = false;
     bool ai_selftest = false;
     bool eventbox_selftest = false;
+    bool camera_selftest = false;
     bool name_selftest = false;
     bool boot_chain = false;
     std::string title_phase;   // TEST HOOK: attract | menu | crawl | names
@@ -297,6 +298,7 @@ int main(int argc, char** argv) {
         else if (a == "--inventory-selftest") inventory_selftest = true;
         else if (a == "--ai-selftest") ai_selftest = true;
         else if (a == "--eventbox-selftest") eventbox_selftest = true;
+        else if (a == "--camera-selftest") camera_selftest = true;
         else if (a == "--nameentry-selftest") name_selftest = true;
         else if (a == "--boot") boot_chain = true;
         else if (a == "--title-phase" && i + 1 < argc) title_phase = argv[++i];
@@ -347,7 +349,8 @@ int main(int argc, char** argv) {
                 "  --string ID         resolve a dialogue id in every language\n"
                 "  --show-string ID    open the message window on that line\n"
                 "  --combat-selftest / --audio-selftest / --text-selftest / --player-selftest\n"
-                "  --inventory-selftest / --ai-selftest / --eventbox-selftest / --nameentry-selftest\n"
+                "  --inventory-selftest / --ai-selftest / --eventbox-selftest / --camera-selftest\n"
+                "  --nameentry-selftest\n"
                 "  --boot              boot through the engine's real mode chain\n"
                 "  --title-phase P     TEST HOOK: attract|menu|crawl|names\n"
                 "  --shot-delay N      wait N frames inside --shot-mode before capturing\n"
@@ -373,7 +376,8 @@ int main(int argc, char** argv) {
     // mode wins; `explicit_model` is tracked separately because `model` carries
     // a default value and so cannot be tested for emptiness.
     if (render_room.empty() && room.empty() && probe.empty() && !census &&
-        !audio_selftest && !combat_selftest && !text_selftest && !player_selftest && !explicit_model && !room_census &&
+        !audio_selftest && !combat_selftest && !text_selftest && !player_selftest &&
+        !camera_selftest && !explicit_model && !room_census &&
         string_id.empty())
         render_room = kDefaultRoom;
 
@@ -883,6 +887,49 @@ int main(int argc, char** argv) {
                                           });
             ck("same-name volumes retain their callback", both_named, true);
             lucent::info("eventbox", "SELFTEST: 16 cases, {} failures", bad);
+            return bad ? 1 : 0;
+        }
+        if (camera_selftest) {
+            int bad = 0, checked = 0;
+            auto ck = [&](const char* what, bool got) {
+                ++checked;
+                if (!got) {
+                    ++bad;
+                    lucent::error("camera", "SELFTEST FAIL: {}", what);
+                } else {
+                    lucent::info("camera", "  ok: {}", what);
+                }
+            };
+            mcf::World w;
+            mcf::Script script;
+            script.world = &w;
+            const std::string source =
+                "CamSetTargetPos(10,20,30)\n"
+                "CamSetTargetPosSub(1,2,3)\n"
+                "CamSetPos(40,50,60)\n";
+            std::vector<uint8_t> bytes(source.begin(), source.end());
+            ck("camera command script executes",
+               script.Run("camera-selftest", bytes));
+            ck("target position is distinct from eye position",
+               w.camera.has_target_pos && w.camera.target_pos[0] == 10.f &&
+               w.camera.target_pos[1] == 20.f && w.camera.target_pos[2] == 30.f &&
+               w.camera.has_eye_pos && w.camera.eye_pos[0] == 40.f &&
+               w.camera.eye_pos[1] == 50.f && w.camera.eye_pos[2] == 60.f);
+            ck("target offset reaches all three axes",
+               w.camera.target_sub[0] == 1.f && w.camera.target_sub[1] == 2.f &&
+               w.camera.target_sub[2] == 3.f);
+            const std::string chr_source = "CamSetTargetChr('MainPlayer')\n";
+            bytes.assign(chr_source.begin(), chr_source.end());
+            ck("character target command executes",
+               script.Run("camera-character-selftest", bytes));
+            ck("character target replaces fixed target",
+               w.camera.target_chr == "MainPlayer" && !w.camera.has_target_pos);
+            w.camera.Reset();
+            ck("reset clears target, offset, and explicit eye",
+               w.camera.target_chr.empty() && !w.camera.has_target_pos &&
+               !w.camera.has_eye_pos && w.camera.target_sub[0] == 0.f &&
+               w.camera.target_sub[1] == 0.f && w.camera.target_sub[2] == 0.f);
+            lucent::info("camera", "SELFTEST: {} cases, {} failures", checked, bad);
             return bad ? 1 : 0;
         }
         if (ai_selftest) {
@@ -3017,6 +3064,12 @@ int main(int argc, char** argv) {
                         { look[0] = ta->pos[0] + room_org[0];
                           look[1] = ta->pos[1] + 20.f;
                           look[2] = ta->pos[2] + room_org[2]; }
+                if (cam.has_target_pos) {
+                    look[0] = cam.target_pos[0] + room_org[0];
+                    look[1] = cam.target_pos[1] + room_org[1];
+                    look[2] = cam.target_pos[2] + room_org[2];
+                }
+                for (int k = 0; k < 3; ++k) look[k] += cam.target_sub[k];
                 float fov  = cam.Get(mcf::cam_data::kAngle, 20.f);
                 float dist = cam.Get(mcf::cam_data::kDistance, 450.f);
                 float yaw  = cam.Get(mcf::cam_data::kRotateY, 0.f);
@@ -3030,6 +3083,11 @@ int main(int argc, char** argv) {
                     look[0] + std::sin(yaw * kDeg) * std::cos(pit * kDeg) * dist,
                     look[1] + std::sin(pit * kDeg) * dist,
                     look[2] + std::cos(yaw * kDeg) * std::cos(pit * kDeg) * dist};
+                if (cam.has_eye_pos) {
+                    want[0] = cam.eye_pos[0] + room_org[0];
+                    want[1] = cam.eye_pos[1] + room_org[1];
+                    want[2] = cam.eye_pos[2] + room_org[2];
+                }
                 if (!cam_init) { for (int k = 0; k < 3; ++k) eye_cur[k] = want[k]; cam_init = true; }
                 // SPEED is a per-frame lerp in the original; scale by dt so the
                 // result does not depend on our (uncapped) frame rate.

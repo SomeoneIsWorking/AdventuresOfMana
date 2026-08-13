@@ -65,6 +65,9 @@ struct Camera {
     std::string target_chr;          // CamSetTargetChr
     float target_pos[3]{};
     bool has_target_pos = false;
+    float target_sub[3]{};           // CamSetTargetPosSub
+    float eye_pos[3]{};              // CamSetPos
+    bool has_eye_pos = false;
     float pitch_default = 38.f;      // PORT CHOICE, not a reversed value
 
     float Get(int slot, float dflt) const {
@@ -75,6 +78,8 @@ struct Camera {
         data.clear();
         target_chr.clear();
         has_target_pos = false;
+        target_sub[0] = target_sub[1] = target_sub[2] = 0.f;
+        has_eye_pos = false;
     }
 };
 

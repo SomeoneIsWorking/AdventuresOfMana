@@ -39,6 +39,10 @@ if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   grep -F 'text] message: "Arena Guard:' "$init_log" || fail=1
   grep -F "enemy stats: 1 from enemydat.bin, 0 with no table entry" "$init_log" || fail=1
 
+  echo "=== camera command self-test ==="
+  ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
+  ./build/mana --camera-selftest >/dev/null 2>&1 || fail=1
+
   echo "=== player self-test ==="
   ./build/mana --player-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --player-selftest >/dev/null 2>&1 || fail=1

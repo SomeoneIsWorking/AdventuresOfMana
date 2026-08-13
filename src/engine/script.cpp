@@ -295,10 +295,25 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
     // see docs/script-data-model.md.
     if (n == "CamSetData")  { w.camera.data[int(N(1))] = N(2); return true; }
     if (n == "CamGetData")  { lua_pushnumber(L, w.camera.Get(int(N(1)), 0)); return true; }
-    if (n == "CamSetTargetChr") { w.camera.target_chr = S(1); return true; }
-    if (n == "CamSetPos") {
+    if (n == "CamSetTargetChr") {
+        w.camera.target_chr = S(1);
+        w.camera.has_target_pos = false;
+        return true;
+    }
+    if (n == "CamSetTargetPos") {
+        w.camera.target_chr.clear();
         w.camera.target_pos[0] = N(1); w.camera.target_pos[1] = N(2);
         w.camera.target_pos[2] = N(3); w.camera.has_target_pos = true;
+        return true;
+    }
+    if (n == "CamSetTargetPosSub") {
+        w.camera.target_sub[0] = N(1); w.camera.target_sub[1] = N(2);
+        w.camera.target_sub[2] = N(3);
+        return true;
+    }
+    if (n == "CamSetPos") {
+        w.camera.eye_pos[0] = N(1); w.camera.eye_pos[1] = N(2);
+        w.camera.eye_pos[2] = N(3); w.camera.has_eye_pos = true;
         return true;
     }
     if (n == "CamReset") { w.camera.Reset(); return true; }

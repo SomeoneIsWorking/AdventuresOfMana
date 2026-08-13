@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/host/main.cpp#main, src/engine/script.cpp#Script::ResumeCoroutines, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:12:51
+verified_at: 2026-08-13 21:17:33
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ Any change to room loading, Script coroutine scheduling/game time, AddBoss namin
 ## Re-confirmed 2026-08-13
 
 Re-ran the positive shipping path: M0001_00_00 matched 3/3 assertions after 600 frames. Ran M0000_00_00 as the negative class: 0/3 assertions matched.
+
+## Re-confirmed 2026-08-13
+
+Full SDL_AUDIODRIVER=dummy ./tools/verify.sh passed after camera command integration; opening lifecycle still matched all three required observations.
