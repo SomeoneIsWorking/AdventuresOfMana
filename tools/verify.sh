@@ -41,10 +41,30 @@ for t in stex smdl smot scol roomdata strings enemydat; do
   echo "=== $t ==="
   python3 "tools/asset/$t.py" || fail=1
 done
+
+# These four corpus parsers used to print FAILED while returning success, and
+# also accepted an empty default glob. Exercise both negative classes through
+# the shipping CLI so `python ... || fail=1` is evidence rather than decoration.
+echo "=== parser failure propagation ==="
+mkdir -p scratch/logs/parser-empty
+: > scratch/logs/parser-malformed.bin
+parser_root=$(pwd)
+for t in stex smdl smot scol; do
+  neg_log="scratch/logs/${t}-negative.log"
+  if (cd scratch/logs/parser-empty && \
+      python3 "$parser_root/tools/asset/$t.py") >"$neg_log" 2>&1; then
+    fail=1
+  fi
+  grep -F "FATAL: scanned 0" "$neg_log" || fail=1
+  if python3 "tools/asset/$t.py" scratch/logs/parser-malformed.bin \
+      >"$neg_log" 2>&1; then
+    fail=1
+  fi
+  grep -Ei '1 (files )?FAILED|0/1.*failed' "$neg_log" || fail=1
+done
 if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   echo "=== combat self-test ==="
-  ./build/mana --combat-selftest >/dev/null || fail=1
-  echo "  (18 cases: 9 hit/miss geometry, 9 faction filter)"
+  ./build/mana --combat-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
 
   echo "=== event-box self-test ==="
   ./build/mana --eventbox-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1

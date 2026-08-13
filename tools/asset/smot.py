@@ -94,6 +94,8 @@ def values(buf, t):
 if __name__ == '__main__':
     import glob, collections
     files = sys.argv[1:] or sorted(glob.glob('scratch/dump/sk1/*.smot'))
+    if not files:
+        sys.exit("FATAL: scanned 0 motion files; corpus is missing")
     ok, errs = 0, []
     strides, flags = collections.Counter(), collections.Counter()
     tracks_total = 0
@@ -114,3 +116,4 @@ if __name__ == '__main__':
         print("  FAIL", e)
     print("value strides:", dict(sorted(strides.items())))
     print("flag values  :", dict(sorted(flags.items())))
+    sys.exit(1 if errs else 0)

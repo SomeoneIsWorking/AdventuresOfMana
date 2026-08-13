@@ -70,6 +70,8 @@ def indices(buf, m):
 if __name__ == '__main__':
     import glob
     files = sys.argv[1:] or sorted(glob.glob('scratch/dump/sk1/*.smdl'))
+    if not files:
+        sys.exit("FATAL: scanned 0 model files; corpus is missing")
     ok = 0
     errs = []
     strides = {}
@@ -92,3 +94,4 @@ if __name__ == '__main__':
     for e in errs[:12]:
         print("  FAIL", e)
     print("vertex strides seen:", dict(sorted(strides.items())))
+    sys.exit(1 if errs else 0)

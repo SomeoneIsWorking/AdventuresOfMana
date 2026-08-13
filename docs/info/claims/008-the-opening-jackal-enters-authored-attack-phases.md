@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: bosses,combat,collision,scripting
 depends: src/mcf/assets.cpp#ParseGdt, src/mcf/assets.cpp#Collision::BlockedXZ, src/engine/script.cpp#ChrAttackBoneValid, src/engine/world.cpp#TickScriptMoves, src/host/main.cpp#ground_attribute, src/host/main.cpp#hit_this_swing, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:11:41
+verified_at: 2026-08-13 22:15:28
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Full shipping verifier passed on 2026-08-13; the 600-frame opening-boss boundary
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after commit 6e0e4f1 and the MPK tooling change; opening attack path again produced landed hits, player damage, and _BOSS map collision.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after parser exit-status repair; landed hits, player damage, and _BOSS collision remained observed.

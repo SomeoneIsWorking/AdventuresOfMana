@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/host/main.cpp#main, src/engine/script.cpp#Script::ResumeCoroutines, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:11:38
+verified_at: 2026-08-13 22:15:25
 ---
 
 ## Claim
@@ -56,3 +56,7 @@ Full shipping verifier passed on 2026-08-13; opening lifecycle reached the late 
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after commit 6e0e4f1 and the MPK tooling change; opening lifecycle reached dialogue, late boss spawn, BGM 2, movement, and attack.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after parser exit-status repair; opening lifecycle retained all required observations.

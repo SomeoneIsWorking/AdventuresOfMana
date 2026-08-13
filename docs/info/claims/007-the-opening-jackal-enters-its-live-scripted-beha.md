@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: bosses,scripting,combat
 depends: src/engine/script.cpp#Dispatch, src/engine/script.h#motion_duration, src/engine/world.cpp#TickLookTargets, src/engine/world.cpp#TickScriptMoves, src/host/main.cpp#resolveMotionDuration, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:11:41
+verified_at: 2026-08-13 22:15:28
 ---
 
 ## Claim
@@ -32,3 +32,7 @@ Full shipping verifier passed on 2026-08-13; the opening Jackal entered its scri
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after commit 6e0e4f1 and the MPK tooling change; scripted boss movement and live attack path passed.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after parser exit-status repair; live scripted Jackal behavior remained observed.

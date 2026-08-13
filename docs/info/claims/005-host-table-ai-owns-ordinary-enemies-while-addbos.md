@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: ai,bosses,scripting
 depends: src/engine/world.h#UsesHostEnemyAI, src/engine/script.cpp#AddBoss, src/host/main.cpp#ai_selftest
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:11:40
+verified_at: 2026-08-13 22:15:27
 ---
 
 ## Claim
@@ -44,3 +44,7 @@ Full shipping verifier passed on 2026-08-13; AI ownership selftests covered all 
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after commit 6e0e4f1 and the MPK tooling change; AI selftest remained 856 machines / 0 failures and boss ownership path passed.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after parser exit-status repair; AI selftest remained 856 machines / 0 failures.

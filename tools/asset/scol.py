@@ -59,6 +59,8 @@ def parse(buf, strict=True):
 if __name__ == '__main__':
     import glob, collections
     files = sys.argv[1:] or sorted(glob.glob('scratch/dump/sk1/*.scol'))
+    if not files:
+        sys.exit("FATAL: scanned 0 collision files; corpus is missing")
     ok, errs = 0, []
     grids, unk = collections.Counter(), collections.Counter()
     span = [0, 0, 0]
@@ -78,3 +80,4 @@ if __name__ == '__main__':
     print("grid dims  :", dict(grids))
     print("[0x18]     :", dict(sorted(unk.items())[:12]))
     print("largest AABB span seen (x,y,z):", [round(s, 1) for s in span])
+    sys.exit(1 if errs else 0)

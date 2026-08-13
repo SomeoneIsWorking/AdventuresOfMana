@@ -51,6 +51,8 @@ if __name__ == '__main__':
     import glob, collections
     files = sys.argv[1:] or sorted(glob.glob('scratch/dump/sk1/*.stex'))
     if not files:
+        sys.exit("FATAL: scanned 0 texture files; corpus is missing")
+    if not files:
         sys.exit("no .stex files given and none found under scratch/dump/sk1/ -- "
                  "run tools/asset/mpk.py first; refusing to report success on an "
                  "empty corpus")
@@ -75,3 +77,4 @@ if __name__ == '__main__':
         dist = ", ".join("%s x%d" % (v, n) for v, n in bpp[code].most_common(6))
         print("  fmtcode %d (SiTextureFormat %s): %s"
               % (code, FMT_MAP.get(code, 1), dist))
+    sys.exit(1 if bad else 0)

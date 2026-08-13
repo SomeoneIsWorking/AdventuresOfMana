@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/engine/world.h#Camera, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 22:11:39
+verified_at: 2026-08-13 22:15:26
 ---
 
 ## Claim
@@ -52,3 +52,7 @@ Full shipping verifier passed on 2026-08-13; camera semantic selftest remained 6
 ## Re-confirmed 2026-08-13
 
 Full tools/verify.sh passed on 2026-08-13 after commit 6e0e4f1 and the MPK tooling change; camera selftest remained 6/6 and opening lifecycle passed.
+
+## Re-confirmed 2026-08-13
+
+Full tools/verify.sh passed on 2026-08-13 after parser exit-status repair; camera selftest remained 6/6.
