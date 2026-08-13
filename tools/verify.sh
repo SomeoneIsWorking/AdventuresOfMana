@@ -42,6 +42,18 @@ if [ -x build/mana ] && [ -d scratch/raw/assets ]; then
   grep -F "bgm 2:" "$init_log" || fail=1
   grep -F "scripted movement began for _BOSS" "$init_log" || fail=1
 
+  # Move onto an authored EX_1 boundary cell. Jackal's shipping coroutine only
+  # enables its charge there; the charge must damage the player and then stop
+  # on the room's physical wall through ISHITMAP.
+  echo "=== opening-boss attack path ==="
+  boss_log=scratch/logs/opening-boss-attack.log
+  SDL_AUDIODRIVER=dummy ./build/mana \
+    --screenshot scratch/screenshots/opening-boss-attack.png \
+    --warmup 600 --auto-advance --walk-to 30 30 >"$boss_log" 2>&1 || fail=1
+  grep -E -- '-> [1-9][0-9]* landed hits' "$boss_log" || fail=1
+  grep -E 'player took [1-9][0-9]* damage' "$boss_log" || fail=1
+  grep -F "scripted map collision for _BOSS" "$boss_log" || fail=1
+
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --camera-selftest >/dev/null 2>&1 || fail=1

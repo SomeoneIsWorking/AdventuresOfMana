@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/host/main.cpp#main, src/engine/script.cpp#Script::ResumeCoroutines, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:43:38
+verified_at: 2026-08-13 22:02:23
 ---
 
 ## Claim
@@ -48,3 +48,7 @@ Final full verify.sh re-ran the strengthened opening gate after decoupling motio
 ## Re-confirmed 2026-08-13
 
 Full verify.sh passed the strengthened opening gate through live _BOSS scripted movement.
+
+## Re-confirmed 2026-08-13
+
+Full shipping verifier passed on 2026-08-13; opening lifecycle reached the late boss behavior and completed the new attack-path boundary without coroutine failures.

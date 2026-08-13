@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: ai,bosses,scripting
 depends: src/engine/world.h#UsesHostEnemyAI, src/engine/script.cpp#AddBoss, src/host/main.cpp#ai_selftest
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:43:39
+verified_at: 2026-08-13 22:02:29
 ---
 
 ## Claim
@@ -36,3 +36,7 @@ Final full verify.sh re-ran both AI ownership classes and all 856 shipping machi
 ## Re-confirmed 2026-08-13
 
 Full verify.sh re-ran AI ownership and all 856 shipping AI machines after boss-script changes.
+
+## Re-confirmed 2026-08-13
+
+Full shipping verifier passed on 2026-08-13; AI ownership selftests covered all 856 machines and the opening boss remained map-script owned through its live attack path.

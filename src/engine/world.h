@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 
@@ -117,6 +118,7 @@ struct Actor {
     float script_move_speed = 0.f;
     bool script_auto_move = false;
     float script_distance_moved = 0.f;
+    uint32_t script_map_hits = 0;
     std::string look_target;
     int motion = 0;              // eMOTION index; also the .smot numeric prefix
     float motion_frame = 0.f;
@@ -280,7 +282,8 @@ public:
     EventBox* FindBox(const std::string& name);
 
     void Reset();
-    void TickScriptMoves(float dt);
+    using ScriptMoveBlocked = std::function<bool(const Actor&, float, float)>;
+    void TickScriptMoves(float dt, const ScriptMoveBlocked& blocked = {});
     void TickMotions(float frames);
     void TickLookTargets();
 

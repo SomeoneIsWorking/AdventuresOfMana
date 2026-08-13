@@ -208,7 +208,10 @@ struct Collision {
     // census of 40 rooms shows bits 0/1/2 are near-horizontal (mean |normal.y|
     // 0.99, 1.00) while bits 3/4 are exactly vertical (0.00).
     static constexpr uint32_t kFloorMask = 0x7;    // what the engine queries with
-    static constexpr uint32_t kWallMask  = 0x18;   // bits 3|4
+    // Map collision accepts the dedicated wall classes (bits 3/4) plus class
+    // 1: M0001's arena walls are class 1 while its floor shares that class.
+    // BlockedXZ therefore also classifies the triangle by its normal.
+    static constexpr uint32_t kWallMask  = 0x1A;   // bits 1|3|4
 
     // Highest floor at (x, z) among triangles whose attribute mask intersects
     // `mask`. Returns false when the point is over nothing.
@@ -221,6 +224,19 @@ struct Collision {
 };
 
 Collision ParseScol(std::vector<uint8_t> file);
+
+// ---------------------------------------------------------------------------
+// .gdt ground-attribute grid (ModeGame::Load_GroundAttribute @ 0x2e6cf4)
+// ---------------------------------------------------------------------------
+struct GroundAttributes {
+    int cols = 0, rows = 0;
+    float cell_w = 0.f, cell_h = 0.f;
+    std::vector<uint32_t> cells;
+
+    uint32_t Get(float local_x, float local_z) const;
+};
+
+GroundAttributes ParseGdt(std::vector<uint8_t> file);
 
 // ---------------------------------------------------------------------------
 // .smot skeletal animation (magic "Smot")

@@ -384,6 +384,34 @@ bool Collision::GetFloor(float x, float z, uint32_t mask, float* out_y) const {
     return hit;
 }
 
+GroundAttributes ParseGdt(std::vector<uint8_t> file) {
+    std::span<const uint8_t> b(file);
+    if (b.size() < 0x14 || RdU32(b, 0) != 1)
+        throw Error("not a version-1 ground-attribute grid");
+    GroundAttributes g;
+    g.cols = int32_t(RdU32(b, 4));
+    g.rows = int32_t(RdU32(b, 8));
+    std::memcpy(&g.cell_w, b.data() + 0x0c, 4);
+    std::memcpy(&g.cell_h, b.data() + 0x10, 4);
+    if (g.cols < 1 || g.rows < 1 || g.cell_w != 7.5f || g.cell_h != 7.5f)
+        throw Error("invalid ground-attribute grid dimensions");
+    size_t count = size_t(g.cols) * size_t(g.rows);
+    if (b.size() != 0x14 + count * 4)
+        throw Error("ground-attribute grid size mismatch");
+    g.cells.resize(count);
+    std::memcpy(g.cells.data(), b.data() + 0x14, count * 4);
+    return g;
+}
+
+uint32_t GroundAttributes::Get(float local_x, float local_z) const {
+    if (local_x < 0.f || local_z < 0.f || cell_w <= 0.f || cell_h <= 0.f)
+        return 0;
+    int x = int(std::floor(local_x / cell_w));
+    int z = int(std::floor(local_z / cell_h));
+    if (x < 0 || z < 0 || x >= cols || z >= rows) return 0;
+    return cells[size_t(z) * size_t(cols) + size_t(x)];
+}
+
 namespace {
 // 2D segment intersection, used for the XZ wall test.
 bool SegHit(float ax, float az, float bx, float bz,
@@ -420,6 +448,18 @@ bool Collision::BlockedXZ(float x0, float z0, float x1, float z1, float y,
             if (!(RdU32(b, t + 0x24) & mask)) continue;
             float p[3][3];
             for (int j = 0; j < 3; ++j) vec(RdU32(b, t + size_t(j) * 4), p[j]);
+
+            float ux = p[1][0] - p[0][0], uy = p[1][1] - p[0][1];
+            float uz = p[1][2] - p[0][2];
+            float vx = p[2][0] - p[0][0], vy = p[2][1] - p[0][1];
+            float vz = p[2][2] - p[0][2];
+            float nx = uy * vz - uz * vy;
+            float ny = uz * vx - ux * vz;
+            float nz = ux * vy - uy * vx;
+            // A floor can share an attribute class with a wall. It blocks XZ
+            // movement only when the surface normal is more horizontal than
+            // vertical (surface angle steeper than 45 degrees).
+            if (std::fabs(ny) >= std::hypot(nx, nz)) continue;
 
             // Only walls the mover could actually hit at its own height.
             float tlo = std::min({p[0][1], p[1][1], p[2][1]});

@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/engine/world.h#Camera, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:43:38
+verified_at: 2026-08-13 22:02:24
 ---
 
 ## Claim
@@ -44,3 +44,7 @@ Final full verify.sh re-ran camera SELFTEST 6/6 and the opening shipping path.
 ## Re-confirmed 2026-08-13
 
 Full verify.sh re-ran camera SELFTEST 6/6 and the live opening path.
+
+## Re-confirmed 2026-08-13
+
+Full shipping verifier passed on 2026-08-13; camera semantic selftest remained 6/6 and the opening lifecycle consumed the fixed-camera path.

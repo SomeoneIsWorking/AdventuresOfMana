@@ -57,6 +57,7 @@ public:
     // resume. The host owns the archive, so it supplies the real .smot
     // duration synchronously at the command boundary.
     std::function<float(char kind, int type_id, int motion)> motion_duration;
+    std::function<uint32_t(float x, float z)> ground_attribute;
     // The game's string table. When set, GetIDString returns real text instead
     // of echoing the id back.
     const StringTable* strings = nullptr;

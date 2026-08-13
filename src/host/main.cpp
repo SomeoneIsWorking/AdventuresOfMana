@@ -952,6 +952,9 @@ int main(int argc, char** argv) {
             script.motion_duration = [](char, int, int motion) {
                 return motion == 7 ? 12.f : 0.f;
             };
+            script.ground_attribute = [](float x, float) {
+                return x > 0.f ? uint32_t(0x02000001) : uint32_t(0x00000001);
+            };
             auto run = [&](const char* name, std::string_view source) {
                 std::vector<uint8_t> bytes(source.begin(), source.end());
                 return script.Run(name, bytes);
@@ -992,6 +995,23 @@ int main(int argc, char** argv) {
                run("math-bits",
                    "assert(math.abs(math_atan2(1,0)-math.pi/2) < 0.0001)\n"
                    "assert(bit_and(6,3) == 2 and bit_and(4,1) == 0)\n"));
+            ck("GetGroundAttribute exposes both set and clear script-flag classes",
+               run("ground-attribute",
+                   "assert(bit_and(GetGroundAttribute(1,0),0x02000000) ~= 0)\n"
+                   "assert(bit_and(GetGroundAttribute(-1,0),0x02000000) == 0)\n"));
+            {
+                auto g = mcf::ParseGdt(ar.Read("sk1/M0001_00_00.gdt"));
+                ck("shipping GDT resolves boundary EX_1 and clear arena centre",
+                   g.cols == 40 && g.rows == 32 &&
+                   (g.Get(30.f, 30.f) & 0x02000000u) != 0 &&
+                   (g.Get(150.f, 135.f) & 0x02000000u) == 0);
+                auto c = mcf::ParseScol(ar.Read("sk1/M0001_00_00.scol"));
+                ck("shipping collision blocks an arena wall but not open floor",
+                   c.BlockedXZ(35.f, 100.f, 25.f, 100.f, 0.f, 30.f,
+                               mcf::Collision::kWallMask) &&
+                   !c.BlockedXZ(100.f, 100.f, 110.f, 100.f, 0.f, 30.f,
+                                mcf::Collision::kWallMask));
+            }
             actor.hp = 37;
             actor.max_hp = 40;
             ck("ChrGetData HP reads live combat state and ChrSetData writes it",
@@ -1000,6 +1020,14 @@ int main(int argc, char** argv) {
                                       "ChrSetData('MainPlayer',0,12)\n"
                                       "assert(ChrGetData('MainPlayer',0) == 12)\n") &&
                actor.hp == 12);
+            ck("script attack phases advance once per false-to-true edge",
+               run("attack-phase",
+                   "ChrAttackBoneSet('MainPlayer',2,'cog')\n"
+                   "ChrAttackBoneValid('MainPlayer',2,true)\n"
+                   "ChrAttackBoneValid('MainPlayer',2,true)\n"
+                   "ChrAttackBoneValid('MainPlayer',2,false)\n"
+                   "ChrAttackBoneValid('MainPlayer',2,true)\n") &&
+               actor.swing_id == 2);
             ck("ChrMotion resolves its end frame synchronously",
                run("motion-start", "ChrMotionForce('MainPlayer', 7)\n"
                                      "assert(ChrMotionGetEndFrame('MainPlayer') == 12)\n"));
@@ -1017,6 +1045,18 @@ int main(int argc, char** argv) {
                                     "assert(ChrMotionGetFrame('MainPlayer') == 0)\n"
                                     "assert(ChrMotionGetEndFrame('MainPlayer') == 12)\n"
                                     "assert(not IsChrMotionFinish('MainPlayer'))\n"));
+            actor.data[mcf::chr_data::kMapCollision] = 1.f;
+            ck("map collision starts a test move",
+               run("collision-start", "ChrMoveTo('MainPlayer',10,16,8)\n"));
+            float blocked_x = actor.pos[0], blocked_z = actor.pos[2];
+            w.TickScriptMoves(0.5f, [](const mcf::Actor&, float, float) {
+                return true;
+            });
+            ck("blocked scripted move stays put, ends, and reports ISHITMAP",
+               actor.pos[0] == blocked_x && actor.pos[2] == blocked_z &&
+               !actor.script_auto_move &&
+               actor.Get(mcf::chr_data::kIsHitMap) == 1.f &&
+               actor.script_map_hits == 1);
             lucent::info("movement", "SELFTEST: {} cases, {} failures", checked, bad);
             return bad ? 1 : 0;
         }
@@ -2016,6 +2056,8 @@ int main(int argc, char** argv) {
             mcf::Renderable stage;
             mcf::Collision col;
             bool have_col = false;
+            mcf::GroundAttributes ground;
+            bool have_ground = false;
             float room_org[3]{0, 0, 0};
             // Chip-resolution pathing state. `chip_walk` is per room;
             // `chip_dist` is rebuilt each frame from the player's chip and
@@ -2034,6 +2076,7 @@ int main(int argc, char** argv) {
             std::set<std::string> missing_actor_models;
             std::set<std::string> missing_actor_motions;
             std::set<std::string> reported_script_moves;
+            std::set<std::string> reported_script_map_hits;
             std::map<std::string, mcf::Motion> motions;     // survives transitions
 
             mcf::World world;
@@ -2148,10 +2191,16 @@ int main(int argc, char** argv) {
             // room_origin.y + script_y put them at wall height -- so the floor
             // is queried at the actor's XZ instead.
             have_col = false;
+            have_ground = false;
             {
                 auto cs = std::format("sk1/{}.scol", room_name);
                 if (ar.Has(cs)) { col = mcf::ParseScol(ar.Read(cs)); have_col = true; }
                 else lucent::warn("world", "no {}; actors keep their script Y", cs);
+                auto gs = std::format("sk1/{}.gdt", room_name);
+                if (ar.Has(gs)) {
+                    ground = mcf::ParseGdt(ar.Read(gs));
+                    have_ground = true;
+                }
             }
             // NOT refined from the collision AABB. That was tried and
             // FALSIFIED: the AABB's lo corner differs from the grid position by
@@ -2503,6 +2552,9 @@ int main(int argc, char** argv) {
                 return mit->second.duration;
             };
             sc.motion_duration = resolveMotionDuration;
+            sc.ground_attribute = [&](float x, float z) {
+                return have_ground ? ground.Get(x, z) : uint32_t(0);
+            };
             auto actorMotion = [&](mcf::Actor& a) -> const mcf::Motion* {
                 auto nm = mcf::ActorModelName(a.kind, a.type_id);
                 if (nm.empty()) return nullptr; // eNPC.TRANS is intentionally invisible
@@ -2674,16 +2726,22 @@ int main(int argc, char** argv) {
                     dv.bone = "y_ang"; dv.radius = 15.f; dv.valid = true;
                     auto it = enemy_stats.find(a.type_id);
                     if (it == enemy_stats.end()) { ++without; continue; }
-                    // Enemies attack too. The volume is always live because
+                    // Ordinary enemies attack too. The volume is always live because
                     // enemy attack timing is native code that is not reversed;
                     // the player's i-frame window is what keeps this from
                     // being a continuous damage stream, and that IS reversed.
                     // Radius/arc are an ATTESTED script configuration rather
                     // than a made-up number: ChrAttackBoneSize(my, 1, 20, 360)
                     // is the most common enemy setup in the shipping scripts.
-                    auto& eav = a.attack[0];
-                    eav.bone = "y_ang"; eav.radius = 20.f; eav.arc_deg = 360.f;
-                    eav.valid = true;
+                    // Bosses are different: their _BOSS coroutine owns the
+                    // explicitly numbered attack volumes and their timing.
+                    // Giving them this host volume made a stationary boss hurt
+                    // the player and produced a false-positive attack trace.
+                    if (a.kind == 'E') {
+                        auto& eav = a.attack[0];
+                        eav.bone = "y_ang"; eav.radius = 20.f; eav.arc_deg = 360.f;
+                        eav.valid = true;
+                    }
                     a.attack_power = it->second.attack;
                     a.max_hp = it->second.max_hp;
                     a.hp = a.max_hp;
@@ -2763,7 +2821,8 @@ int main(int argc, char** argv) {
                 // silently dropped: if this were the whole hit count, combat
                 // would look "working" while nothing could ever land.
                 long blocked_by_faction = 0;
-                long atk_no_model = 0, def_no_model = 0, def_no_bone = 0;
+                long atk_no_model = 0, atk_no_bone = 0;
+                long def_no_model = 0, def_no_bone = 0;
                 long pairs_vs_player = 0;   // enemy attack volume vs the player
                 float closest_vs_player = 1e30f, closest_xz = 0, closest_y = 0;
                 float closest = 1e30f;   // nearest volume separation seen
@@ -3091,11 +3150,23 @@ int main(int argc, char** argv) {
                 for (auto& a : world.actors_mutable())
                     if (a.alive) actorMotion(a);
                 world.TickLookTargets();
-                world.TickScriptMoves(dt);
+                world.TickScriptMoves(dt, [&](const mcf::Actor& a, float nx, float nz) {
+                    if (!have_col) return false;
+                    return col.BlockedXZ(a.pos[0] + room_org[0],
+                                         a.pos[2] + room_org[2],
+                                         nx + room_org[0], nz + room_org[2],
+                                         a.pos[1] + room_org[1], 30.f,
+                                         mcf::Collision::kWallMask);
+                });
                 for (const auto& a : world.actors())
                     if (a.script_distance_moved > 0.f &&
                         reported_script_moves.insert(a.handle).second)
                         lucent::info("world", "scripted movement began for {}",
+                                     a.handle);
+                for (const auto& a : world.actors())
+                    if (a.script_map_hits > 0 &&
+                        reported_script_map_hits.insert(a.handle).second)
+                        lucent::info("world", "scripted map collision for {}",
                                      a.handle);
                 world.TickMotions(dt * 30.f);
                 if (player_script_moving) {
@@ -3118,7 +3189,7 @@ int main(int argc, char** argv) {
                 // Headless driver: steer toward a room-local target so the
                 // walk-into-an-event-box path (which is how the game connects
                 // rooms) can be exercised without a human at the keyboard.
-                if (walk_to) {
+                if (walk_to && !player_script_moving) {
                     float tx = walk_x + room_org[0], tz = walk_z + room_org[2];
                     float dx = tx - px, dz = tz - pz;
                     if (dx * dx + dz * dz > 4.f) { mx = dx; mz = dz; }
@@ -3604,9 +3675,16 @@ int main(int argc, char** argv) {
                         for (const auto& [ai, av] : acts[aidx].attack) {
                             if (!av.valid || av.bone.empty()) continue;
                             ++cs.swing_frames;
-                            float ap[3];
-                            if (!mcf::BoneLocalPos(ait->second.model, nullptr, t, av.bone, ap))
-                                continue;
+                            float ap[3]{0.f, 0.f, 0.f};
+                            if (!mcf::BoneLocalPos(ait->second.model, nullptr, t,
+                                                   av.bone, ap)) {
+                                ++cs.atk_no_bone;
+                                // SiModelBase::GetBoneIDByName @ 0x35b414
+                                // returns ID 0 after an exact-strcmp miss.
+                                if (!ait->second.model.bones.empty())
+                                    mcf::BoneLocalPos(ait->second.model, nullptr, t,
+                                        ait->second.model.bones.front().name, ap);
+                            }
                             for (int k = 0; k < 3; ++k)
                                 ap[k] += acts[aidx].pos[k] + room_org[k] + av.offset[k];
 
@@ -3656,6 +3734,17 @@ int main(int argc, char** argv) {
                                         ++cs.blocked_by_faction;
                                         continue;
                                     }
+                                    // One hit per enabled attack volume phase,
+                                    // for every defender type. Scripted attacks
+                                    // advance swing_id on false->true; the host
+                                    // player attack does the same on key-down.
+                                    auto key = std::make_pair(atkA.swing_id,
+                                                              acts[didx].handle);
+                                    if (std::find(atkA.hit_this_swing.begin(),
+                                                  atkA.hit_this_swing.end(), key) !=
+                                        atkA.hit_this_swing.end())
+                                        continue;
+                                    atkA.hit_this_swing.push_back(key);
                                     // The player is gated by the engine's OWN
                                     // rule instead: AppCharacterPlayer::Damage
                                     // Process refuses while the i-frame timer
@@ -3709,16 +3798,6 @@ int main(int argc, char** argv) {
                                         }
                                         continue;
                                     }
-                                    // One hit per swing per target. The volume is
-                                    // live for several frames, and without this a
-                                    // single swing applied its damage every frame.
-                                    auto key = std::make_pair(atkA.swing_id,
-                                                              acts[didx].handle);
-                                    if (std::find(atkA.hit_this_swing.begin(),
-                                                  atkA.hit_this_swing.end(), key) !=
-                                        atkA.hit_this_swing.end())
-                                        continue;
-                                    atkA.hit_this_swing.push_back(key);
                                     ++cs.landed;
 
                                     auto& d = acts[didx];
@@ -4259,11 +4338,13 @@ int main(int argc, char** argv) {
                          "-> {} landed hits -> {} kills; "
                          "{} volume pairs over {} live-swing frames; "
                          "closest approach {} units; skipped {} attackers / {} "
-                         "defenders with no loaded model, {} with no such bone",
+                         "defenders with no loaded model; {} attacker volumes "
+                         "fell back to bone 0, {} defenders had no such bone",
                          cs.hits, cs.blocked_by_faction, cs.landed, cs.kills,
                          cs.pairs, cs.swing_frames,
                          cs.pairs ? std::format("{:.1f}", cs.closest) : "n/a",
-                         cs.atk_no_model, cs.def_no_model, cs.def_no_bone);
+                         cs.atk_no_model, cs.def_no_model, cs.atk_no_bone,
+                         cs.def_no_bone);
             lucent::info("combat",
                          "player took {} damage over {} hits, ending on {}/{} HP; "
                          "{} enemy-vs-player volume pairs tested, closest {}",

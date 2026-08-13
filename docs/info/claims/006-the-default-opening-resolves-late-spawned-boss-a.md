@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: animation,scripting,bosses
 depends: src/engine/world.h#Actor, src/engine/world.cpp#TickMotions, src/engine/script.cpp#IsChrMotionFinish, src/host/main.cpp#missing_actor_models, tools/verify.sh
 reconfirmed: 2026-08-13
-verified_at: 2026-08-13 21:43:39
+verified_at: 2026-08-13 22:02:32
 ---
 
 ## Claim
@@ -32,3 +32,7 @@ Final 600-frame opening gate observed late B0000_00 load and BGM 2 with motion r
 ## Re-confirmed 2026-08-13
 
 Full verify.sh observed late boss asset load, BGM 2, and subsequent scripted boss movement.
+
+## Re-confirmed 2026-08-13
+
+Full shipping verifier passed on 2026-08-13; the opening resolved the late boss, advanced its motion, switched to BGM 2, moved the boss, and reached combat.

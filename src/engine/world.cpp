@@ -34,14 +34,27 @@ bool World::Remove(const std::string& handle) {
     return true;
 }
 
-void World::TickScriptMoves(float dt) {
+void World::TickScriptMoves(float dt, const ScriptMoveBlocked& blocked) {
     for (auto& a : actors_) {
         if (!a.alive || !a.script_auto_move) continue;
+        a.data[chr_data::kIsHitMap] = 0.f;
         float dx = a.script_move_target[0] - a.pos[0];
         float dy = a.script_move_target[1] - a.pos[1];
         float dz = a.script_move_target[2] - a.pos[2];
         float left = std::sqrt(dx * dx + dy * dy + dz * dz);
         float step = a.script_move_speed * dt;
+        float nx = a.script_move_target[0];
+        float nz = a.script_move_target[2];
+        if (left > step && left > 0.0001f) {
+            nx = a.pos[0] + dx / left * step;
+            nz = a.pos[2] + dz / left * step;
+        }
+        if (blocked && a.Get(chr_data::kMapCollision) != 0.f && blocked(a, nx, nz)) {
+            a.data[chr_data::kIsHitMap] = 1.f;
+            ++a.script_map_hits;
+            a.script_auto_move = false;
+            continue;
+        }
         if (left <= step || left <= 0.0001f) {
             a.script_distance_moved += left;
             for (int k = 0; k < 3; ++k) a.pos[k] = a.script_move_target[k];

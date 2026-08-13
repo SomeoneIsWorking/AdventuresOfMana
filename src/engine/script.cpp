@@ -116,6 +116,12 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         lua_pushnumber(L, uint32_t(N(1)) & uint32_t(N(2)));
         return true;
     }
+    if (n == "GetGroundAttribute") {
+        auto* self = FromState(L);
+        lua_pushnumber(L, self && self->ground_attribute
+                             ? self->ground_attribute(N(1), N(2)) : 0);
+        return true;
+    }
     if (n == "math_LerpSin") {
         int start = int(N(1)), now = int(N(2)), use = int(N(3));
         float len = N(4), angle0 = N(5), angle1 = N(6);
@@ -322,7 +328,12 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
             return true;
         }
         if (n == "ChrAttackBoneValid" || n == "ChrDamageBoneValid") {
-            v.valid = lua_toboolean(L, 3);
+            bool enabled = lua_toboolean(L, 3);
+            if (atk && enabled && !v.valid) {
+                ++a->swing_id;
+                a->hit_this_swing.clear();
+            }
+            v.valid = enabled;
             return true;
         }
         if (n == "ChrAttackBoneAttackRate") { v.rate = N(3); return true; }

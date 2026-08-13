@@ -163,6 +163,13 @@ Both attach to a named bone:
 
 `ChrAttackBoneValid` / `ChrDamageBoneValid` enable them; `ChrAttackBoneAttackRate`
 scales damage. 21 scripts configure attack volumes, 18 configure damage volumes.
+An unresolved attack bone uses bone ID 0: Jackal's script requests
+`c_spine`, while B0000's shipping skeleton contains only `c_spine_a` and
+`c_spine_b`; the native `GetBoneMatrix` lookup is exact `strcmp` and returns
+null, while the collision path's `SiModelBase::GetBoneIDByName` is also exact
+but returns ID 0 after exhausting the list. B0000 bone 0 is `y_ang`. The host
+reports every bone-0 fallback instead of silently dropping the live volume or
+inventing a fuzzy bone alias.
 
 `HitArcSphere` is the overlap predicate, kept as pure geometry so it can be
 exercised without a running game — `--combat-selftest` runs 9 cases covering

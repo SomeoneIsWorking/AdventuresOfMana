@@ -318,8 +318,15 @@ Established two independent ways that agree:
 | 3 | 8 | 625 | 0.000 | **wall** |
 | 4 | 16 | 4 | 0.000 | **wall** |
 
-So `kFloorMask = 0x7` and `kWallMask = 0x18`. This matches `eChrGetData.FLOORTYPE`
-in `sk1.lua`, documented as `0:地面, 1:壁` (ground, wall).
+That 40-room sample was insufficient to define a wall mask. `M0001_00_00`
+falsifies `kWallMask = 0x18`: all 72 arena-wall triangles are bit 1 (`0x2`),
+with exactly vertical normals, while the same bit also occurs on floor. The
+full 992-room corpus likewise makes bit 1 mixed (182,432 triangles, including
+87,587 near-vertical and 30,212 near-horizontal). Physical XZ collision now
+uses candidate mask `0x1a` and accepts only triangles whose surface is steeper
+than 45 degrees; the shipping arena discriminator crosses the x=30 wall and is
+blocked, while a segment over open floor is not. `GetFloor` remains mask `0x7`
+and its barycentric XZ test naturally rejects vertical triangles.
 
 Querying floors with `~0u` — as this port did at first — accepts vertical
 surfaces as floor.
