@@ -30,6 +30,8 @@ public:
   DrawAndReadback(std::uint32_t width, std::uint32_t height,
                   std::span<const SceneDraw> draws,
                   SDL_FColor clear = {0.f, 1.f, 1.f, 1.f});
+  void Draw(SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass,
+            std::span<const SceneDraw> draws);
 
 private:
   Device &device_;

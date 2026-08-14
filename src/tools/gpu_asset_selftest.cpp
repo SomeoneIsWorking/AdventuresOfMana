@@ -353,6 +353,15 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
         snapshot, scene_width, scene_height);
     const std::uint32_t snapshot_differences =
         PixelDifference(combined_pixels, snapshot_pixels);
+    const auto external_pass_pixels = device.RenderAndReadback(
+        scene_width, scene_height, live_scene_clear,
+        [&](SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass) {
+          snapshot_renderer.Draw(snapshot, scene_width, scene_height, command,
+                                 pass);
+        },
+        true);
+    const std::uint32_t external_pass_differences =
+        PixelDifference(snapshot_pixels, external_pass_pixels);
     if (capture_path) {
       mana::WritePng(capture_path, scene_width, scene_height, combined_pixels);
       lucent::info("gpu", "ASSET SELFTEST: wrote scene capture {}",
@@ -378,20 +387,34 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
       unnamed_asset_failed =
           unnamed_asset_message == "render snapshot asset has no shipping name";
     }
+    bool missing_target_failed = false;
+    std::string missing_target_message;
+    try {
+      snapshot_renderer.Draw(snapshot, scene_width, scene_height, nullptr,
+                             nullptr);
+    } catch (const std::invalid_argument &error) {
+      missing_target_message = error.what();
+      missing_target_failed =
+          missing_target_message == "scene draw has no command buffer";
+    }
     if (actor_differences == 0 || outside_differences != 0 ||
         snapshot_differences != 0 ||
-        snapshot_renderer.cached_asset_count() != 2 || !unnamed_asset_failed) {
+        external_pass_differences != 0 ||
+        snapshot_renderer.cached_asset_count() != 2 || !unnamed_asset_failed ||
+        !missing_target_failed) {
       lucent::error(
           "gpu",
           "ASSET SELFTEST FAIL: scene scanned {} pixels, {} room draws and {} "
           "actor draws; centered actor changed {}, offscreen actor changed {}; "
-          "snapshot differs in {}, cache holds {} assets, unnamed-asset "
-          "negative={} ({}); expected nonzero, zero, zero, 2, true",
+          "snapshot differs in {}, external pass differs in {}, cache holds {} "
+          "assets, unnamed-asset negative={} ({}), missing-target negative={} "
+          "({}); expected nonzero, zero, zero, zero, 2, true, true",
           scene_width * scene_height, asset.draws().size(),
           skinned_asset.draws().size(),
           actor_differences, outside_differences, snapshot_differences,
+          external_pass_differences,
           snapshot_renderer.cached_asset_count(), unnamed_asset_failed,
-          unnamed_asset_message);
+          unnamed_asset_message, missing_target_failed, missing_target_message);
       return 1;
     }
     lucent::info(
@@ -399,7 +422,8 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
         "ASSET SELFTEST: scene scanned {} pixels, {} room draws and {} actor "
         "draws; centered actor changed {}, offscreen actor changed 0; {} "
         "pixels discriminate scene-wide material ordering; snapshot adapter "
-        "matches 0 pixels different with 2 cached assets; unnamed asset "
+        "matches 0 pixels different with 2 cached assets; external render "
+        "pass matches 0 pixels different; unnamed asset and missing target "
         "rejected",
         scene_width * scene_height, asset.draws().size(),
         skinned_asset.draws().size(),

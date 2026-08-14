@@ -75,9 +75,13 @@ fails explicitly.
 
 `host/gpu_snapshot_renderer` is the SDL3 GPU consumer of running frames. It
 owns asset/pipeline caching by shipping asset name, model transforms, and pose
-palettes without owning mutable world state. Its shipping self-test reproduces
-the same manually assembled SDL3 scene with 0/76,800 pixels different and
-rejects an unnamed asset. `host/scene_pair_capture` owns the diagnostic GPU
+palettes without owning mutable world state. Scene submission accepts an
+externally owned SDL3 command buffer and render pass; synchronized readback is
+a wrapper, not a requirement. The shipping self-test reproduces the same
+manually assembled SDL3 scene with 0/76,800 pixels different, reproduces its
+readback through an external pass with another 0/76,800 difference, and rejects
+an unnamed asset and missing target. This is the boundary a future swapchain or
+linear-light post-process target will consume. `host/scene_pair_capture` owns the diagnostic GPU
 lifetime, GLES row conversion, checked PNG output, comparison, and reporting.
 The mandatory `--scene-pair` run captures both backends at frame 30 of the same
 real room snapshot: 3 instances, 2 skinned, and 3 cached assets. It exits

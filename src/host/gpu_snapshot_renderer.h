@@ -1,5 +1,7 @@
 #pragma once
 
+#include <SDL3/SDL_gpu.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -29,6 +31,9 @@ public:
   std::vector<std::uint8_t> DrawAndReadback(const RenderSnapshot &snapshot,
                                             std::uint32_t width,
                                             std::uint32_t height);
+  void Draw(const RenderSnapshot &snapshot, std::uint32_t width,
+            std::uint32_t height, SDL_GPUCommandBuffer *command,
+            SDL_GPURenderPass *pass);
   std::size_t cached_asset_count() const { return cache_.size(); }
 
 private:

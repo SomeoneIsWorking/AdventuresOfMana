@@ -50,6 +50,19 @@ std::vector<std::uint8_t>
 SnapshotRenderer::DrawAndReadback(const RenderSnapshot &snapshot,
                                   std::uint32_t width,
                                   std::uint32_t height) {
+  constexpr SDL_FColor clear{.1f, .11f, .14f, 1.f};
+  return device_.RenderAndReadback(
+      width, height, clear,
+      [&](SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass) {
+        Draw(snapshot, width, height, command, pass);
+      },
+      true);
+}
+
+void SnapshotRenderer::Draw(const RenderSnapshot &snapshot,
+                            std::uint32_t width, std::uint32_t height,
+                            SDL_GPUCommandBuffer *command,
+                            SDL_GPURenderPass *pass) {
   if (snapshot.instances.empty())
     throw std::invalid_argument("render snapshot contains 0 instances");
   const auto projection = PerspectiveTransform(
@@ -80,8 +93,7 @@ SnapshotRenderer::DrawAndReadback(const RenderSnapshot &snapshot,
                      .transform = transform,
                      .joints = joints});
   }
-  constexpr SDL_FColor clear{.1f, .11f, .14f, 1.f};
-  return scene_->DrawAndReadback(width, height, draws, clear);
+  scene_->Draw(command, pass, draws);
 }
 
 } // namespace mana::gpu

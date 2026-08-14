@@ -12,24 +12,34 @@ std::vector<std::uint8_t>
 SceneRenderer::DrawAndReadback(std::uint32_t width, std::uint32_t height,
                                std::span<const SceneDraw> draws,
                                SDL_FColor clear) {
+  return device_.RenderAndReadback(
+      width, height, clear,
+      [&](SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass) {
+        Draw(command, pass, draws);
+      },
+      depth_);
+}
+
+void SceneRenderer::Draw(SDL_GPUCommandBuffer *command,
+                         SDL_GPURenderPass *pass,
+                         std::span<const SceneDraw> draws) {
+  if (!command)
+    throw std::invalid_argument("scene draw has no command buffer");
+  if (!pass)
+    throw std::invalid_argument("scene draw has no render pass");
   for (const auto &draw : draws) {
     if (!draw.pipeline)
       throw std::invalid_argument("scene draw has no asset pipeline");
     if (&draw.pipeline->device() != &device_)
       throw std::invalid_argument("scene draw belongs to another GPU device");
   }
-  return device_.RenderAndReadback(
-      width, height, clear,
-      [&](SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass) {
-        for (const auto material_pass : {MaterialPass::kOpaque,
-                                         MaterialPass::kBlended}) {
-          for (const auto &draw : draws) {
-            draw.pipeline->DrawPass(command, pass, material_pass,
-                                    draw.transform, draw.textures, draw.joints);
-          }
-        }
-      },
-      depth_);
+  for (const auto material_pass : {MaterialPass::kOpaque,
+                                   MaterialPass::kBlended}) {
+    for (const auto &draw : draws) {
+      draw.pipeline->DrawPass(command, pass, material_pass, draw.transform,
+                              draw.textures, draw.joints);
+    }
+  }
 }
 
 std::array<float, 16>
