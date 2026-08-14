@@ -759,6 +759,10 @@ inline int32_t RewardWithBonus(int32_t base, int32_t roll) {
 // tblHelm / tblArmor defence, indexed by DataTableGetDefence @ 0x2c3bd8.
 // Returns 0 for an id not in either table.
 int32_t EquipDefence(int32_t id);
+// Exact tblItem prices generated from the same binary table as item uses.
+// Zero means the item is not sold by shops.
+int32_t ItemBuyPrice(int32_t id);
+int32_t ItemSellPrice(int32_t id);
 // The other two ids GameParameter::Init grants a new game (AddItem 0xc9, 0x12d).
 constexpr int32_t kStartingHelmId = 201;
 constexpr int32_t kStartingArmorId = 301;

@@ -433,6 +433,42 @@ echo "=== combat self-test ==="
   grep -F "video driver: offscreen" "$silver_key_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$silver_key_log" || fail=1
 
+  # Continue the same unseeded state back out of the recovery branch, descend
+  # the authored wall plane, and enter the Hydra boss cluster. This target is
+  # unique in the route, unlike the backtracked overworld rooms.
+  echo "=== continuous Hydra mountain descent into the boss cluster ==="
+  boss_cluster_log=scratch/logs/hydra-boss-cluster-entry.log
+  ./build/mana --opening-story --continue-story --stop-room M0013_09_00 \
+    >"$boss_cluster_log" 2>&1 || fail=1
+  grep -F "completed the authored Hydra recovery spring" \
+    "$boss_cluster_log" || fail=1
+  grep -F "opening wall-plane route in M0013_06_05 from lone WALL_UP via 'wall_02b'" \
+    "$boss_cluster_log" || fail=1
+  grep -F "entered event box 'wall_01'" "$boss_cluster_log" || fail=1
+  grep -F "entered event box 'wall_02b'" "$boss_cluster_log" || fail=1
+  grep -F "room exit 3 -> M0013_05_05" "$boss_cluster_log" || fail=1
+  grep -F "mapjump -> M0013_09_00 at (255,0,75) arrow 2" \
+    "$boss_cluster_log" || fail=1
+  grep -F "reached requested stop room M0013_09_00" \
+    "$boss_cluster_log" || fail=1
+  grep -F "video driver: offscreen" "$boss_cluster_log" || fail=1
+  grep -F "audio decoded 0 sounds / 0 frames" "$boss_cluster_log" || fail=1
+
+  # A locked door with no accepted equipped key used to spin forever after
+  # its route deque became empty. Prove the shipping artifact emits a bounded,
+  # detailed negative and exits nonzero for that exact class.
+  echo "=== locked-door headless negative ==="
+  locked_door_log=scratch/logs/locked-door-negative.log
+  if ./build/mana --opening-story --room M0013_08_01 \
+      --walk-to 360 135 --stop-room M0099_99_99 \
+      >"$locked_door_log" 2>&1; then
+    echo "FAIL: keyless locked-door route returned success"
+    fail=1
+  fi
+  grep -F "opening route blocked for 120 frames at locked room side 1 in M0013_08_01; accepted key ids are 18/30/37, equipped item buttons are [0,0,0,0]" \
+    "$locked_door_log" || fail=1
+  grep -F "audio decoded 0 sounds / 0 frames" "$locked_door_log" || fail=1
+
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --camera-selftest >/dev/null 2>&1 || fail=1
@@ -504,7 +540,8 @@ echo "  one-registration-missing negative passed (199/200 rejected)"
         "$generated/docs/weapon-table.md" \
         "$generated/src/engine/weapon_table.inc" \
         "$generated/docs/item-table.md" \
-        "$generated/src/engine/item_uses.inc"
+        "$generated/src/engine/item_uses.inc" \
+        "$generated/src/engine/item_prices.inc"
   echo "=== map-object table ==="
   (cd "$generated" && python3 "$parser_root/tools/asset/object_table.py" \
     "$parser_root/scratch/raw/libmcfandroid.so" "$parser_root/scratch/dump/sk1") || fail=1
@@ -524,12 +561,14 @@ echo "  one-registration-missing negative passed (199/200 rejected)"
   cmp -s "$generated/docs/item-table.md" docs/item-table.md || fail=1
   cmp -s "$generated/src/engine/item_uses.inc" \
     src/engine/item_uses.inc || fail=1
+  cmp -s "$generated/src/engine/item_prices.inc" \
+    src/engine/item_prices.inc || fail=1
   cp "$generated/docs/item-table.md" "$generated/docs/item-table-mismatch.md"
   printf '\nMISMATCH\n' >> "$generated/docs/item-table-mismatch.md"
   if cmp -s "$generated/docs/item-table-mismatch.md" docs/item-table.md; then
     fail=1
   fi
-  echo "  6 generated artifacts match tracked bytes; mismatch negative passed"
+  echo "  7 generated artifacts match tracked bytes; mismatch negative passed"
   echo "=== world map ==="
   python3 tools/asset/worldmap.py --check || fail=1
 

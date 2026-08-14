@@ -60,6 +60,13 @@ public:
     // host's PlayerStats. Room scripts (healing springs in particular) must
     // read and write that same state rather than Actor's presentation copy.
     PlayerStats* player_stats = nullptr;
+    // Shop/selection commands are synchronous platform UI in the original.
+    // The host supplies a choice policy for headless scenarios; without one,
+    // scripts retain their authored yield-until-selection behavior.
+    std::function<int(const std::vector<std::string>&)> select_choice;
+    std::function<int(const std::vector<int>&, int)> shop_choice;
+    std::vector<std::string> select_options;
+    std::vector<int> shop_items;
     // GameParameter's four inventory bags survive room loads just like the
     // scenario globals. The host owns the concrete state; Lua's AddItem,
     // DelItem and chest actors all operate on this same instance.

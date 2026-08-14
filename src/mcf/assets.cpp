@@ -1025,6 +1025,24 @@ bool Inventory::Equip(int slot, int32_t id) {
     return true;
 }
 
+int32_t ItemBuyPrice(int32_t id) {
+    switch (id) {
+#define ITEM_PRICE(item_id, buy, sell) case item_id: return buy;
+#include "engine/item_prices.inc"
+#undef ITEM_PRICE
+        default: return 0;
+    }
+}
+
+int32_t ItemSellPrice(int32_t id) {
+    switch (id) {
+#define ITEM_PRICE(item_id, buy, sell) case item_id: return sell;
+#include "engine/item_prices.inc"
+#undef ITEM_PRICE
+        default: return 0;
+    }
+}
+
 bool Inventory::Consume(int32_t id) {
     int n = 0;
     Slot* s = bag(kItems, &n);

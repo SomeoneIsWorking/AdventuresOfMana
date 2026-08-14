@@ -163,6 +163,67 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         return true;
     }
 
+    if (n == "GetRC") {
+        auto* self = FromState(L);
+        lua_pushnumber(L, self && self->player_stats
+                              ? self->player_stats->money : 0);
+        return true;
+    }
+    if (n == "AddRC") {
+        auto* self = FromState(L);
+        const bool ok = self && self->player_stats;
+        if (ok) self->player_stats->AddMoney(int(N(1)));
+        lua_pushboolean(L, ok);
+        return true;
+    }
+    if (n == "ItemPriceBuy") {
+        lua_pushnumber(L, ItemBuyPrice(int(N(1))));
+        return true;
+    }
+    if (n == "ItemPriceSell") {
+        lua_pushnumber(L, ItemSellPrice(int(N(1))));
+        return true;
+    }
+    if (n == "SelectInit") {
+        if (auto* self = FromState(L)) self->select_options.clear();
+        return true;
+    }
+    if (n == "SelectAdd") {
+        if (auto* self = FromState(L)) self->select_options.emplace_back(S(1));
+        return true;
+    }
+    if (n == "Select") {
+        auto* self = FromState(L);
+        const int choice = self && self->select_choice
+            ? self->select_choice(self->select_options) : -1;
+        if (choice >= 0) {
+            lua_pushnumber(L, choice);
+            lua_setglobal(L, "sel_result");
+        }
+        return true;
+    }
+    if (n == "ShopInit") {
+        if (auto* self = FromState(L)) self->shop_items.clear();
+        return true;
+    }
+    if (n == "ShopAdd") {
+        if (auto* self = FromState(L)) self->shop_items.push_back(int(N(1)));
+        return true;
+    }
+    if (n == "Shop") {
+        auto* self = FromState(L);
+        const int mode = int(N(1));
+        const int choice = self && self->shop_choice
+            ? self->shop_choice(self->shop_items, mode) : -1;
+        if (choice >= 0) {
+            lua_pushnumber(L, choice);
+            lua_setglobal(L, "sel_result_itemid");
+            lua_pushnumber(L, choice > 0 ? Inventory::IdType(choice) : 0);
+            lua_setglobal(L, "sel_result_itemtype");
+        }
+        return true;
+    }
+
     if (n == "IsAddItem") {
         auto* self = FromState(L);
         lua_pushboolean(L, self && self->inventory &&

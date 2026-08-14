@@ -1288,6 +1288,39 @@ int main(int argc, char** argv) {
                script.live_coroutines() == 0 &&
                script_player_stats.hp == script_player_stats.max_hp() &&
                script_player_stats.mp == script_player_stats.max_mp());
+            script_player_stats.money = 50;
+            ck("shipping shop prices and RC commands share authoritative money",
+               run("shop-money", "assert(GetRC() == 50)\n"
+                                 "assert(ItemPriceBuy(18) == 15)\n"
+                                 "assert(ItemPriceBuy(1) == 0)\n"
+                                 "assert(AddRC(-15))\n"
+                                 "assert(GetRC() == 35)\n") &&
+               script_player_stats.money == 35);
+            script.SetGlobalNumber("sel_result", -1);
+            ck("selection without a host policy preserves the authored wait",
+               run("selection-negative", "SelectInit()\n"
+                                         "SelectAdd('no')\n"
+                                         "SelectAdd('yes')\n"
+                                         "Select(0,0)\n") &&
+               script.GlobalNumber("sel_result", -2) == -1);
+            script.select_choice = [](const std::vector<std::string>& choices) {
+                return choices.size() == 2 ? 1 : -1;
+            };
+            ck("host selection policy can produce the other answer",
+               run("selection-positive", "Select(0,0)\n") &&
+               script.GlobalNumber("sel_result", -1) == 1);
+            script.shop_choice = [](const std::vector<int>& stock, int mode) {
+                return mode == 1 &&
+                       std::find(stock.begin(), stock.end(), 18) != stock.end()
+                    ? 18 : -1;
+            };
+            ck("shipping ShopAdd stock reaches the host purchase selector",
+               run("shop-stock", "ShopInit()\n"
+                                 "ShopAdd(2)\n"
+                                 "ShopAdd(18)\n"
+                                 "Shop(1)\n") &&
+               script.GlobalNumber("sel_result_itemid", -1) == 18 &&
+               script.GlobalNumber("sel_result_itemtype", -1) == 1);
             ck("script attack phases advance once per false-to-true edge",
                run("attack-phase",
                    "ChrAttackBoneSet('MainPlayer',2,'cog')\n"
@@ -3236,12 +3269,53 @@ int main(int argc, char** argv) {
             constexpr int kMotionWait = 0, kMotionWalk = 1, kMotionAttack = 23;
             constexpr float kAttackFrames = 24.f;   // ~0.8 s at 30 fps
             float attack_left = 0.f;
+            bool run_failed = false;
             // The player's numbers are the engine's own: GameParameter::Init
             // sets a new game's state and ::Update derives the rest from it.
             // What is NOT modelled is the SAVE -- there is no load path, so
             // this is always a new game's level 1 and its granted equipment.
             mcf::PlayerStats ps;
             sc.player_stats = &ps;
+            int auto_key_shop_phase = 0;
+            sc.select_choice = [&](const std::vector<std::string>& choices) {
+                if (!opening_story || room_name != "M0010_03_02") return -1;
+                if (auto_key_shop_phase == 0 && choices.size() >= 3) {
+                    auto_key_shop_phase = 1;
+                    return 2;  // authored shop main menu: Buy
+                }
+                if (auto_key_shop_phase == 2 && choices.size() == 2) {
+                    auto_key_shop_phase = 3;
+                    return 1;  // confirm the Keyring purchase
+                }
+                if (auto_key_shop_phase == 4 && choices.size() >= 3) {
+                    auto_key_shop_phase = 5;
+                    return 0;  // leave the shop after the purchase
+                }
+                return -1;
+            };
+            sc.shop_choice = [&](const std::vector<int>& stock, int mode) {
+                if (!opening_story || room_name != "M0010_03_02" || mode != 1)
+                    return -1;
+                if (auto_key_shop_phase == 1 &&
+                    std::find(stock.begin(), stock.end(), 18) != stock.end()) {
+                    auto_key_shop_phase = 2;
+                    return 18;
+                }
+                if (auto_key_shop_phase == 3 && inventory.Has(18)) {
+                    if (!inventory.Equip(4, 18)) {
+                        lucent::error("inventory", "headless Keyring equip "
+                                      "failed after authored shop purchase");
+                        run_failed = true;
+                    } else {
+                        lucent::info("inventory", "bought and equipped Keyring "
+                                     "item 18 from Motie's authored shop for "
+                                     "{} GP", mcf::ItemBuyPrice(18));
+                    }
+                    auto_key_shop_phase = 4;
+                    return 0;
+                }
+                return -1;
+            };
             lucent::info("player", "level {}  HP {}/{}  MP {}/{}  {} GP  "
                          "power {} stamina {} wisdom {} will {}",
                          ps.level, ps.hp, ps.max_hp(), ps.mp, ps.max_mp(),
@@ -3358,7 +3432,6 @@ int main(int argc, char** argv) {
             float eye_cur[3]{};
             bool cam_init = false;
             bool running = true;
-            bool run_failed = false;
             bool stop_room_reached = stop_room.empty() || room_name == stop_room;
             struct RoomExitReq {
                 bool pending = false;
@@ -3886,6 +3959,27 @@ int main(int argc, char** argv) {
                     return player &&
                            player->Get(mcf::chr_data::kFloorType) == 1.f;
                 }();
+                const bool player_at_lone_wall = [&] {
+                    if (player_on_wall) return false;
+                    const float lx = px - room_org[0];
+                    const float lz = pz - room_org[2];
+                    for (const auto& bx : world.boxes) {
+                        if (!bx.enabled || bx.no_touch ||
+                            !(bx.flags & mcf::EventBox::kWallUp))
+                            continue;
+                        const float dx = std::max(
+                            {bx.lo[0] - lx, 0.f, lx - bx.hi[0]});
+                        const float dz = std::max(
+                            {bx.lo[2] - lz, 0.f, lz - bx.hi[2]});
+                        if (py < bx.hi[1] &&
+                            py + 2.f * kEventBoxProbeHeight > bx.lo[1] &&
+                            dx * dx + dz * dz <
+                                kCharacterCollisionRadius *
+                                kCharacterCollisionRadius)
+                            return true;
+                    }
+                    return false;
+                }();
                 // Headless driver: steer toward a room-local target so the
                 // walk-into-an-event-box path (which is how the game connects
                 // rooms) can be exercised without a human at the keyboard.
@@ -4155,8 +4249,11 @@ int main(int argc, char** argv) {
                                     break;
                                 }
                         } else if ((room_name == "M0000_10_09" ||
-                                    room_name == "M0000_11_09" ||
-                                    room_name == "M0000_12_09") &&
+                                    room_name == "M0000_11_09") &&
+                                   story_sccnt == 15 && !inventory.Has(30)) {
+                            active_walk_x = room_size.w + 30.f;
+                            active_walk_z = room_size.h * .5f;
+                        } else if (room_name == "M0000_12_09" &&
                                    story_sccnt == 15 && !inventory.Has(30)) {
                             active_walk_x = room_size.w + 30.f;
                             active_walk_z = room_size.h * .5f;
@@ -4342,8 +4439,16 @@ int main(int argc, char** argv) {
                                     (target->lo[2] + target->hi[2]) * .5f;
                             }
                         } else if (room_name == "M0013_06_05" &&
-                                   story_sccnt == 15 && inventory.Has(30)) {
-                            if (player_on_wall) {
+                                   story_sccnt == 15) {
+                            if (hydra_spring_visited) {
+                                active_walk_x = -30.f;
+                                active_walk_z = pz - room_org[2];
+                                for (const auto& bx : world.boxes)
+                                    if (bx.enabled && bx.name == "wall_02b") {
+                                        active_goal_boxes.push_back(&bx);
+                                        break;
+                                    }
+                            } else if (player_on_wall && inventory.Has(30)) {
                                 const auto it = std::find_if(
                                     world.boxes.begin(), world.boxes.end(),
                                     [&](const mcf::EventBox& bx) {
@@ -4357,7 +4462,7 @@ int main(int argc, char** argv) {
                                     active_walk_z =
                                         (it->lo[2] + it->hi[2]) * .5f;
                                 }
-                            } else {
+                            } else if (inventory.Has(30)) {
                                 // Approach the lone WALL_UP which enters wall
                                 // movement. It has no paired WALL_DOWN, so the
                                 // ordinary event-wall router cannot select it.
@@ -4375,6 +4480,30 @@ int main(int argc, char** argv) {
                                         (it->lo[2] + it->hi[2]) * .5f;
                                 }
                             }
+                        } else if (room_name == "M0013_05_05" &&
+                                   story_sccnt == 15 && hydra_spring_visited) {
+                            for (const auto& bx : world.boxes)
+                                if (bx.enabled && !bx.no_touch &&
+                                    bx.name == "in_1") {
+                                    active_goal_boxes.push_back(&bx);
+                                    active_walk_x =
+                                        (bx.lo[0] + bx.hi[0]) * .5f;
+                                    active_walk_z =
+                                        (bx.lo[2] + bx.hi[2]) * .5f;
+                                    break;
+                                }
+                        } else if (room_name == "M0013_09_00" &&
+                                   story_sccnt == 15 && hydra_spring_visited) {
+                            active_walk_x = -30.f;
+                            active_walk_z = room_size.h * .5f;
+                        } else if (room_name == "M0013_08_00" &&
+                                   story_sccnt == 15 && hydra_spring_visited) {
+                            active_walk_x = room_size.w * .5f;
+                            active_walk_z = room_size.h + 30.f;
+                        } else if (room_name == "M0013_08_01" &&
+                                   story_sccnt == 15 && hydra_spring_visited) {
+                            active_walk_x = room_size.w + 30.f;
+                            active_walk_z = room_size.h * .5f;
                         } else if ((room_name == "M0011_00_00" ||
                                     room_name == "M0011_00_01") &&
                                    story_sccnt == 14 && inventory.Has(17)) {
@@ -4498,7 +4627,8 @@ int main(int argc, char** argv) {
                             driver_route_room != room_name ||
                             driver_route_goal_x != active_walk_x ||
                             driver_route_goal_z != active_walk_z;
-                        if (route_changed && player_on_wall &&
+                        if (route_changed &&
+                            (player_on_wall || player_at_lone_wall) &&
                             !active_goal_boxes.empty()) {
                             // Floor type 1 is the shipping wall/ivy movement
                             // plane. AppCharacterBase::Update compares X/Y in
@@ -4514,10 +4644,12 @@ int main(int argc, char** argv) {
                             driver_route_room = room_name;
                             driver_route_goal_x = active_walk_x;
                             driver_route_goal_z = active_walk_z;
-                            lucent::info("host", "opening wall-plane route in {} "
-                                         "to '{}' at x={:.1f}, fixed z={:.1f}",
-                                         room_name, active_goal_boxes.front()->name,
-                                         active_walk_x, pz - room_org[2]);
+                            lucent::info(
+                                "host", "opening wall-plane route in {} {} '{}' "
+                                "at x={:.1f}, fixed z={:.1f}", room_name,
+                                player_on_wall ? "to" : "from lone WALL_UP via",
+                                active_goal_boxes.front()->name, active_walk_x,
+                                pz - room_org[2]);
                         } else if (have_col && route_changed) {
                             driver_route_room = room_name;
                             driver_route_goal_x = active_walk_x;
@@ -5475,6 +5607,7 @@ int main(int argc, char** argv) {
                         std::fabs(lx - room_size.w * .5f) <= kDoorHalfWidth,
                         std::fabs(lz - room_size.h * .5f) <= kDoorHalfWidth};
                     int exit_arrow = -1;
+                    int locked_door_side = -1;
                     if (blocked)
                         for (int side = 0; side < 4; ++side) {
                             int door = world.DoorType(side);
@@ -5488,6 +5621,7 @@ int main(int argc, char** argv) {
                                             (door == 0 && at_door[side]);
                             if (door == 1 && outward[side] && at_side[side] &&
                                 at_door[side]) {
+                                locked_door_side = side;
                                 const int key_slot =
                                     EquippedDoorKeySlot(inventory);
                                 if (key_slot >= 0) {
@@ -5497,6 +5631,7 @@ int main(int argc, char** argv) {
                                         world.SetDoor(
                                             side, mcf::World::kNoDoor);
                                         passable = true;
+                                        locked_door_side = -1;
                                         lucent::info(
                                             "inventory",
                                             "used equipped key item {} from "
@@ -5714,8 +5849,22 @@ int main(int argc, char** argv) {
                         blocked_event_probe_z = attempted_z;
                         px = ox;
                         pz = oz;
-                        if (opening_story && !driver_route.empty() &&
+                        if (opening_story &&
+                            (!driver_route.empty() || locked_door_side >= 0) &&
                             ++driver_blocked_frames == 120) {
+                            if (locked_door_side >= 0) {
+                                lucent::error(
+                                    "host", "opening route blocked for {} frames "
+                                    "at locked room side {} in {}; accepted key "
+                                    "ids are 18/30/37, equipped item buttons are "
+                                    "[{},{},{},{}]",
+                                    driver_blocked_frames, locked_door_side,
+                                    room_name, inventory.Equipped(4),
+                                    inventory.Equipped(5), inventory.Equipped(6),
+                                    inventory.Equipped(7));
+                                run_failed = true;
+                                running = false;
+                            } else {
                             lucent::error(
                                 "host", "opening route stalled for {} frames "
                                 "at ({:.4f},{:.1f},{:.4f}), attempted "
@@ -5737,6 +5886,7 @@ int main(int argc, char** argv) {
                                 hit_object ? hit_object->id : -1);
                             run_failed = true;
                             running = false;
+                            }
                         }
                     }
                     else if (!blocked && !traversed_event_wall && have_col &&
