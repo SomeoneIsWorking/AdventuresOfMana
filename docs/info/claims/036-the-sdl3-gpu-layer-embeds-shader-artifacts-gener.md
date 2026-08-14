@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-14
 tags: renderer,sdl3,gpu,shaders,tooling
 depends: src/host/gpu_pipeline.cpp#SolidPipeline::SolidPipeline, src/host/gpu_pipeline.cpp#SolidPipeline::DrawAndReadback, tools/compile_shaders.sh, tools/embed_shader_pack.py, tools/verify.sh
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 11:34:37
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Commit f5b4048; full ./tools/verify.sh passed in scratch/logs/verify-sdl3-gpu-pi
 ## What would falsify it
 
 if any tracked shader fails exact regeneration, a missing or empty pack succeeds, an available SDL GPU backend has no selected artifact, the triangle does not cover all 48 pixels, the pipeline negative accepts any pixel, or the mandatory gate omits these checks
+
+## Re-confirmed 2026-08-14
+
+Tracked baseline established after commit b6e4245; full ./tools/verify.sh passed in scratch/logs/verify-sdl3-gpu-pipeline-final.log on 2026-08-14 with exact six-artifact regeneration, missing-pack rejection, 48/48 pipeline pixels, 48/48 wrong-color rejection, and ALL PARSERS PASSED.
