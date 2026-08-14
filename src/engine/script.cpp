@@ -171,6 +171,12 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
                            self->inventory->Del(int(N(1))));
         return true;
     }
+    if (n == "GetEquipID") {
+        auto* self = FromState(L);
+        lua_pushnumber(L, self && self->inventory
+                              ? self->inventory->Equipped(int(N(1))) : 0);
+        return true;
+    }
     if (n == "AddBox") {
         // AddBox @ 0x2c8c54 converts room-local X/Z to world coordinates and
         // calls ModeGame::AddBox @ 0x2e1744. That routine spawns NPC type 32

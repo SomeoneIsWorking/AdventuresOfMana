@@ -1014,6 +1014,16 @@ int32_t Inventory::Uses(int32_t id) const {
     return 0;
 }
 
+int32_t Inventory::Equipped(int slot) const {
+    return slot >= 0 && slot < kEquipSlots ? equipped[slot] : 0;
+}
+
+bool Inventory::Equip(int slot, int32_t id) {
+    if (slot < 0 || slot >= kEquipSlots || !Has(id)) return false;
+    equipped[slot] = id;
+    return true;
+}
+
 bool Inventory::Consume(int32_t id) {
     int n = 0;
     Slot* s = bag(kItems, &n);
@@ -1031,6 +1041,10 @@ void Inventory::NewGame() {
                        kStartingArmorId, kStartingAccessoryId})
         if (!Add(id))
             lucent::warn("inv", "new game could not grant id {}", id);
+    equipped[0] = kStartingWeaponId;
+    equipped[1] = kStartingHelmId;
+    equipped[2] = kStartingArmorId;
+    equipped[3] = kStartingAccessoryId;
 }
 
 // ---------------------------------------------------------------------------

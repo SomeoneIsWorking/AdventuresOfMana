@@ -6,7 +6,7 @@ created: 2026-08-13
 tags:
 depends: src/host/main.cpp#main, src/host/render.cpp#ActorModelName, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 04:30:43
+verified_at: 2026-08-14 06:11:35
 ---
 
 ## Claim
@@ -56,3 +56,11 @@ Full ./tools/verify.sh passed 2026-08-14 after replacing the false Chocobot-deto
 ## Re-confirmed 2026-08-14
 
 Reconfirmed against pushed commit 61c7781; its pre-commit full ./tools/verify.sh pass exercised the identical tree, including all existing discriminators and the corrected 6785-frame offscreen silent M0011_00_02 continuation.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the Silver Key doorway changes, including all asset/parser negative controls, gameplay gates, selftests, 993-room census, cmd API, world map, and the continuous offscreen/no-audio progression through M0013_03_01.
+
+## Re-confirmed 2026-08-14
+
+Final full ./tools/verify.sh passed on 2026-08-14 after removing unused route branches; all parser negatives, gameplay gates, selftests, 993-room census, command/world-map checks, and continuous offscreen/no-audio progression through M0013_03_01 passed.

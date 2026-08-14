@@ -1312,6 +1312,14 @@ int main(int argc, char** argv) {
                    "assert(DelItem(17))\n"
                    "assert(not DelItem(17))\n") &&
                !script_inventory.Has(17));
+            ck("GetEquipID exposes empty and out-of-range slots",
+               run("equipment-empty",
+                   "assert(GetEquipID(4) == 0)\n"
+                   "assert(GetEquipID(-1) == 0)\n"
+                   "assert(GetEquipID(8) == 0)\n"));
+            ck("owned equipment is visible through the shipping Lua command",
+               script_inventory.Add(30) && script_inventory.Equip(4, 30) &&
+               run("equipment-present", "assert(GetEquipID(4) == 30)\n"));
             ck("AddBox creates a closed item-bearing shipping box",
                run("box-closed", "AddBox(150,0,90,17)\n") &&
                w.Find("_BOX") && w.Find("_BOX")->treasure_box &&
@@ -1539,6 +1547,18 @@ int main(int argc, char** argv) {
                 check("new game holds no item 1",   inv.Count(1), 0);
                 check("new game holds no magic 501", inv.Count(501), 0);
                 check("new game holds no weapon 102", inv.Count(102), 0);
+                check("new-game equipment slots match the four grants",
+                      inv.Equipped(0) == 101 && inv.Equipped(1) == 201 &&
+                      inv.Equipped(2) == 301 && inv.Equipped(3) == 401, 1);
+                check("new-game button slots are empty",
+                      inv.Equipped(4) + inv.Equipped(5) +
+                      inv.Equipped(6) + inv.Equipped(7), 0);
+                check("GetEquipID rejects both out-of-range classes",
+                      inv.Equipped(-1) + inv.Equipped(8), 0);
+                check("an unowned item cannot be equipped", inv.Equip(4, 30), 0);
+                check("an owned item equips into a button slot",
+                      inv.Add(30) && inv.Equip(4, 30) &&
+                      inv.Equipped(4) == 30, 1);
                 // 201, 301 and 401 are types 4, 5 and 6 -- one SHARED bag, so
                 // three of NewGame's four grants occupy the same 16 slots.
                 check("helm/armour/accessory share a bag",
@@ -3327,9 +3347,11 @@ int main(int argc, char** argv) {
             float driver_route_contact_z = std::numeric_limits<float>::quiet_NaN();
             float driver_route_through_x = std::numeric_limits<float>::quiet_NaN();
             float driver_route_through_z = std::numeric_limits<float>::quiet_NaN();
-            std::deque<std::pair<float, float>> driver_route;
+            struct DriverWaypoint { float x, y, z; };
+            std::deque<DriverWaypoint> driver_route;
             bool driver_route_is_staging = false;
             float driver_route_staging_floor = 0.f;
+            int driver_blocked_frames = 0;
             bool event_wall_inside = false;
             bool reported_unlinked_event_wall_contact = false;
             const float kWalk = 60.f;   // units/sec; rooms are 300x240
@@ -3771,6 +3793,20 @@ int main(int argc, char** argv) {
                                    escorting_heroine) {
                             active_walk_x = -30.f;
                             active_walk_z = 135.f;
+                        } else if (room_name == "M0000_09_08" &&
+                                   story_sccnt >= 10 && story_sccnt < 12) {
+                            bool live_enemy = false;
+                            for (const auto& a : world.actors())
+                                if (a.alive && !a.defeated &&
+                                    mcf::CharType(a) == mcf::Actor::kEnemy) {
+                                    live_enemy = true;
+                                    break;
+                                }
+                            if (!live_enemy)
+                                if (const auto* hasim = world.Find("hasim")) {
+                                    active_walk_x = hasim->pos[0];
+                                    active_walk_z = hasim->pos[2] + 20.f;
+                                }
                         } else if (room_name == "M0000_08_08" &&
                                    escorting_heroine) {
                             active_walk_x = 150.f;
@@ -4003,6 +4039,43 @@ int main(int argc, char** argv) {
                                 active_walk_x = box->pos[0];
                                 active_walk_z = box->pos[2] + 20.f;
                             }
+                        } else if ((room_name == "M0000_13_10" ||
+                                    room_name == "M0000_13_09") &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
+                            active_walk_x = room_size.w * .5f;
+                            active_walk_z = -30.f;
+                        } else if (room_name == "M0000_13_08" &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
+                            active_walk_x = room_size.w * .5f;
+                            active_walk_z = -30.f;
+                        } else if (room_name == "M0000_13_07" &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
+                            active_walk_x = room_size.w * .5f;
+                            active_walk_z = -30.f;
+                        } else if (room_name == "M0000_13_06" &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
+                            active_walk_x = room_size.w + 30.f;
+                            active_walk_z = room_size.h * .5f;
+                        } else if (room_name == "M0000_14_06" &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
+                            active_walk_x = room_size.w * .5f;
+                            active_walk_z = room_size.h + 30.f;
+                        } else if (room_name == "M0000_14_07" &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
+                            active_walk_x = room_size.w * .5f;
+                            active_walk_z = room_size.h + 30.f;
+                        } else if (room_name == "M0000_14_08" &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
+                            for (const auto& bx : world.boxes)
+                                if (bx.enabled && !bx.no_touch &&
+                                    bx.name == "in_01") {
+                                    active_goal_boxes.push_back(&bx);
+                                    active_walk_x =
+                                        (bx.lo[0] + bx.hi[0]) * .5f;
+                                    active_walk_z =
+                                        (bx.lo[2] + bx.hi[2]) * .5f;
+                                    break;
+                                }
                         } else if ((room_name == "M0011_00_00" ||
                                     room_name == "M0011_00_01") &&
                                    story_sccnt == 14 && inventory.Has(17)) {
@@ -4238,21 +4311,57 @@ int main(int argc, char** argv) {
                                             height[size_t(here)] + .01f &&
                                         height[size_t(next)] -
                                                 height[size_t(here)] <= 30.f;
+                                    bool edge_wall = false;
+                                    bool edge_object = false;
+                                    const float edge_dx = nav_x(nx) - nav_x(hx);
+                                    const float edge_dz = nav_z(nz) - nav_z(hz);
+                                    const float edge_length = std::sqrt(
+                                        edge_dx * edge_dx + edge_dz * edge_dz);
+                                    // Begin at the actual lattice node. Moving
+                                    // the validator backward across a collision
+                                    // boundary can make a blocked diagonal look
+                                    // clear even though shipping movement starts
+                                    // exactly on that boundary.
+                                    const float edge_start_x = nav_x(hx);
+                                    const float edge_start_z = nav_z(hz);
+                                    const float route_move_step = kWalk / 30.f;
+                                    const int edge_sweep_samples = std::max(
+                                        1, int(std::ceil(edge_length /
+                                                        route_move_step)));
+                                    for (int sample = 1;
+                                         sample <= edge_sweep_samples; ++sample) {
+                                        const float t0 = std::min(
+                                            1.f, float(sample - 1) *
+                                                     route_move_step /
+                                                     edge_length);
+                                        const float t1 = std::min(
+                                            1.f, float(sample) * route_move_step /
+                                                     edge_length);
+                                        const float ax = std::lerp(
+                                            edge_start_x, nav_x(nx), t0);
+                                        const float az = std::lerp(
+                                            edge_start_z, nav_z(nz), t0);
+                                        const float bx = std::lerp(
+                                            edge_start_x, nav_x(nx), t1);
+                                        const float bz = std::lerp(
+                                            edge_start_z, nav_z(nz), t1);
+                                        if (!stair_step && col.BlockedXZ(
+                                                ax, az, bx, bz,
+                                                height[size_t(here)], 30.f,
+                                                mcf::Collision::kWallMask))
+                                            edge_wall = true;
+                                        if (objectBlockedXZ(
+                                                ax, az, bx, bz,
+                                                height[size_t(here)], nullptr))
+                                            edge_object = true;
+                                    }
                                     if ((std::fabs(mid_floor -
                                                    height[size_t(here)]) > 30.f ||
                                          std::fabs(height[size_t(next)] -
                                                    mid_floor) > 30.f ||
                                          std::fabs(height[size_t(next)] -
                                                    height[size_t(here)]) > 30.f ||
-                                         (!stair_step && col.BlockedXZ(
-                                                       nav_x(hx), nav_z(hz),
-                                                       nav_x(nx), nav_z(nz),
-                                                       height[size_t(here)], 30.f,
-                                                       mcf::Collision::kWallMask)) ||
-                                         objectBlockedXZ(nav_x(hx), nav_z(hz),
-                                                         nav_x(nx), nav_z(nz),
-                                                         height[size_t(here)],
-                                                         nullptr)) &&
+                                         edge_wall || edge_object) &&
                                         !event_link.source)
                                         continue;
                                     dist[size_t(next)] = dist[size_t(here)] + 1;
@@ -4492,7 +4601,8 @@ int main(int argc, char** argv) {
                                         route_x = float(node % nav_w) * kNavStep;
                                     if (node / nav_w != prior / nav_w)
                                         route_z = float(node / nav_w) * kNavStep;
-                                    driver_route.emplace_back(route_x, route_z);
+                                    driver_route.push_back({
+                                        route_x, height[size_t(node)], route_z});
                                     prior = node;
                                 }
                                 float check_x = px;
@@ -4500,14 +4610,15 @@ int main(int argc, char** argv) {
                                 float check_floor = py;
                                 bool compressed_clear = true;
                                 for (const auto& waypoint : driver_route) {
-                                    const float next_x = room_org[0] + waypoint.first;
-                                    const float next_z = room_org[2] + waypoint.second;
-                                    if (col.BlockedXZ(check_x, check_z, next_x, next_z,
-                                                      py, 30.f,
-                                                      mcf::Collision::kWallMask) ||
-                                        objectBlockedXZ(check_x, check_z,
-                                                        next_x, next_z, py,
-                                                        nullptr)) {
+                                    const float next_x = room_org[0] + waypoint.x;
+                                    const float next_z = room_org[2] + waypoint.z;
+                                    // Direction-only compression can cut across
+                                    // the ownership boundary between stacked
+                                    // floor triangles. Preserve the exact BFS
+                                    // lattice whenever a segment changes floor;
+                                    // the shipping mover must traverse that
+                                    // authored stair shape one edge at a time.
+                                    if (std::fabs(waypoint.y - check_floor) > .01f) {
                                         compressed_clear = false;
                                         break;
                                     }
@@ -4515,14 +4626,27 @@ int main(int argc, char** argv) {
                                     const float segment_z = next_z - check_z;
                                     const float segment_length = std::sqrt(
                                         segment_x * segment_x + segment_z * segment_z);
+                                    // Compression is only valid if the shipping
+                                    // mover can execute it. Validate at its
+                                    // fixed-step distance rather than testing
+                                    // one long ray at the room-entry floor: a
+                                    // long ray can cross a wall whose collision
+                                    // becomes visible after the floor changes.
+                                    const float segment_start_x = check_x;
+                                    const float segment_start_z = check_z;
+                                    const float kShippingMoveStep = kWalk / 30.f;
                                     const int samples = std::max(
-                                        1, int(std::ceil(segment_length / kNavStep)));
+                                        1, int(std::ceil(segment_length /
+                                                        kShippingMoveStep)));
                                     for (int sample = 1; sample <= samples; ++sample) {
                                         const float t = float(sample) / float(samples);
+                                        const float sample_x = segment_start_x +
+                                                               segment_x * t;
+                                        const float sample_z = segment_start_z +
+                                                               segment_z * t;
                                         float sample_floor;
                                         if (!col.GetFloorBelow(
-                                                check_x + segment_x * t,
-                                                check_z + segment_z * t,
+                                                sample_x, sample_z,
                                                 check_floor + 30.f,
                                                 mcf::Collision::kFloorMask,
                                                 &sample_floor) ||
@@ -4530,11 +4654,25 @@ int main(int argc, char** argv) {
                                             compressed_clear = false;
                                             break;
                                         }
+                                        const bool stair_step =
+                                            sample_floor > check_floor + .01f;
+                                        if ((!stair_step && col.BlockedXZ(
+                                                 check_x, check_z,
+                                                 sample_x, sample_z,
+                                                 check_floor, 30.f,
+                                                 mcf::Collision::kWallMask)) ||
+                                            objectBlockedXZ(
+                                                check_x, check_z,
+                                                sample_x, sample_z,
+                                                check_floor, nullptr)) {
+                                            compressed_clear = false;
+                                            break;
+                                        }
+                                        check_x = sample_x;
+                                        check_z = sample_z;
                                         check_floor = sample_floor;
                                     }
                                     if (!compressed_clear) break;
-                                    check_x = next_x;
-                                    check_z = next_z;
                                 }
                                 if (!compressed_clear) {
                                     driver_route.clear();
@@ -4542,12 +4680,14 @@ int main(int argc, char** argv) {
                                     const float attach_z = float(start / nav_w) * kNavStep;
                                     if (std::fabs((px - room_org[0]) - attach_x) > .01f ||
                                         std::fabs((pz - room_org[2]) - attach_z) > .01f)
-                                        driver_route.emplace_back(attach_x, attach_z);
+                                        driver_route.push_back(
+                                            {attach_x, py, attach_z});
                                     for (auto it = reverse_path.rbegin();
                                          it != reverse_path.rend(); ++it)
-                                        driver_route.emplace_back(
+                                        driver_route.push_back({
                                             float(*it % nav_w) * kNavStep,
-                                            float(*it / nav_w) * kNavStep);
+                                            height[size_t(*it)],
+                                            float(*it / nav_w) * kNavStep});
                                     lucent::info("host", "compressed opening route in {} "
                                                  "failed shipping movement; emitted {} "
                                                  "exact lattice waypoint(s)",
@@ -4570,9 +4710,9 @@ int main(int argc, char** argv) {
                               py >= driver_route_staging_floor - 5.f))
                             ? kWalk * dt : .1f;
                         while (!driver_route.empty()) {
-                            const float dx = driver_route.front().first -
+                            const float dx = driver_route.front().x -
                                              (px - room_org[0]);
-                            const float dz = driver_route.front().second -
+                            const float dz = driver_route.front().z -
                                              (pz - room_org[2]);
                             // A map-jump arrival lattice node can lie exactly
                             // on the collision shell which owns the temporary
@@ -4584,11 +4724,24 @@ int main(int argc, char** argv) {
                             if (dx * dx + dz * dz >
                                 waypoint_reach * waypoint_reach)
                                 break;
+                            if (std::fabs(driver_route.front().y - py) >= 5.f) {
+                                lucent::info(
+                                    "host", "opening route in {} reached "
+                                    "waypoint ({:.1f},{:.1f}) on floor {:.1f}, "
+                                    "planned {:.1f}; rebuilding from live state",
+                                    room_name, driver_route.front().x,
+                                    driver_route.front().z,
+                                    py - room_org[1],
+                                    driver_route.front().y - room_org[1]);
+                                driver_route.clear();
+                                driver_route_room.clear();
+                                break;
+                            }
                             driver_route.pop_front();
                         }
                         if (!driver_route.empty()) {
-                            active_walk_x = driver_route.front().first;
-                            active_walk_z = driver_route.front().second;
+                            active_walk_x = driver_route.front().x;
+                            active_walk_z = driver_route.front().z;
                         } else if (driver_route_is_staging) {
                             driver_route_room.clear();
                             driver_route_is_staging = false;
@@ -4680,6 +4833,17 @@ int main(int argc, char** argv) {
                             lucent::error("inventory", "box item {} refused: bag full or invalid",
                                           nearest_box->treasure_item);
                         } else {
+                            if (opening_story &&
+                                nearest_box->treasure_item == 30) {
+                                if (!inventory.Equip(4, 30)) {
+                                    lucent::error("inventory", "headless Silver Key "
+                                                  "equip failed after acquisition");
+                                    run_failed = true;
+                                } else {
+                                    lucent::info("inventory", "equipped Silver Key "
+                                                 "item 30 in sub-item slot 4");
+                                }
+                            }
                             nearest_box->treasure_open = true;
                             // The pre-Bogard return route has completed. A
                             // post-chest traversal of the same multi-level
@@ -4813,10 +4977,29 @@ int main(int argc, char** argv) {
                             lz < bx.hi[2] + kEventBoxProbeHeight;
                     }
                     PlacedObj* hit_object = nullptr;
-                    const bool move_has_floor = !have_col || col.GetFloorBelow(
+                    bool move_has_floor = !have_col || col.GetFloorBelow(
                         px, pz, py + 30.f, mcf::Collision::kFloorMask, &g);
-                    const bool move_stair_step = have_col && move_has_floor &&
+                    const bool point_stair_step = have_col && move_has_floor &&
                         g > py + .01f && g - py <= 30.f;
+                    float body_floor = 0.f;
+                    const float body_probe_x = px + mx / len *
+                                                    kEventBoxProbeHeight;
+                    const float body_probe_z = pz + mz / len *
+                                                    kEventBoxProbeHeight;
+                    const bool body_stair_step = have_col &&
+                        col.GetFloorBelow(body_probe_x, body_probe_z, py + 30.f,
+                                          mcf::Collision::kFloorMask,
+                                          &body_floor) &&
+                        body_floor > py + .01f && body_floor - py <= 30.f &&
+                        !col.BlockedXZ(ox, oz, body_probe_x, body_probe_z,
+                                       body_floor, 30.f,
+                                       mcf::Collision::kWallMask);
+                    const bool move_stair_step = point_stair_step ||
+                                                 body_stair_step;
+                    if (body_stair_step) {
+                        g = body_floor;
+                        move_has_floor = true;
+                    }
                     const bool static_blocked = have_col &&
                         (!move_has_floor ||
                          (!move_stair_step && col.BlockedXZ(
@@ -4846,6 +5029,7 @@ int main(int argc, char** argv) {
                     // the blocked outward step within one fundamental chip of
                     // its centre; docs/re-frontier.md records the debt.
                     constexpr float kDoorHalfWidth = 30.f;
+                    constexpr float kCharacterCollisionRadius = 30.f;
                     const bool horizontal_exit = std::fabs(mx) > std::fabs(mz);
                     bool outward[4]{!horizontal_exit && mz < 0.f,
                                      horizontal_exit && mx > 0.f,
@@ -4857,7 +5041,7 @@ int main(int argc, char** argv) {
                     // itself to enter the one-chip band can therefore make a
                     // real open edge impossible to cross.
                     const float side_contact =
-                        kDoorHalfWidth + kEventBoxProbeHeight;
+                        kDoorHalfWidth + kCharacterCollisionRadius;
                     bool at_side[4]{lz <= side_contact,
                                     lx >= room_size.w - side_contact,
                                     lz >= room_size.h - side_contact,
@@ -5031,7 +5215,38 @@ int main(int argc, char** argv) {
                     }
                     // Refuse to walk off the collision mesh rather than
                     // silently floating: revert the step if there is no floor.
-                    if (blocked && !traversed_event_wall) { px = ox; pz = oz; }
+                    if (!blocked || traversed_event_wall)
+                        driver_blocked_frames = 0;
+                    if (blocked && !traversed_event_wall) {
+                        const float attempted_x = px;
+                        const float attempted_z = pz;
+                        px = ox;
+                        pz = oz;
+                        if (opening_story && !driver_route.empty() &&
+                            ++driver_blocked_frames == 120) {
+                            lucent::error(
+                                "host", "opening route stalled for {} frames "
+                                "at ({:.4f},{:.1f},{:.4f}), attempted "
+                                "({:.4f},{:.4f}), toward waypoint "
+                                "({:.1f},{:.1f}) floor {:.1f}; static-blocked={}, "
+                                "floor-found={}, proposed-floor={:.1f}, "
+                                "stair-step={}, object-blocked={}, object-id={}",
+                                driver_blocked_frames,
+                                ox - room_org[0], py - room_org[1],
+                                oz - room_org[2],
+                                attempted_x - room_org[0],
+                                attempted_z - room_org[2],
+                                driver_route.front().x,
+                                driver_route.front().z,
+                                driver_route.front().y - room_org[1],
+                                static_blocked, move_has_floor,
+                                move_has_floor ? g - room_org[1] : 0.f,
+                                move_stair_step, object_blocked,
+                                hit_object ? hit_object->id : -1);
+                            run_failed = true;
+                            running = false;
+                        }
+                    }
                     else if (!blocked && !traversed_event_wall && have_col &&
                              !event_wall_inside && !touching_event_wall) {
                         // The shipping character volume still overlaps an
@@ -6355,8 +6570,8 @@ int main(int argc, char** argv) {
             if (!driver_route.empty())
                 lucent::info("host", "opening route has {} waypoint(s) left; "
                              "next is ({:.1f},{:.1f})",
-                             driver_route.size(), driver_route.front().first,
-                             driver_route.front().second);
+                             driver_route.size(), driver_route.front().x,
+                             driver_route.front().z);
             lucent::info("lua", "end state: sccnt={:.0f}, eventScene={:.0f}, "
                          "cinema={}, player-control={}, {} live coroutine(s)",
                          sc.GlobalNumber("sccnt", -1),

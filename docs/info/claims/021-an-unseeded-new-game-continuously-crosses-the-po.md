@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: progression,tooling,windowless,audio
 depends: src/host/main.cpp, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 05:29:40
+verified_at: 2026-08-14 06:11:36
 ---
 
 ## Claim
@@ -28,3 +28,11 @@ Full ./tools/verify.sh passed on 2026-08-14 after the combined change; mandatory
 ## Re-confirmed 2026-08-14
 
 Final full ./tools/verify.sh passed on 2026-08-14 after removing unused exploratory branches; mandatory run still reached bed_01 and settled sccnt=15 in 9259 fixed-step uncapped offscreen frames with zero decoded audio, and all prior gates passed.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the Silver Key doorway changes, including all asset/parser negative controls, gameplay gates, selftests, 993-room census, cmd API, world map, and the continuous offscreen/no-audio progression through M0013_03_01.
+
+## Re-confirmed 2026-08-14
+
+Final full ./tools/verify.sh passed on 2026-08-14 after removing unused route branches; all parser negatives, gameplay gates, selftests, 993-room census, command/world-map checks, and continuous offscreen/no-audio progression through M0013_03_01 passed.

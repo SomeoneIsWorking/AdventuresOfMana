@@ -676,6 +676,7 @@ struct Inventory {
     static constexpr int kSlots = 16;          // bags 0..2
     static constexpr int kMagicSlots = 8;      // ids 501..508
     static constexpr int32_t kMagicFirstId = 501;
+    static constexpr int kEquipSlots = 8;
 
     struct Slot {
         int32_t id = 0;      // +0x0, 0 = empty
@@ -688,6 +689,10 @@ struct Inventory {
     Slot armour[kSlots];
     Slot magic[kMagicSlots];
     int32_t seq_counter = 0;   // GameParameter+0x368
+    // GetEquipID @ 0x2cda20 accepts indices 0..7 and loads through the
+    // binary's GameParameter offset table: weapon, helm, armour, shield,
+    // sub-item, and three shortcuts.
+    int32_t equipped[kEquipSlots]{};
 
     // DataTableGetIdType @ 0x2c387c, verbatim. 0 means "in no table".
     static int IdType(int32_t id);
@@ -709,6 +714,10 @@ struct Inventory {
     // its last use. False means the item was absent.
     bool Consume(int32_t id);
     int32_t Uses(int32_t id) const;
+    int32_t Equipped(int slot) const;
+    // Menu action used by the headless story driver. Refuses an invalid slot
+    // or an id the inventory does not actually hold.
+    bool Equip(int slot, int32_t id);
 
     // GameParameter::Init @ 0x2c6d14: a new game is granted 101, 201, 301 and
     // 401 -- the same four ids PlayerStats starts equipped with, because being
