@@ -41,7 +41,7 @@ Verified against the enums in `sk1.lua`:
 
 | Enum | Spawner | Model | Coverage |
 |------|---------|-------|----------|
-| `eENEMY` | `AddEnemy` | `E<id>_00.smdl` | **74/74** |
+| `eENEMY` | `AddEnemy` | `E<id>_00.smdl`; shipping id 123 -> `B0023_00.smdl` | **74/74 + special 123** |
 | `eBOSS` | `AddBoss` | `B<id>_00.smdl` | **24/24** |
 | `eNPC` | `AddNPC` | `N<id>_00.smdl` | 34/53 |
 

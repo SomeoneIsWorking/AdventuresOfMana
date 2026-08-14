@@ -382,7 +382,7 @@ echo "=== combat self-test ==="
   # diagonal routing, and breakable-object item consumption.
   echo "=== continuous route through the Hydra recovery spring ==="
   silver_key_log=scratch/logs/silver-key-story.log
-  ./build/mana --opening-story --continue-story --stop-sccnt 16 \
+  ./build/mana --opening-story --continue-story --stop-sccnt 19 \
     >"$silver_key_log" 2>&1 || mark_failure
   grep -F "entered event box 'out_1'" "$silver_key_log" || mark_failure
   grep -F "mapjump -> M0000_10_09 at (165,0,135) arrow 2" \
@@ -393,7 +393,7 @@ echo "=== combat self-test ==="
   grep -F "Warrior -> level 2" "$silver_key_log" || mark_failure
   grep -F "bought and equipped Keyring item 18 from Motie's authored shop" \
     "$silver_key_log" || mark_failure
-  grep -F "equipped key item 30 in sub-item slot 5" \
+  grep -F "equipped sub-item 30 in button slot 5" \
     "$silver_key_log" || mark_failure
   grep -F "opened box and acquired item 30" "$silver_key_log" || mark_failure
   grep -F "room exit 1 -> M0000_14_06" "$silver_key_log" || mark_failure
@@ -444,9 +444,11 @@ echo "=== combat self-test ==="
 
   # The semantic stop above continues that same unseeded state back out of the
   # recovery branch, down the authored wall plane, through the two-switch
-  # hidden stair, and through Hydra's real EnemyDead transition. Reuse its log:
-  # a second full-story run would only duplicate evidence.
-  echo "=== continuous Hydra mountain descent and boss defeat ==="
+  # hidden stair and Hydra's real EnemyDead transition, then opens both rewards,
+  # runs AfterBossEvent, returns to Kett, reveals the Butler, and defeats the
+  # shipping AddEnemy(123) Steward Wolf. Reuse its log: a second full-story run
+  # would only duplicate evidence.
+  echo "=== continuous Hydra defeat, rewards, and Steward Wolf return ==="
   boss_cluster_log="$silver_key_log"
   grep -F "completed the authored Hydra recovery spring" \
     "$boss_cluster_log" || mark_failure
@@ -473,7 +475,22 @@ echo "=== combat self-test ==="
     "$boss_cluster_log" || mark_failure
   grep -F "MainPlayer killed _BOSS" "$boss_cluster_log" || mark_failure
   grep -F 'message: "\nYou slay the Hydra!"' "$boss_cluster_log" || mark_failure
-  grep -F "reached settled scenario state sccnt=16" \
+  grep -F "opened box and acquired item 505" \
+    "$boss_cluster_log" || mark_failure
+  grep -F "equipped sub-item 31 in button slot 6" \
+    "$boss_cluster_log" || mark_failure
+  grep -F "opened box and acquired item 31" \
+    "$boss_cluster_log" || mark_failure
+  grep -F "mapjump -> M0000_14_08 at (165,0,75) arrow 2" \
+    "$boss_cluster_log" || mark_failure
+  grep -F "room exit 2 -> M0000_14_09" "$boss_cluster_log" || mark_failure
+  grep -F "room exit 3 -> M0000_10_09" "$boss_cluster_log" || mark_failure
+  grep -F "mapjump -> M0012_01_01 at (150,0,205) arrow 0" \
+    "$boss_cluster_log" || mark_failure
+  grep -F "loaded late actor enemy123_1 model B0023_00" \
+    "$boss_cluster_log" || mark_failure
+  grep -F "MainPlayer killed enemy123_1" "$boss_cluster_log" || mark_failure
+  grep -F "reached settled scenario state sccnt=19" \
     "$boss_cluster_log" || mark_failure
   grep -F "video driver: offscreen" "$boss_cluster_log" || mark_failure
   grep -F "audio decoded 0 sounds / 0 frames" "$boss_cluster_log" || mark_failure

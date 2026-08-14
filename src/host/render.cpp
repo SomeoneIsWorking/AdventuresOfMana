@@ -3,6 +3,7 @@
 #include <array>
 #include <cstring>
 #include <format>
+#include <string_view>
 
 #include <lucent/log.h>
 
@@ -99,6 +100,13 @@ bool BoneLocalPos(const Model& m, const Motion* motion, float time,
 }
 
 std::string ActorModelName(char kind, int type_id) {
+    // ModeGame::AddEnemy @ 0x2dda74 normally formats sk1/E%04d_00, but its
+    // shipping id-123 branch replaces that result with the literal
+    // sk1/B0023_00 before CharacterSetFileName. The Butler transformation is
+    // authored as AddEnemy(123), so retain enemy ownership while using the
+    // Steward Wolf boss model selected by the original engine.
+    if (kind == 'E' && type_id == 123) return "B0023_00";
+
     // NPCs are offset by 10: eNPC id 10 is N0000, 11 is N0001, and so on. This
     // is not inferred -- the original developers annotated the enum in sk1.lua
     // with the model for each id ("MAN = 13, -- 13 N0003 00 villager(man)"),
@@ -130,6 +138,28 @@ std::string ActorModelName(char kind, int type_id) {
         return std::format("N{:04d}_00", type_id - 10);
     }
     return std::format("{}{:04d}_00", kind, type_id);
+}
+
+int RunActorModelSelfTest() {
+    int bad = 0;
+    auto check = [&](std::string_view what, bool pass) {
+        if (!pass) { ++bad; lucent::error("render", "SELFTEST FAIL: {}", what); }
+        else lucent::info("render", "  ok: {}", what);
+    };
+    check("NPC-tagged enemies use the enemy namespace",
+          ActorModelName('N', 100) == "E0000_00" &&
+              ActorModelName('N', 173) == "E0073_00");
+    check("NPC-tagged bosses use the boss namespace",
+          ActorModelName('N', 1010) == "B0010_00" &&
+              ActorModelName('N', 1020) == "B0020_00");
+    check("ordinary and party NPC mappings remain distinct",
+          ActorModelName('N', 10) == "N0000_00" &&
+              ActorModelName('N', 5) == "C0005_00");
+    check("AddEnemy 123 alone selects the Steward Wolf boss model",
+          ActorModelName('E', 123) == "B0023_00" &&
+              ActorModelName('E', 23) == "E0023_00");
+    lucent::info("render", "SELFTEST: 4 cases, {} failures", bad);
+    return bad;
 }
 
 static GLuint UploadTexture(const Texture& t) {

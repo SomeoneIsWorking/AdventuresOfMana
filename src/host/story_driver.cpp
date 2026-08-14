@@ -57,20 +57,20 @@ int StoryDriver::SelectShopItem(std::string_view room,
     return -1;
 }
 
-bool StoryDriver::EquipAcquiredKey(int item_id) {
+bool StoryDriver::EquipAcquiredSubItem(int item_id) {
     if (!enabled_) return true;
     for (int slot = 4; slot < 8; ++slot) {
         if (inventory_.Equipped(slot) != 0) continue;
         if (!inventory_.Equip(slot, item_id)) {
-            lucent::error("inventory", "headless key item {} equip failed", item_id);
+            lucent::error("inventory", "headless sub-item {} equip failed", item_id);
             failed_ = true;
             return false;
         }
-        lucent::info("inventory", "equipped key item {} in sub-item slot {}",
+        lucent::info("inventory", "equipped sub-item {} in button slot {}",
                      item_id, slot);
         return true;
     }
-    lucent::error("inventory", "no free sub-item button for acquired key item {}",
+    lucent::error("inventory", "no free button for acquired sub-item {}",
                   item_id);
     failed_ = true;
     return false;
@@ -125,6 +125,27 @@ std::optional<StoryTarget> StoryDriver::Target(
     }
     if (room == "M0013_08_04")
         return StoryTarget{room_width + 30.f, room_height * .5f};
+    if (room == "M0013_09_04") {
+        // EnemyDead authors Fire first and Mirror second. Actor order retains
+        // that AddBox order; keep the driver in the boss room until each live
+        // reward has gone through the ordinary treasure interaction path.
+        for (const auto& actor : world.actors())
+            if (actor.alive && actor.treasure_box && !actor.treasure_open)
+                return StoryTarget{actor.pos[0], actor.pos[2] + 20.f};
+    }
+    if (inventory_.Has(31)) {
+        if (room == "M0000_14_08")
+            return StoryTarget{room_width * .5f, room_height + 30.f};
+        if (room == "M0000_14_09" || room == "M0000_13_09" ||
+            room == "M0000_12_09" ||
+            room == "M0000_11_09")
+            return StoryTarget{-30.f, room_height * .5f};
+        if (room == "M0000_10_09") return eventTarget("in_01");
+        if (room == "M0012_01_01")
+            for (const auto& actor : world.actors())
+                if (actor.alive && actor.handle == "BULTER")
+                    return StoryTarget{actor.pos[0], actor.pos[2] + 20.f};
+    }
     return std::nullopt;
 }
 
@@ -143,7 +164,7 @@ int RunStoryDriverSelfTest() {
     inventory.Equip(4, 18);
     StoryDriver driver(true, inventory);
     check("later key uses a free button without replacing Keyring",
-          driver.EquipAcquiredKey(30) && inventory.Equipped(4) == 18 &&
+          driver.EquipAcquiredSubItem(30) && inventory.Equipped(4) == 18 &&
               inventory.Equipped(5) == 30);
 
     mcf::World world;
@@ -173,7 +194,31 @@ int RunStoryDriverSelfTest() {
           target && target->x == 360.f && target->z == 135.f &&
               target->event_box.empty());
 
-    lucent::info("story", "SELFTEST: 4 cases, {} failures", bad);
+    auto& fire = world.Spawn("_BOX", 32, 165.f, 0.f, 75.f);
+    fire.treasure_box = true;
+    fire.treasure_item = 505;
+    auto& mirror = world.Spawn("_BOX_1", 32, 195.f, 0.f, 75.f);
+    mirror.treasure_box = true;
+    mirror.treasure_item = 31;
+    target = driver.Target("M0013_09_04", world, 300.f, 240.f, "", 30.f,
+                           7.5f);
+    check("Hydra rewards preserve authored Fire-first box order",
+          target && target->x == 165.f && target->z == 95.f);
+    world.Find("_BOX")->treasure_open = true;
+    target = driver.Target("M0013_09_04", world, 300.f, 240.f, "", 30.f,
+                           7.5f);
+    check("Hydra reward driver advances to Mirror after Fire opens",
+          target && target->x == 195.f && target->z == 95.f);
+    inventory.Add(31);
+    check("Mirror equips in the next free button without replacing keys",
+          driver.EquipAcquiredSubItem(31) && inventory.Equipped(4) == 18 &&
+              inventory.Equipped(5) == 30 && inventory.Equipped(6) == 31);
+    target = driver.Target("M0000_14_08", world, 300.f, 240.f, "", 30.f,
+                           7.5f);
+    check("post-Hydra route takes the reachable south exit toward Kett",
+          target && target->x == 150.f && target->z == 270.f);
+
+    lucent::info("story", "SELFTEST: 8 cases, {} failures", bad);
     return bad;
 }
 

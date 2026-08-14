@@ -26,7 +26,7 @@ public:
 
     int SelectChoice(std::string_view room, const std::vector<std::string>& choices);
     int SelectShopItem(std::string_view room, const std::vector<int>& stock, int mode);
-    bool EquipAcquiredKey(int item_id);
+    bool EquipAcquiredSubItem(int item_id);
     std::optional<StoryTarget> Target(
         std::string_view room, const mcf::World& world,
         float room_width, float room_height,

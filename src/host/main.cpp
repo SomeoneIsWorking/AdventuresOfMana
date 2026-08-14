@@ -1170,16 +1170,8 @@ int main(int argc, char** argv) {
             };
             bad += mana::host::RunInteractionSelfTest(); checked += 4;
             bad += mana::host::RunNavigationSelfTest(); checked += 6;
-            bad += mana::host::RunStoryDriverSelfTest(); checked += 4;
-            ck("NPC-tagged enemy ids resolve the enemy model namespace",
-               mcf::ActorModelName('N', 100) == "E0000_00" &&
-               mcf::ActorModelName('N', 173) == "E0073_00");
-            ck("NPC-tagged boss ids resolve the boss model namespace",
-               mcf::ActorModelName('N', 1010) == "B0010_00" &&
-               mcf::ActorModelName('N', 1020) == "B0020_00");
-            ck("ordinary and party NPC mappings remain distinct",
-               mcf::ActorModelName('N', 10) == "N0000_00" &&
-               mcf::ActorModelName('N', 5) == "C0005_00");
+            bad += mana::host::RunStoryDriverSelfTest(); checked += 8;
+            bad += mcf::RunActorModelSelfTest(); checked += 4;
             ck("ChrMoveTo starts and reports an automatic move",
                run("movement-start",
                    "ChrMoveTo('MainPlayer',10,6,8)\n"
@@ -5348,8 +5340,10 @@ int main(int argc, char** argv) {
                                           nearest_box->treasure_item);
                         } else {
                             if (opening_story &&
-                                nearest_box->treasure_item == 30) {
-                                if (!story_driver.EquipAcquiredKey(30))
+                                (nearest_box->treasure_item == 30 ||
+                                 nearest_box->treasure_item == 31)) {
+                                if (!story_driver.EquipAcquiredSubItem(
+                                        nearest_box->treasure_item))
                                     run_failed = true;
                             }
                             nearest_box->treasure_open = true;
