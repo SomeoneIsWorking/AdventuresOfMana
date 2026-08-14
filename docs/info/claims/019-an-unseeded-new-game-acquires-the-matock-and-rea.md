@@ -1,12 +1,13 @@
 ---
 id: C019
 kind: claim
-status: holds
+status: falsified
 created: 2026-08-14
 tags: progression tooling windowless audio
 depends: src/host/main.cpp, tools/verify.sh
 reconfirmed: 2026-08-14
 verified_at: 2026-08-14 03:24:07
+falsified_on: 2026-08-14
 ---
 
 ## Claim
@@ -24,3 +25,9 @@ The mandatory gate fails to acquire item 17, fails to traverse M0000_09_06 to M0
 ## Re-confirmed 2026-08-14
 
 Full ./tools/verify.sh passed on 2026-08-14 after the post-Matock route-planner fix; all continuous fixed-step offscreen gates, focused self-tests, negative discriminators, exact asset corpus checks, the 993-room census, and the new 6279-frame silent route to M0000_10_06 passed.
+
+## FALSIFIED 2026-08-14
+
+The M0000_10_06 continuation is a Chocobot-only detour: its M0000_10_07 bridge callback requires GetPlayerType()==6. The authored current-party route instead crosses both M0000_08_06 vines, enters M0000_09_06 in_1 at y=90, mapjumps to M0011_00_00, and uses Mattock weapon kind 6 on object-id-9 rocks.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.

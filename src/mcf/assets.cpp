@@ -567,6 +567,7 @@ std::vector<MapObject> ParseOdt(const std::vector<uint8_t>& file) {
             uint32_t bits = RdU32(file, o + 8 + size_t(k) * 4);
             std::memcpy(&m.pos[k], &bits, 4);
         }
+        m.flags = RdU32(file, o + 0x3c);
         out.push_back(m);
     }
     return out;
@@ -972,12 +973,12 @@ bool Inventory::Add(int32_t id, bool commit) {
         if (commit) {
             s[i].id = id;
             s[i].seq = seq_counter++;
-            // `kind` is deliberately left 0. The engine writes
-            // DataTableGetItem(id)+0x4 here (zeroed when it is 1), but that
-            // field's MEANING is still open -- docs/re-frontier.md -- and its
-            // only consumer is the item-list UI the port does not have.
-            // Filling it with a number nobody can interpret would look like
-            // knowledge the project does not have.
+            switch (id) {
+#define ITEM_USES(item_id, initial_uses) case item_id: s[i].uses = initial_uses; break;
+#include "engine/item_uses.inc"
+#undef ITEM_USES
+                default: s[i].uses = 1; break;
+            }
         }
         return true;
     }
@@ -998,6 +999,27 @@ bool Inventory::Del(int32_t id) {
     for (int i = 0; i < n; ++i) {
         if (s[i].id != id) continue;
         s[i] = Slot{};
+        return true;
+    }
+    return false;
+}
+
+int32_t Inventory::Uses(int32_t id) const {
+    int b = BagOf(id);
+    if (b != kItems) return Has(id) ? 1 : 0;
+    int n = 0;
+    const Slot* s = bag(b, &n);
+    for (int i = 0; i < n; ++i)
+        if (s[i].id == id) return std::max(1, s[i].uses);
+    return 0;
+}
+
+bool Inventory::Consume(int32_t id) {
+    int n = 0;
+    Slot* s = bag(kItems, &n);
+    for (int i = 0; i < n; ++i) {
+        if (s[i].id != id) continue;
+        if (--s[i].uses <= 0) s[i] = Slot{};
         return true;
     }
     return false;

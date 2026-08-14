@@ -273,6 +273,7 @@ struct MapObject {
     int32_t kind = 0;        // 1 in all 3284 shipping records
     int32_t id = 0;          // resolved through src/engine/object_table.inc
     float pos[3]{};
+    uint32_t flags = 0;      // PARAMETERIMAGE +0x3c; object damage/collision policy
 };
 
 // Returns an empty list (never throws) for a file the engine itself would
@@ -663,9 +664,9 @@ struct PlayerStats {
 // uses, while the global AddItem @ 0x2cd8e4 passes true (and, incidentally,
 // recomputes GameParameter as oG+0x60, confirming that offset a third time).
 //
-// Bag 0's third word is written as DataTableGetItem(id)+0x4, forced to 0 when
-// that value is 1. tblItem+0x4 is the item's kind, whose meaning is still open
-// -- see docs/re-frontier.md.
+// Bag 0's third word is the remaining-use counter. AddItem initializes it from
+// tblItem+0x4 (storing 0 for the one-use value 1); UseInventory decrements it
+// and removes the slot when the result reaches zero. Mattock's value is 7.
 //
 // NOT REVERSED: how DelItem renumbers the sequence keys of the slots after the
 // one it clears, and whether the counter at +0x368 starts at 0 or 1.
@@ -679,7 +680,7 @@ struct Inventory {
     struct Slot {
         int32_t id = 0;      // +0x0, 0 = empty
         int32_t seq = 0;     // +0x4, acquisition order
-        int32_t kind = 0;    // +0x8, bag 0 only
+        int32_t uses = 0;    // +0x8, bag 0 only; normalized to >=1 in the port
     };
 
     Slot items[kSlots];
@@ -704,6 +705,10 @@ struct Inventory {
     bool Add(int32_t id, bool commit = true);
     // Clears the first slot holding this id. False when none does.
     bool Del(int32_t id);
+    // UseInventory's quantity path: consume one use, removing the slot after
+    // its last use. False means the item was absent.
+    bool Consume(int32_t id);
+    int32_t Uses(int32_t id) const;
 
     // GameParameter::Init @ 0x2c6d14: a new game is granted 101, 201, 301 and
     // 401 -- the same four ids PlayerStats starts equipped with, because being

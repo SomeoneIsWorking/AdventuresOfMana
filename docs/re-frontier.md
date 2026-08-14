@@ -77,11 +77,11 @@ this file retain the derivations and corrections behind these entries.
 - notes: The story-continuity mechanism is live; this remains partial rather than claiming reference fidelity.
 
 ### progression.wendel — Reach Wendel and advance the main quest
-- status: todo
+- status: re-partial
 - deps: progression.bogard-with-heroine
-- evidence: The mandatory unseeded, fixed-step uncapped, silent, renderless-offscreen run opens Bogard's authored north door, acquires Matock item 17 through the binary-derived `_BOX`, returns over the measured lower overworld component, and reaches `M0000_10_06` in 6279 frames. The planner refuses the two `M0000_09_06` cave boxes from the west arrival because their y=90 volumes are outside the arrival floor's measured 149-sample connected component.
+- evidence: The mandatory unseeded, fixed-step uncapped, silent, renderless-offscreen run acquires Mattock item 17 with the binary's seven-use count, follows the authored two-vine route through `M0000_08_05`, enters `M0000_09_06/in_1` at y=90, mapjumps to `M0011_00_00`, breaks the two blocking object-id-9 rocks through Matock weapon kind 6, avoids the 45-unit room-1 pit, and reaches `M0011_00_02` with five uses remaining.
 - where: `src/host/main.cpp`, `tools/verify.sh`
-- gap: Trace the authored route from the isolated lower strip at `M0000_10_06` to the elevated `M0000_09_06` cave entrances; the bridge callbacks are Chocobot-only and are not a valid shortcut for the current party.
+- gap: Continue the authored cave route from `M0011_00_02/in_1` toward Wendel and implement the next binary-owned interaction encountered. General AppObject collision shapes/policies beyond proven breakable flag `0x08` remain debt.
 - notes:
 
 ## Gameplay systems

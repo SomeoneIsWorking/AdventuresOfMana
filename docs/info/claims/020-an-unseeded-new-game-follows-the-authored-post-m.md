@@ -1,0 +1,20 @@
+---
+id: C020
+kind: claim
+status: holds
+created: 2026-08-14
+tags: progression,tooling,windowless,audio
+depends: src/host/main.cpp#main, src/mcf/assets.cpp#Inventory::Add, src/mcf/mcf.h, src/engine/item_uses.inc, tools/asset/item_table.py, tools/verify.sh
+---
+
+## Claim
+
+An unseeded new game follows the authored post-Matock route into M0011_00_00, consumes two of seven Mattock uses on breakable rocks, and reaches M0011_00_02 windowlessly and silently
+
+## Evidence
+
+2026-08-14 ./tools/verify.sh pass: fixed-step uncapped route reached M0011_00_02 in 6785 frames via the two-vine M0000_08_05/M0000_09_05 detour and M0000_09_06 in_1; SDL video driver was offscreen, gameplay decoded 0 sounds/frames, two object-id-9 contacts consumed Mattock uses from 7 to 5, and generated item_uses.inc matched tblItem bytes.
+
+## What would falsify it
+
+The mandatory gate selects M0000_10_06, bypasses either breakable rock, consumes a non-binary-derived number of uses, falls into the M0011_00_01 pit, creates a visible window, decodes audio, or fails to reach M0011_00_02.

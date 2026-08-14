@@ -2528,9 +2528,12 @@ the item list walks the bag in pickup order.
 what `IsAddItem` @ `0x2cd8b0` uses; the global `AddItem` @ `0x2cd8e4` passes
 `true` and recomputes `GameParameter` as `oG+0x60`, confirming that offset again.
 
-Bag 0's third word is written as `DataTableGetItem(id)+0x4` forced to 0 when it
-equals 1 -- the item `kind`, whose meaning is still open, so the port models the
-field but does not fill it.
+Bag 0's third word is the remaining-use counter. `AddItem` initializes it from
+`DataTableGetItem(id)+0x4`, encoding the one-use value 1 as zero. `UseInventory`
+@ `0x2df6b8` finds the selected slot, decrements `+0x08`, and calls
+`DelItemGetCnt` when the result reaches zero. This makes the table values
+concrete: Mattock's 7 is seven uses and Keyring's 4 is four uses per acquired
+slot. Separate acquisitions still occupy separate slots.
 
 Still unread: the map flags, the per-room enemy-dead bits (`ClearRoomEnemyDead`
 touches `+0x414`..`+0x438`) and the 8 KB block `Init` memsets at `+0x444`.

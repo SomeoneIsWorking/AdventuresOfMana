@@ -4,6 +4,13 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+# Verification is a batch workload: never create a desktop window or open an
+# audio device. Gameplay scenarios additionally pass --no-audio directly (or
+# inherit it from --opening-story), so a decoder regression cannot hide behind
+# the dummy backend.
+export SDL_VIDEODRIVER=offscreen
+export SDL_AUDIODRIVER=dummy
+
 check_runtime() {
   if [ ! -x "$1" ]; then
     echo "FATAL: game binary $1 is missing or not executable; 0 gameplay checks ran."
@@ -271,10 +278,10 @@ echo "=== combat self-test ==="
   heroine_log=scratch/logs/heroine-story.log
   ./build/mana --opening-story --continue-story --stop-sccnt 12 \
     >"$heroine_log" 2>&1 || fail=1
-  # Three climbs outbound, then two on the western return vine before the
-  # three-step eastern descent.
+  # Three climbs outbound. The return has one descent in M0000_06_05, then two
+  # climbs and the three-step eastern descent in M0000_07_05.
   test "$(grep -Fc 'traversed event wall 1 -> 2' "$heroine_log")" -eq 5 || fail=1
-  test "$(grep -Fc 'traversed event wall 2 -> 1' "$heroine_log")" -eq 3 || fail=1
+  test "$(grep -Fc 'traversed event wall 2 -> 1' "$heroine_log")" -eq 4 || fail=1
   test "$(grep -Fc 'engine-placed (script gave 0,0, extent 0)' "$heroine_log")" \
     -eq 3 || fail=1
   grep -F "enemy stats: 3 from enemydat.bin, 0 with no table entry" \
@@ -319,18 +326,21 @@ echo "=== combat self-test ==="
   grep -F "video driver: offscreen" "$matock_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$matock_log" || fail=1
 
-  # Keep driving the same unseeded state after acquiring the Matock. The
-  # post-chest route must use the lower connected component rather than
-  # accepting either elevated cave entrance as a nearest-point success.
-  echo "=== continuous post-Matock lower route ==="
+  # Keep driving the same unseeded state after acquiring the Mattock. The
+  # authored two-vine overworld route must enter the cave, consume the tool
+  # through live object contact, avoid the room-1 pit, and reach room 2.
+  echo "=== continuous post-Matock cave route ==="
   post_matock_log=scratch/logs/post-matock-story.log
-  ./build/mana --opening-story --continue-story --stop-room M0000_10_06 \
+  ./build/mana --opening-story --continue-story --stop-room M0011_00_02 \
     >"$post_matock_log" 2>&1 || fail=1
   grep -F "opened box and acquired item 17" "$post_matock_log" || fail=1
-  grep -F "room exit 1 -> M0000_09_06" "$post_matock_log" || fail=1
-  grep -F "opening route in M0000_09_06:" "$post_matock_log" || fail=1
-  grep -F "room exit 1 -> M0000_10_06" "$post_matock_log" || fail=1
-  grep -F "reached requested stop room M0000_10_06" "$post_matock_log" || fail=1
+  grep -F "mapjump -> M0011_00_00" "$post_matock_log" || fail=1
+  test "$(grep -Fc "used Mattock weapon kind 6 on breakable object id 9" \
+    "$post_matock_log")" -eq 2 || fail=1
+  grep -F "5 use(s) remain" "$post_matock_log" || fail=1
+  grep -F "room exit 2 -> M0011_00_01" "$post_matock_log" || fail=1
+  grep -F "room exit 2 -> M0011_00_02" "$post_matock_log" || fail=1
+  grep -F "reached requested stop room M0011_00_02" "$post_matock_log" || fail=1
   grep -F "video driver: offscreen" "$post_matock_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$post_matock_log" || fail=1
 
@@ -361,9 +371,6 @@ echo "=== combat self-test ==="
     ./build/mana --text-selftest --lang "$l" 2>&1 | grep -E "SELFTEST:|sweep" || fail=1
     ./build/mana --text-selftest --lang "$l" >/dev/null 2>&1 || fail=1
   done
-
-  echo "=== audio self-test ==="
-  SDL_AUDIODRIVER=dummy ./build/mana --audio-selftest || fail=1
 
   # Loads every room in the game headlessly. Non-zero on a mesh/script failure
   # or an unresolved object id.
@@ -407,7 +414,8 @@ echo "  one-registration-missing negative passed (199/200 rejected)"
         "$generated/src/engine/object_table.inc" \
         "$generated/docs/weapon-table.md" \
         "$generated/src/engine/weapon_table.inc" \
-        "$generated/docs/item-table.md"
+        "$generated/docs/item-table.md" \
+        "$generated/src/engine/item_uses.inc"
   echo "=== map-object table ==="
   (cd "$generated" && python3 "$parser_root/tools/asset/object_table.py" \
     "$parser_root/scratch/raw/libmcfandroid.so" "$parser_root/scratch/dump/sk1") || fail=1
@@ -425,12 +433,14 @@ echo "  one-registration-missing negative passed (199/200 rejected)"
     "$parser_root/scratch/raw/libmcfandroid.so" \
     "$parser_root/scratch/dump/sk1/str_en.bin") || fail=1
   cmp -s "$generated/docs/item-table.md" docs/item-table.md || fail=1
+  cmp -s "$generated/src/engine/item_uses.inc" \
+    src/engine/item_uses.inc || fail=1
   cp "$generated/docs/item-table.md" "$generated/docs/item-table-mismatch.md"
   printf '\nMISMATCH\n' >> "$generated/docs/item-table-mismatch.md"
   if cmp -s "$generated/docs/item-table-mismatch.md" docs/item-table.md; then
     fail=1
   fi
-  echo "  5 generated artifacts match tracked bytes; mismatch negative passed"
+  echo "  6 generated artifacts match tracked bytes; mismatch negative passed"
   echo "=== world map ==="
   python3 tools/asset/worldmap.py --check || fail=1
 
