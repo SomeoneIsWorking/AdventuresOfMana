@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,sdl3-gpu,fade
 depends: src/host/render_overlay.cpp#FadeOverlay::FromEngineColor, src/host/gpu_overlay.cpp#OverlayRenderer::Draw, src/host/scene_pair_capture.cpp#ScenePairCapture::WriteFromGles, src/host/main.cpp
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 14:11:08
+verified_at: 2026-08-14 14:42:04
 ---
 
 ## Claim
@@ -32,3 +32,7 @@ Reverified at implementation commit 3bee232 by complete tools/verify.sh in scrat
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full tools/verify.sh passed on the exact source tree committed as abd18ce: all focused positives/negatives, unpaced offscreen story through sccnt=20 with zero audio frames, room census, API/frontier/table checks, and ALL PARSERS PASSED
+
+## Re-confirmed 2026-08-14
+
+2026-08-14 full tools/verify.sh passed on the exact source tree committed as 088030a: structure gate 81 files/0 violations, 33/33 shader artifacts reproduced exactly, SDL3 GPU title omission controls measured sprite and text contributions, running ModeTitle completed offscreen with zero decoded audio frames, uncapped story verification reached sccnt=20, and ALL PARSERS PASSED.
