@@ -272,6 +272,7 @@ public:
     static constexpr int kNoDoor = -1;
     Actor& Spawn(const std::string& handle, int type_id, float x, float y, float z);
     Actor* Find(const std::string& handle);
+    const Actor* Find(const std::string& handle) const;
     bool Remove(const std::string& handle);
 
     const std::vector<Actor>& actors() const { return actors_; }

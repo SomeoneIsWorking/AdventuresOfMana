@@ -32,6 +32,11 @@ Actor* World::Find(const std::string& handle) {
     return it == index_.end() ? nullptr : &actors_[it->second];
 }
 
+const Actor* World::Find(const std::string& handle) const {
+    auto it = index_.find(handle);
+    return it == index_.end() ? nullptr : &actors_[it->second];
+}
+
 bool World::Remove(const std::string& handle) {
     auto it = index_.find(handle);
     if (it == index_.end()) return false;

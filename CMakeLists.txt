@@ -47,7 +47,9 @@ target_link_libraries(engine PUBLIC lua lucent::lucent SDL3::SDL3 PkgConfig::VOR
 
 add_library(render_assets STATIC
   src/host/render_asset.cpp
-  src/host/render_pose.cpp)
+  src/host/render_camera.cpp
+  src/host/render_pose.cpp
+  src/host/render_snapshot.cpp)
 target_include_directories(render_assets PUBLIC src)
 target_link_libraries(render_assets PUBLIC mcf lucent::lucent)
 

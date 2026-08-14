@@ -20,6 +20,7 @@ longer issue GL calls.
 | `host/gpu_device` | SDL video-subsystem lifetime, GPU device, offscreen targets, command submission, synchronized readback | **live and tested** |
 | shader pack | compile HLSL to tracked SPIR-V, DXIL, and MSL, embed all formats, and select the active backend without runtime source guessing | **live and tested** |
 | backend-independent assets | parse models, retain texture storage, resolve material textures, and compute bounds without a graphics API | **live and shared by GLES and SDL3 GPU** |
+| camera + render snapshot | resolve script camera targets/interpolation once and freeze room/object/actor inputs for one frame | **live and consumed by GLES; SDL3 GPU consumption remains missing** |
 | GPU assets | texture, vertex-buffer, index-buffer, sampler, and lifetime ownership | **live and tested for static and skinned assets** |
 | scene renderer | room, static actor, skinned actor, depth, blend, and draw submission | **live offscreen for a composed shipping room and skinned actor**; integration with the running world's scene snapshot remains missing |
 | UI renderer | font atlas, sprites, message windows, HUD, and fade | missing |
@@ -29,6 +30,13 @@ The device and shader owners deliberately have no dependency on game assets or
 `main.cpp`. `RenderAsset` is the shared CPU boundary: it retains the storage
 behind texture spans and resolves draw-to-texture references once. GLES and
 SDL3 GPU upload from that same result instead of maintaining two parsers.
+`CameraTracker` similarly converts the mutable script camera into one
+backend-independent `CameraFrame`, including room-local actor targets,
+fixed targets, explicit eyes, and 30 Hz-scaled interpolation. `RenderSnapshot`
+then freezes that frame plus the resolved room, visible map objects, and live
+actor instances. The GLES path consumes the snapshot now; SDL3 GPU no longer
+needs to reach back into `World` or duplicate script-camera policy when the
+running scene is connected.
 `mana_gpu_selftest` initializes SDL's offscreen video driver, creates no window,
 opens no audio subsystem, clears an RGBA8 GPU target to black and magenta, and
 reads every pixel back. The two-color discriminator prevents an all-zero or
@@ -76,9 +84,8 @@ other official builds.
 
 1. ~~Move immutable texture and geometry upload into the GPU-assets owner while
    retaining CPU `Model` and `TextureSet` data independently of the backend.~~
-2. Feed the running world's room, camera, and actor snapshot into the tested
-   SDL3 GPU scene owner, then compare its offscreen capture against GLES at the
-   same frame.
+2. Feed the running `RenderSnapshot` into the tested SDL3 GPU scene owner, then
+   compare its offscreen capture against GLES at the same frame.
 3. Route the resulting scene into the game loop, then port UI, fade, and
    capture as separate passes. Delete each
    GLES owner when its SDL3 GPU replacement passes its discriminator; do not

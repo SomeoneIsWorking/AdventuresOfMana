@@ -586,8 +586,14 @@ echo "=== combat self-test ==="
   grep -F "audio decoded 0 sounds / 0 frames" "$locked_door_log" || mark_failure
 
   echo "=== camera command self-test ==="
-  ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || mark_failure
-  ./build/mana --camera-selftest >/dev/null 2>&1 || mark_failure
+  camera_selftest_log=scratch/logs/camera-selftest.log
+  ./build/mana --camera-selftest >"$camera_selftest_log" 2>&1 || mark_failure
+  grep -F "TRACKER SELFTEST: 7 cases, 0 failures" \
+    "$camera_selftest_log" || mark_failure
+  grep -F "SNAPSHOT SELFTEST: 3 cases, 0 failures" \
+    "$camera_selftest_log" || mark_failure
+  grep -F "SELFTEST: 6 cases, 0 failures" \
+    "$camera_selftest_log" || mark_failure
 
   echo "=== scripted movement self-test ==="
   ./build/mana --movement-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || mark_failure

@@ -29,6 +29,8 @@
 #include "engine/world.h"
 #include "host/render.h"
 #include "host/image_write.h"
+#include "host/render_camera.h"
+#include "host/render_snapshot.h"
 #include "host/interaction.h"
 #include "host/navigation.h"
 #include "host/story_driver.h"
@@ -1138,6 +1140,8 @@ int main(int argc, char** argv) {
                w.camera.target_chr.empty() && !w.camera.has_target_pos &&
                !w.camera.has_eye_pos && w.camera.target_sub[0] == 0.f &&
                w.camera.target_sub[1] == 0.f && w.camera.target_sub[2] == 0.f);
+            bad += mana::RunCameraTrackerSelfTest();
+            bad += mana::RunRenderSnapshotSelfTest();
             lucent::info("camera", "SELFTEST: {} cases, {} failures", checked, bad);
             return bad ? 1 : 0;
         }
@@ -3033,7 +3037,6 @@ int main(int argc, char** argv) {
             glViewport(0, 0, W, H);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            float origin_zero[3]{0, 0, 0};
             auto drawOne = [&](const mcf::Renderable& r, const float t[3],
                                const mcf::Motion* mo, float yaw = 0.f) {
                 GLuint pr = r.skinned() ? progSkin : progFlat;
@@ -3390,8 +3393,7 @@ int main(int argc, char** argv) {
             bool menu_up_prev = false, menu_down_prev = false;
             bool level_up_open = false;
             int level_up_choice = 0;
-            float eye_cur[3]{};
-            bool cam_init = false;
+            mana::CameraTracker camera_tracker;
             bool running = true;
             bool stop_room_reached = stop_room.empty() || room_name == stop_room;
             struct RoomExitReq {
@@ -5921,48 +5923,17 @@ int main(int argc, char** argv) {
                                  "({:.1f},{:.1f})", px - room_org[0],
                                  pz - room_org[2]);
                 }
-                // Camera from the game's own slots. Defaults are sk1.lua's where
-                // it states them (NEAR 40, FAR 5000, SPEED 0.3) and the values
-                // the scripts most often set otherwise (ANGLE 20, DISTANCE 450).
-                const auto& cam = world.camera;
-                float look[3]{px, py + 20.f, pz};
-                if (!cam.target_chr.empty())
-                    if (const auto* ta = world.Find(cam.target_chr))
-                        { look[0] = ta->pos[0] + room_org[0];
-                          look[1] = ta->pos[1] + 20.f;
-                          look[2] = ta->pos[2] + room_org[2]; }
-                if (cam.has_target_pos) {
-                    look[0] = cam.target_pos[0] + room_org[0];
-                    look[1] = cam.target_pos[1] + room_org[1];
-                    look[2] = cam.target_pos[2] + room_org[2];
-                }
-                for (int k = 0; k < 3; ++k) look[k] += cam.target_sub[k];
-                float fov  = cam.Get(mcf::cam_data::kAngle, 20.f);
-                float dist = cam.Get(mcf::cam_data::kDistance, 450.f);
-                float yaw  = cam.Get(mcf::cam_data::kRotateY, 0.f);
-                float pit  = cam.Get(mcf::cam_data::kRotateX, cam.pitch_default);
-                float zn   = cam.Get(mcf::cam_data::kNear, 40.f);
-                float zf   = cam.Get(mcf::cam_data::kFar, 5000.f);
-                float speed = cam.Get(mcf::cam_data::kSpeed, 0.3f);
-
-                const float kDeg = float(std::numbers::pi) / 180.f;
-                float want[3]{
-                    look[0] + std::sin(yaw * kDeg) * std::cos(pit * kDeg) * dist,
-                    look[1] + std::sin(pit * kDeg) * dist,
-                    look[2] + std::cos(yaw * kDeg) * std::cos(pit * kDeg) * dist};
-                if (cam.has_eye_pos) {
-                    want[0] = cam.eye_pos[0] + room_org[0];
-                    want[1] = cam.eye_pos[1] + room_org[1];
-                    want[2] = cam.eye_pos[2] + room_org[2];
-                }
-                if (!cam_init) { for (int k = 0; k < 3; ++k) eye_cur[k] = want[k]; cam_init = true; }
-                // SPEED is a per-frame lerp in the original; scale by dt so the
-                // result does not depend on our (uncapped) frame rate.
-                float a = 1.f - std::pow(1.f - std::min(speed, 0.99f), dt * 30.f);
-                for (int k = 0; k < 3; ++k) eye_cur[k] += (want[k] - eye_cur[k]) * a;
-                float up[3]{0, 1, 0};
-                vp = Perspective(fov * 2.f * kDeg, float(W) / H, zn, zf) *
-                     LookAt(eye_cur, look, up);
+                // Resolve the live script camera once into backend-independent
+                // frame state. GLES and SDL3 GPU consume this same frame.
+                const auto camera_frame = camera_tracker.Update(
+                    world, {px, py, pz},
+                    {room_org[0], room_org[1], room_org[2]}, dt);
+                const float up[3]{0, 1, 0};
+                vp = Perspective(camera_frame.vertical_fov_radians,
+                                 float(W) / H, camera_frame.near_plane,
+                                 camera_frame.far_plane) *
+                     LookAt(camera_frame.eye.data(), camera_frame.target.data(),
+                            up);
 
                 // Drive the player's attack volume from the swing, and keep the
                 // world actor in sync so the shared hit test sees it.
@@ -6667,7 +6638,7 @@ int main(int argc, char** argv) {
                         event_wall_inside = false;
                         reported_unlinked_event_wall_contact = false;
                         startRoomInit();
-                        cam_init = false;
+                        camera_tracker.Reset();
                         serviceAudio();
                         if (!stop_room.empty() && room_name == stop_room) {
                             stop_room_reached = true;
@@ -6787,7 +6758,7 @@ int main(int argc, char** argv) {
                         startRoomInit();
                         // eArrow: UP=0 RI=1 DN=2 LF=3.
                         pdeg = float(j.arrow) * (float(std::numbers::pi) / 2.f);
-                        cam_init = false;
+                        camera_tracker.Reset();
                         serviceAudio();
                         if (!stop_room.empty() && room_name == stop_room) {
                             stop_room_reached = true;
@@ -6822,11 +6793,22 @@ int main(int argc, char** argv) {
                 if (!no_window || !shot.empty()) {
                 glViewport(0, 0, W, H);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                anim_t = t;
-                drawOne(stage, origin_zero, nullptr);
+                mana::RenderSnapshot render_snapshot(camera_frame);
+                std::map<const mcf::RenderAsset*, const mcf::Renderable*>
+                    snapshot_sources;
+                auto add_snapshot = [&](const mcf::Renderable& renderable,
+                                        std::array<float, 3> position,
+                                        float yaw = 0.f,
+                                        const mcf::Motion* motion = nullptr,
+                                        float motion_time = 0.f) {
+                    render_snapshot.Add(renderable.asset, position, yaw, motion,
+                                        motion_time);
+                    snapshot_sources[&renderable.asset] = &renderable;
+                };
+                add_snapshot(stage, {0.f, 0.f, 0.f});
                 for (const auto& o : objects)
                     if (o.alive && sc.ObjectVisible(o.script_id))
-                        drawOne(*o.r, o.pos, nullptr);
+                        add_snapshot(*o.r, {o.pos[0], o.pos[1], o.pos[2]});
                 // Draw from LIVE actor state: `placed` was a load-time snapshot,
                 // so enemies that move would have rendered at their spawn point.
                 for (auto& a : world.actors_mutable()) {
@@ -6836,14 +6818,20 @@ int main(int argc, char** argv) {
                     auto it = cache.find(nm);
                     if (it == cache.end()) continue; // actorMotion reported why
                     const mcf::Motion* mo = actorMotion(a);
-                    float wp[3]{a.pos[0] + room_org[0], a.pos[1] + room_org[1],
-                                a.pos[2] + room_org[2]};
-                    anim_t = a.motion_frame;
-                    drawOne(it->second, wp, mo, a.rot_y);
+                    add_snapshot(it->second,
+                                 {a.pos[0] + room_org[0],
+                                  a.pos[1] + room_org[1],
+                                  a.pos[2] + room_org[2]},
+                                 a.rot_y, mo, a.motion_frame);
                 }
-                if (have_hero) {
-                    float hp[3]{px, py, pz};
-                    drawOne(hero, hp, heroMotion(moving ? 1 : 0), pdeg);
+                if (have_hero)
+                    add_snapshot(hero, {px, py, pz}, pdeg,
+                                 heroMotion(moving ? 1 : 0), t);
+                for (const auto& instance : render_snapshot.instances) {
+                    anim_t = instance.motion_time;
+                    drawOne(*snapshot_sources.at(instance.asset),
+                            instance.position.data(), instance.motion,
+                            instance.yaw);
                 }
                 // Message window. Drawn before the fade so a transition covers
                 // it, and only when a script has actually set a line.
