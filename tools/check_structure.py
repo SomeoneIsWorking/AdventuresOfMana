@@ -9,7 +9,7 @@ from pathlib import Path
 
 DEFAULT_LIMIT = 1000
 LEGACY_LIMITS = {
-    "src/host/main.cpp": 7617,
+    "src/host/main.cpp": 7559,
     "src/mcf/assets.cpp": 1323,
 }
 SUFFIXES = {".c", ".cc", ".cpp", ".h", ".hh", ".hpp"}

@@ -18,6 +18,7 @@
 #include <queue>
 #include <deque>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,7 @@
 #include "host/image_write.h"
 #include "host/render_camera.h"
 #include "host/render_snapshot.h"
+#include "host/scene_pair_capture.h"
 #include "host/interaction.h"
 #include "host/navigation.h"
 #include "host/story_driver.h"
@@ -253,7 +255,7 @@ int main(int argc, char** argv) {
     std::string assets = assets_env && *assets_env ? assets_env : "scratch/raw/assets";
     std::string archive = assets + "/sk1/sk1.mpk";
     std::string model = "B0000_00";
-    std::string shot, anim;
+    std::string shot, scene_pair, anim;
     float anim_t = 0.f;
     bool census = false;
     bool room_census = false;
@@ -306,6 +308,12 @@ int main(int argc, char** argv) {
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
         else if (a == "--model" && i + 1 < argc) { model = argv[++i]; explicit_model = true; }
         else if (a == "--screenshot" && i + 1 < argc) shot = argv[++i];
+        else if (a == "--scene-pair" && i + 1 < argc) {
+            scene_pair = argv[++i];
+            fixed_step = true;
+            no_audio = true;
+            no_window = true;
+        }
         else if (a == "--anim" && i + 1 < argc) anim = argv[++i];
         else if (a == "--time" && i + 1 < argc) anim_t = std::stof(argv[++i]);
         else if (a == "--script-census") census = true;
@@ -393,6 +401,7 @@ int main(int argc, char** argv) {
                 "\nTools:\n"
                 "  --model NAME [--anim FILE] [--time T]   view one model\n"
                 "  --screenshot OUT.png [--warmup N]       render N frames, save, exit\n"
+                "  --scene-pair PREFIX [--warmup N]        same-frame GLES/SDL3 GPU scene PNGs\n"
                 "  --window            open a real window during a --screenshot run\n"
                 "  --no-window         use SDL's offscreen video backend\n"
                 "  --fixed-step        step at a fixed 30 Hz (implied by --warmup)\n"
@@ -2244,14 +2253,14 @@ int main(int argc, char** argv) {
         lucent::info("assets", "  {} draw range(s)", mdl.draws.size());
 
         bool have_display = SDL_getenv("DISPLAY") || SDL_getenv("WAYLAND_DISPLAY");
-        if (shot.empty() && !have_display)
+        if (shot.empty() && scene_pair.empty() && !have_display)
             lucent::warn("host", "no display detected; use --screenshot for headless");
         // A --screenshot run is headless by nature: it renders N frames, writes
         // a PNG and exits. Opening a real window for that steals focus and
         // flashes on the user's desktop for no benefit, so it goes through
         // SDL's offscreen driver whether or not a display exists. --window
         // opts back in for the rare case of watching a capture run live.
-        if ((no_window || !shot.empty()) && !force_window)
+        if ((no_window || !shot.empty() || !scene_pair.empty()) && !force_window)
             SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
 
         if (!SDL_Init(SDL_INIT_VIDEO))
@@ -3394,6 +3403,13 @@ int main(int argc, char** argv) {
             bool level_up_open = false;
             int level_up_choice = 0;
             mana::CameraTracker camera_tracker;
+            std::unique_ptr<mana::ScenePairCapture> scene_pair_capture;
+            if (!scene_pair.empty()) {
+                scene_pair_capture =
+                    std::make_unique<mana::ScenePairCapture>(scene_pair);
+                lucent::info("gpu", "live snapshot capture driver: {}",
+                             scene_pair_capture->driver());
+            }
             bool running = true;
             bool stop_room_reached = stop_room.empty() || room_name == stop_room;
             struct RoomExitReq {
@@ -6790,7 +6806,7 @@ int main(int argc, char** argv) {
                 // do not rebuild every skeletal palette merely to throw the
                 // offscreen framebuffer away. Capture runs still render.
                 ++frames;
-                if (!no_window || !shot.empty()) {
+                if (!no_window || !shot.empty() || !scene_pair.empty()) {
                 glViewport(0, 0, W, H);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
                 mana::RenderSnapshot render_snapshot(camera_frame);
@@ -6832,6 +6848,13 @@ int main(int argc, char** argv) {
                     drawOne(*snapshot_sources.at(instance.asset),
                             instance.position.data(), instance.motion,
                             instance.yaw);
+                }
+                if (!scene_pair.empty() && frames >= warmup) {
+                    std::vector<uint8_t> gl_pixels(size_t(W) * H * 4);
+                    glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE,
+                                 gl_pixels.data());
+                    scene_pair_capture->Write(render_snapshot, W, H, gl_pixels);
+                    running = false;
                 }
                 // Message window. Drawn before the fade so a transition covers
                 // it, and only when a script has actually set a line.
@@ -7296,6 +7319,10 @@ int main(int argc, char** argv) {
                               "ended in {}", stop_room, room_name);
                 run_failed = true;
             }
+            // SDL GPU resources must die while SDL's video subsystem is still
+            // alive. These objects are declared with the running-world state,
+            // whose lexical scope otherwise extends past SDL_Quit below.
+            scene_pair_capture.reset();
             SDL_GL_DestroyContext(ctx);
             SDL_DestroyWindow(win);
             SDL_Quit();

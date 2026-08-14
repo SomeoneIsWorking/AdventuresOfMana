@@ -109,6 +109,24 @@ grep -F "cannot open PNG 'scratch/logs/DOES_NOT_EXIST/scene.png'" \
 echo "  scene capture wrote bytes; missing-directory negative passed"
 ./build/mana_gpu_asset_selftest --negative-control "$archive" || exit 1
 
+echo "=== running snapshot SDL3 GPU consumer ==="
+scene_pair_prefix=scratch/screenshots/live-snapshot
+scene_pair_log=scratch/logs/live-snapshot.log
+./build/mana --room M0001_00_00 --scene-pair "$scene_pair_prefix" \
+  --warmup 30 >"$scene_pair_log" 2>&1 || exit 1
+grep -F "video driver: offscreen" "$scene_pair_log" || exit 1
+grep -F "live snapshot pair: 3 instances (2 skinned), 3 cached assets" \
+  "$scene_pair_log" || exit 1
+grep -F "audio decoded 0 sounds / 0 frames" "$scene_pair_log" || exit 1
+for scene_pair_image in "$scene_pair_prefix-gles.png" \
+    "$scene_pair_prefix-sdl3.png"; do
+  if [ ! -s "$scene_pair_image" ]; then
+    echo "FATAL: live snapshot consumer wrote no bytes to $scene_pair_image"
+    exit 1
+  fi
+done
+echo "  same-frame GLES/SDL3 captures wrote bytes offscreen with 0 audio frames"
+
 fail=0
 mark_failure() {
   echo "VERIFY CHECK FAILED at tools/verify.sh:${BASH_LINENO[0]}" >&2

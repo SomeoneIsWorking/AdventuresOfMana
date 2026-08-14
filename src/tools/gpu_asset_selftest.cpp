@@ -17,25 +17,16 @@
 #include "host/gpu_asset_pipeline.h"
 #include "host/gpu_device.h"
 #include "host/gpu_scene.h"
+#include "host/gpu_snapshot_renderer.h"
+#include "host/image_compare.h"
 #include "host/image_write.h"
 #include "host/render_asset.h"
 #include "host/render_pose.h"
+#include "host/render_snapshot.h"
 #include "mcf/mcf.h"
 
 namespace mana::gpu {
 namespace {
-
-std::uint32_t PixelDifference(std::span<const std::uint8_t> left,
-                              std::span<const std::uint8_t> right) {
-  if (left.size() != right.size() || left.size() % 4 != 0)
-    throw std::invalid_argument("pixel comparison dimensions differ");
-  std::uint32_t different = 0;
-  for (std::size_t offset = 0; offset < left.size(); offset += 4) {
-    if (std::memcmp(left.data() + offset, right.data() + offset, 4) != 0)
-      ++different;
-  }
-  return different;
-}
 
 std::uint32_t ChangedFromClear(std::span<const std::uint8_t> pixels) {
   constexpr std::array<std::uint8_t, 4> clear{0, 255, 255, 255};
@@ -318,6 +309,12 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
     const std::array<float, 3> eye{
         actor_x, target[1] + std::sin(camera_pitch) * camera_distance,
         actor_z + std::cos(camera_pitch) * camera_distance};
+    CameraFrame snapshot_camera{.eye = eye,
+                                .target = target,
+                                .vertical_fov_radians =
+                                    40.f * std::numbers::pi_v<float> / 180.f,
+                                .near_plane = 40.f,
+                                .far_plane = 5000.f};
     const auto room_transform = MultiplyTransform(
         PerspectiveTransform(40.f * std::numbers::pi_v<float> / 180.f,
                              float(scene_width) / float(scene_height), 40.f,
@@ -341,37 +338,69 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
         SceneDraw{.pipeline = &skinned_pipeline,
                   .transform = outside_transform,
                   .joints = bind_joints}};
+    constexpr SDL_FColor live_scene_clear{.1f, .11f, .14f, 1.f};
     const auto room_pixels =
-        scene.DrawAndReadback(scene_width, scene_height, room_draws);
+        scene.DrawAndReadback(scene_width, scene_height, room_draws,
+                              live_scene_clear);
     const auto combined_pixels =
-        scene.DrawAndReadback(scene_width, scene_height, combined_draws);
+        scene.DrawAndReadback(scene_width, scene_height, combined_draws,
+                              live_scene_clear);
+    RenderSnapshot snapshot(snapshot_camera);
+    snapshot.Add(source, {0.f, 0.f, 0.f});
+    snapshot.Add(skinned_source, {actor_x, actor_y, actor_z});
+    SnapshotRenderer snapshot_renderer(device);
+    const auto snapshot_pixels = snapshot_renderer.DrawAndReadback(
+        snapshot, scene_width, scene_height);
+    const std::uint32_t snapshot_differences =
+        PixelDifference(combined_pixels, snapshot_pixels);
     if (capture_path) {
       mana::WritePng(capture_path, scene_width, scene_height, combined_pixels);
       lucent::info("gpu", "ASSET SELFTEST: wrote scene capture {}",
                    capture_path);
     }
     const auto outside_pixels =
-        scene.DrawAndReadback(scene_width, scene_height, outside_draws);
+        scene.DrawAndReadback(scene_width, scene_height, outside_draws,
+                              live_scene_clear);
     const std::uint32_t actor_differences =
         PixelDifference(room_pixels, combined_pixels);
     const std::uint32_t outside_differences =
         PixelDifference(room_pixels, outside_pixels);
-    if (actor_differences == 0 || outside_differences != 0) {
+    bool unnamed_asset_failed = false;
+    std::string unnamed_asset_message;
+    try {
+      mcf::RenderAsset unnamed;
+      RenderSnapshot invalid_snapshot(snapshot_camera);
+      invalid_snapshot.Add(unnamed, {0.f, 0.f, 0.f});
+      (void)snapshot_renderer.DrawAndReadback(invalid_snapshot, scene_width,
+                                              scene_height);
+    } catch (const std::invalid_argument &error) {
+      unnamed_asset_message = error.what();
+      unnamed_asset_failed =
+          unnamed_asset_message == "render snapshot asset has no shipping name";
+    }
+    if (actor_differences == 0 || outside_differences != 0 ||
+        snapshot_differences != 0 ||
+        snapshot_renderer.cached_asset_count() != 2 || !unnamed_asset_failed) {
       lucent::error(
           "gpu",
           "ASSET SELFTEST FAIL: scene scanned {} pixels, {} room draws and {} "
           "actor draws; centered actor changed {}, offscreen actor changed {}; "
-          "expected nonzero and zero",
+          "snapshot differs in {}, cache holds {} assets, unnamed-asset "
+          "negative={} ({}); expected nonzero, zero, zero, 2, true",
           scene_width * scene_height, asset.draws().size(),
           skinned_asset.draws().size(),
-          actor_differences, outside_differences);
+          actor_differences, outside_differences, snapshot_differences,
+          snapshot_renderer.cached_asset_count(), unnamed_asset_failed,
+          unnamed_asset_message);
       return 1;
     }
     lucent::info(
         "gpu",
         "ASSET SELFTEST: scene scanned {} pixels, {} room draws and {} actor "
         "draws; centered actor changed {}, offscreen actor changed 0; {} "
-        "pixels discriminate scene-wide material ordering",
+        "pixels discriminate scene-wide material ordering; snapshot adapter "
+        "matches 0 pixels different with 2 cached assets; unnamed asset "
+        "rejected",
         scene_width * scene_height, asset.draws().size(),
         skinned_asset.draws().size(),
         actor_differences, material_order_differences);

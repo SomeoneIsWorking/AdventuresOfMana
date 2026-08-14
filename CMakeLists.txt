@@ -54,6 +54,7 @@ target_include_directories(render_assets PUBLIC src)
 target_link_libraries(render_assets PUBLIC mcf lucent::lucent)
 
 add_library(host_image STATIC
+  src/host/image_compare.cpp
   src/host/image_write.cpp)
 target_include_directories(host_image PUBLIC src)
 
@@ -88,6 +89,7 @@ add_library(host_gpu STATIC
   src/host/gpu_device.cpp
   src/host/gpu_pipeline.cpp
   src/host/gpu_scene.cpp
+  src/host/gpu_snapshot_renderer.cpp
   src/host/gpu_shader.cpp
   ${MANA_SHADER_PACK})
 target_include_directories(host_gpu PUBLIC src)
@@ -108,5 +110,6 @@ add_executable(mana
   src/host/main.cpp
   src/host/navigation.cpp
   src/host/render.cpp
+  src/host/scene_pair_capture.cpp
   src/host/story_driver.cpp)
 target_link_libraries(mana PRIVATE mcf engine render_assets host_gpu host_image SDL3::SDL3 PkgConfig::GLESV2)
