@@ -222,6 +222,15 @@ AssetPipeline::DrawAndReadback(std::uint32_t width, std::uint32_t height,
 void AssetPipeline::Draw(SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass,
                          const std::array<float, 16> &transform,
                          bool textures, std::span<const float> joints) {
+  DrawPass(command, pass, MaterialPass::kOpaque, transform, textures, joints);
+  DrawPass(command, pass, MaterialPass::kBlended, transform, textures, joints);
+}
+
+void AssetPipeline::DrawPass(SDL_GPUCommandBuffer *command,
+                             SDL_GPURenderPass *pass,
+                             MaterialPass material_pass,
+                             const std::array<float, 16> &transform,
+                             bool textures, std::span<const float> joints) {
   constexpr std::size_t kJointFloatCount = 80 * 3 * 4;
   if (asset_.skinned()) {
     if (joints.size() != kJointFloatCount)
@@ -244,21 +253,20 @@ void AssetPipeline::Draw(SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass,
   SDL_BindGPUIndexBuffer(pass, &indices, asset_.index_type());
   const std::uint32_t index_bytes =
       asset_.index_type() == SDL_GPU_INDEXELEMENTSIZE_16BIT ? 2 : 4;
-  for (int blend_pass = 0; blend_pass < 2; ++blend_pass) {
-    SDL_BindGPUGraphicsPipeline(pass, blend_pass ? blend_pipeline_
-                                                 : opaque_pipeline_);
-    for (std::size_t i = 0; i < asset_.draws().size(); ++i) {
-      if (asset_.DrawBlended(i) != (blend_pass == 1))
-        continue;
-      const SDL_GPUTextureSamplerBinding binding{
-          .texture = asset_.TextureForDraw(i, textures),
-          .sampler = asset_.sampler(),
-      };
-      SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
-      const auto &range = asset_.draws()[i];
-      SDL_DrawGPUIndexedPrimitives(pass, range.index_count, 1,
-                                   range.byte_offset / index_bytes, 0, 0);
-    }
+  const bool blended = material_pass == MaterialPass::kBlended;
+  SDL_BindGPUGraphicsPipeline(pass,
+                              blended ? blend_pipeline_ : opaque_pipeline_);
+  for (std::size_t i = 0; i < asset_.draws().size(); ++i) {
+    if (asset_.DrawBlended(i) != blended)
+      continue;
+    const SDL_GPUTextureSamplerBinding binding{
+        .texture = asset_.TextureForDraw(i, textures),
+        .sampler = asset_.sampler(),
+    };
+    SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
+    const auto &range = asset_.draws()[i];
+    SDL_DrawGPUIndexedPrimitives(pass, range.index_count, 1,
+                                 range.byte_offset / index_bytes, 0, 0);
   }
 }
 

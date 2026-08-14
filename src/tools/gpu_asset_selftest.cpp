@@ -1,8 +1,10 @@
 #include "tools/gpu_asset_selftest.h"
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <numbers>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -14,6 +16,8 @@
 #include "host/gpu_asset.h"
 #include "host/gpu_asset_pipeline.h"
 #include "host/gpu_device.h"
+#include "host/gpu_scene.h"
+#include "host/image_write.h"
 #include "host/render_asset.h"
 #include "host/render_pose.h"
 #include "mcf/mcf.h"
@@ -63,7 +67,8 @@ DrawDepthLayers(Device &device, AssetPipeline &pipeline, std::uint32_t width,
 
 } // namespace
 
-int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control) {
+int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
+                             const char *capture_path) {
   mcf::Archive archive(archive_path);
   mcf::RenderAsset source;
   constexpr std::string_view name = "M0001_00_00";
@@ -266,6 +271,110 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control) {
         width * height,
         skinned_source.model.vertex_count,
         skinned_name, skinned_changed, shifted_differences);
+
+    SceneRenderer scene(device);
+    constexpr std::uint32_t scene_width = 320;
+    constexpr std::uint32_t scene_height = 240;
+    AssetPipeline blend_order_pipeline(
+        device, blend_asset,
+        PipelineFeatures{.depth_test = false, .material_blending = true});
+    AssetPipeline static_order_pipeline(
+        device, asset,
+        PipelineFeatures{.depth_test = false, .material_blending = true});
+    SceneRenderer order_scene(device, false);
+    const auto blend_transform = blend_order_pipeline.TopDownTransform();
+    const auto static_transform = static_order_pipeline.TopDownTransform();
+    const std::array ordered_material_draws{
+        SceneDraw{.pipeline = &blend_order_pipeline,
+                  .transform = blend_transform},
+        SceneDraw{.pipeline = &static_order_pipeline,
+                  .transform = static_transform}};
+    const auto ordered_material_pixels =
+        order_scene.DrawAndReadback(width, height, ordered_material_draws);
+    constexpr SDL_FColor scene_clear{0.f, 1.f, 1.f, 1.f};
+    const auto per_asset_order_pixels = device.RenderAndReadback(
+        width, height, scene_clear,
+        [&](SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass) {
+          blend_order_pipeline.Draw(command, pass, blend_transform);
+          static_order_pipeline.Draw(command, pass, static_transform);
+        },
+        false);
+    const std::uint32_t material_order_differences =
+        PixelDifference(ordered_material_pixels, per_asset_order_pixels);
+    if (material_order_differences == 0) {
+      lucent::error(
+          "gpu",
+          "ASSET SELFTEST FAIL: scene material-order discriminator scanned {} "
+          "pixels across {}+{} draws; 0 differ from per-asset ordering",
+          width * height, blend_asset.draws().size(), asset.draws().size());
+      return 1;
+    }
+    const float actor_x = (source.lo[0] + source.hi[0]) * .5f;
+    const float actor_y = -skinned_source.lo[1];
+    const float actor_z = (source.lo[2] + source.hi[2]) * .5f;
+    const std::array<float, 3> target{actor_x, 20.f, actor_z};
+    constexpr float camera_distance = 450.f;
+    constexpr float camera_pitch = 20.f * std::numbers::pi_v<float> / 180.f;
+    const std::array<float, 3> eye{
+        actor_x, target[1] + std::sin(camera_pitch) * camera_distance,
+        actor_z + std::cos(camera_pitch) * camera_distance};
+    const auto room_transform = MultiplyTransform(
+        PerspectiveTransform(40.f * std::numbers::pi_v<float> / 180.f,
+                             float(scene_width) / float(scene_height), 40.f,
+                             5000.f),
+        LookAtTransform(eye, target, {0.f, 1.f, 0.f}));
+    const auto actor_transform = MultiplyTransform(
+        room_transform, TranslationTransform(actor_x, actor_y, actor_z));
+    const std::array room_draws{
+        SceneDraw{.pipeline = &pipeline, .transform = room_transform}};
+    const std::array combined_draws{
+        SceneDraw{.pipeline = &pipeline, .transform = room_transform},
+        SceneDraw{.pipeline = &skinned_pipeline,
+                  .transform = actor_transform,
+                  .joints = bind_joints}};
+    const auto outside_transform = MultiplyTransform(
+        room_transform,
+        TranslationTransform(actor_x + (source.hi[0] - source.lo[0]) * 2.f,
+                             actor_y, actor_z));
+    const std::array outside_draws{
+        SceneDraw{.pipeline = &pipeline, .transform = room_transform},
+        SceneDraw{.pipeline = &skinned_pipeline,
+                  .transform = outside_transform,
+                  .joints = bind_joints}};
+    const auto room_pixels =
+        scene.DrawAndReadback(scene_width, scene_height, room_draws);
+    const auto combined_pixels =
+        scene.DrawAndReadback(scene_width, scene_height, combined_draws);
+    if (capture_path) {
+      mana::WritePng(capture_path, scene_width, scene_height, combined_pixels);
+      lucent::info("gpu", "ASSET SELFTEST: wrote scene capture {}",
+                   capture_path);
+    }
+    const auto outside_pixels =
+        scene.DrawAndReadback(scene_width, scene_height, outside_draws);
+    const std::uint32_t actor_differences =
+        PixelDifference(room_pixels, combined_pixels);
+    const std::uint32_t outside_differences =
+        PixelDifference(room_pixels, outside_pixels);
+    if (actor_differences == 0 || outside_differences != 0) {
+      lucent::error(
+          "gpu",
+          "ASSET SELFTEST FAIL: scene scanned {} pixels, {} room draws and {} "
+          "actor draws; centered actor changed {}, offscreen actor changed {}; "
+          "expected nonzero and zero",
+          scene_width * scene_height, asset.draws().size(),
+          skinned_asset.draws().size(),
+          actor_differences, outside_differences);
+      return 1;
+    }
+    lucent::info(
+        "gpu",
+        "ASSET SELFTEST: scene scanned {} pixels, {} room draws and {} actor "
+        "draws; centered actor changed {}, offscreen actor changed 0; {} "
+        "pixels discriminate scene-wide material ordering",
+        scene_width * scene_height, asset.draws().size(),
+        skinned_asset.draws().size(),
+        actor_differences, material_order_differences);
   }
   return 0;
 }

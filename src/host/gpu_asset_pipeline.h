@@ -17,6 +17,8 @@ struct PipelineFeatures {
   bool material_blending = true;
 };
 
+enum class MaterialPass { kOpaque, kBlended };
+
 class AssetPipeline {
 public:
   AssetPipeline(Device &device, const Asset &asset,
@@ -37,7 +39,12 @@ public:
   void Draw(SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass,
             const std::array<float, 16> &transform, bool textures = true,
             std::span<const float> joints = {});
+  void DrawPass(SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass,
+                MaterialPass material_pass,
+                const std::array<float, 16> &transform, bool textures = true,
+                std::span<const float> joints = {});
   std::array<float, 16> TopDownTransform() const;
+  Device &device() const { return device_; }
 
 private:
   Device &device_;

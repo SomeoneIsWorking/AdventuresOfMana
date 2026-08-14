@@ -51,6 +51,10 @@ add_library(render_assets STATIC
 target_include_directories(render_assets PUBLIC src)
 target_link_libraries(render_assets PUBLIC mcf lucent::lucent)
 
+add_library(host_image STATIC
+  src/host/image_write.cpp)
+target_include_directories(host_image PUBLIC src)
+
 set(MANA_SHADER_ARTIFACTS
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.vert.spv
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.vert.dxil
@@ -81,6 +85,7 @@ add_library(host_gpu STATIC
   src/host/gpu_asset_pipeline.cpp
   src/host/gpu_device.cpp
   src/host/gpu_pipeline.cpp
+  src/host/gpu_scene.cpp
   src/host/gpu_shader.cpp
   ${MANA_SHADER_PACK})
 target_include_directories(host_gpu PUBLIC src)
@@ -94,7 +99,7 @@ target_link_libraries(mana_gpu_selftest PRIVATE host_gpu)
 add_executable(mana_gpu_asset_selftest
   src/tools/gpu_asset_selftest.cpp
   src/tools/gpu_asset_selftest_main.cpp)
-target_link_libraries(mana_gpu_asset_selftest PRIVATE host_gpu)
+target_link_libraries(mana_gpu_asset_selftest PRIVATE host_gpu host_image)
 
 add_executable(mana
   src/host/interaction.cpp
@@ -102,4 +107,4 @@ add_executable(mana
   src/host/navigation.cpp
   src/host/render.cpp
   src/host/story_driver.cpp)
-target_link_libraries(mana PRIVATE mcf engine render_assets host_gpu SDL3::SDL3 PkgConfig::GLESV2)
+target_link_libraries(mana PRIVATE mcf engine render_assets host_gpu host_image SDL3::SDL3 PkgConfig::GLESV2)

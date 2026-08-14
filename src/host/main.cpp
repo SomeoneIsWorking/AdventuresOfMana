@@ -28,6 +28,7 @@
 #include "engine/audio.h"
 #include "engine/world.h"
 #include "host/render.h"
+#include "host/image_write.h"
 #include "host/interaction.h"
 #include "host/navigation.h"
 #include "host/story_driver.h"
@@ -35,6 +36,7 @@
 #include "mcf/mcf.h"
 
 namespace {
+using mana::WritePng;
 
 int EquippedDoorKeySlot(const mcf::Inventory& inventory) {
     // AppObjectModel::HitCharacter checks the four item-button fields and
@@ -202,8 +204,6 @@ GLuint Compile(GLenum kind, const char* src) {
     }
     return s;
 }
-
-void WritePng(const std::string& path, int w, int h, const std::vector<uint8_t>& rgba);
 
 GLuint LinkProgram(const char* vs, const char* fs) {
     GLuint p = glCreateProgram();
@@ -7542,67 +7542,3 @@ int main(int argc, char** argv) {
     }
     return 0;
 }
-
-// --- minimal PNG writer (zlib "stored" blocks; no external image dep) --------
-namespace {
-uint32_t Crc32(const uint8_t* d, size_t n, uint32_t crc = 0) {
-    static uint32_t tbl[256];
-    static bool init = false;
-    if (!init) {
-        for (uint32_t i = 0; i < 256; ++i) {
-            uint32_t c = i;
-            for (int k = 0; k < 8; ++k) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-            tbl[i] = c;
-        }
-        init = true;
-    }
-    crc = ~crc;
-    for (size_t i = 0; i < n; ++i) crc = tbl[(crc ^ d[i]) & 0xFF] ^ (crc >> 8);
-    return ~crc;
-}
-
-void Put32(std::vector<uint8_t>& v, uint32_t x) {
-    v.push_back(uint8_t(x >> 24)); v.push_back(uint8_t(x >> 16));
-    v.push_back(uint8_t(x >> 8));  v.push_back(uint8_t(x));
-}
-
-void Chunk(std::vector<uint8_t>& out, const char* tag, const std::vector<uint8_t>& d) {
-    Put32(out, uint32_t(d.size()));
-    std::vector<uint8_t> body(tag, tag + 4);
-    body.insert(body.end(), d.begin(), d.end());
-    out.insert(out.end(), body.begin(), body.end());
-    Put32(out, Crc32(body.data(), body.size()));
-}
-
-void WritePng(const std::string& path, int w, int h, const std::vector<uint8_t>& rgba) {
-    std::vector<uint8_t> raw;
-    raw.reserve(size_t(h) * (size_t(w) * 4 + 1));
-    for (int y = 0; y < h; ++y) {
-        raw.push_back(0);
-        raw.insert(raw.end(), &rgba[size_t(y) * w * 4], &rgba[size_t(y) * w * 4] + size_t(w) * 4);
-    }
-    std::vector<uint8_t> z{0x78, 0x01};
-    uint32_t a = 1, b = 0;
-    for (uint8_t c : raw) { a = (a + c) % 65521; b = (b + a) % 65521; }
-    for (size_t i = 0; i < raw.size(); i += 65535) {
-        uint16_t n = uint16_t(std::min<size_t>(65535, raw.size() - i));
-        z.push_back(i + n >= raw.size() ? 1 : 0);
-        z.push_back(uint8_t(n)); z.push_back(uint8_t(n >> 8));
-        z.push_back(uint8_t(~n)); z.push_back(uint8_t(~n >> 8));
-        z.insert(z.end(), raw.begin() + long(i), raw.begin() + long(i + n));
-    }
-    Put32(z, (b << 16) | a);
-
-    std::vector<uint8_t> png{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
-    std::vector<uint8_t> ihdr;
-    Put32(ihdr, uint32_t(w)); Put32(ihdr, uint32_t(h));
-    ihdr.insert(ihdr.end(), {8, 6, 0, 0, 0});
-    Chunk(png, "IHDR", ihdr);
-    Chunk(png, "IDAT", z);
-    Chunk(png, "IEND", {});
-    if (FILE* f = std::fopen(path.c_str(), "wb")) {
-        std::fwrite(png.data(), 1, png.size(), f);
-        std::fclose(f);
-    }
-}
-}  // namespace

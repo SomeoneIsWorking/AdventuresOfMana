@@ -86,7 +86,27 @@ fi
 python3 tools/asset/mpk.py "$archive" --check-dir scratch/dump || exit 1
 
 echo "=== SDL3 GPU shipping-asset pipeline ==="
-./build/mana_gpu_asset_selftest "$archive" || exit 1
+mkdir -p scratch/screenshots
+scene_capture=scratch/screenshots/sdl3-gpu-scene.png
+./build/mana_gpu_asset_selftest --capture "$scene_capture" "$archive" || exit 1
+if [ ! -s "$scene_capture" ]; then
+  echo "FATAL: scene capture wrote no bytes to $scene_capture"
+  exit 1
+fi
+if [ -e scratch/logs/DOES_NOT_EXIST ]; then
+  echo "FATAL: PNG missing-directory negative cannot run: path unexpectedly exists"
+  exit 1
+fi
+png_negative_log=scratch/logs/png-write-negative.log
+if ./build/mana_gpu_asset_selftest --capture \
+    scratch/logs/DOES_NOT_EXIST/scene.png "$archive" \
+    >"$png_negative_log" 2>&1; then
+  echo "FATAL: PNG missing-directory negative returned success"
+  exit 1
+fi
+grep -F "cannot open PNG 'scratch/logs/DOES_NOT_EXIST/scene.png'" \
+  "$png_negative_log" || exit 1
+echo "  scene capture wrote bytes; missing-directory negative passed"
 ./build/mana_gpu_asset_selftest --negative-control "$archive" || exit 1
 
 fail=0
