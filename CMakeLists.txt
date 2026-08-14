@@ -119,6 +119,7 @@ add_library(host_gpu STATIC
   src/host/gpu_overlay.cpp
   src/host/gpu_pipeline.cpp
   src/host/gpu_presentation.cpp
+  src/host/gpu_runtime_renderer.cpp
   src/host/gpu_scene.cpp
   src/host/gpu_snapshot_renderer.cpp
   src/host/gpu_shader.cpp
@@ -148,12 +149,9 @@ add_executable(mana_gpu_ui_selftest
 target_link_libraries(mana_gpu_ui_selftest PRIVATE host_gpu host_image title_ui)
 
 add_executable(mana
-  src/host/gles_asset.cpp
-  src/host/gles_ui_renderer.cpp
   src/host/interaction.cpp
   src/host/main.cpp
   src/host/navigation.cpp
   src/host/render.cpp
-  src/host/scene_pair_capture.cpp
   src/host/story_driver.cpp)
 target_link_libraries(mana PRIVATE mcf engine render_assets title_ui host_gpu host_image SDL3::SDL3 PkgConfig::GLESV2)

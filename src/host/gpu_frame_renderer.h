@@ -39,6 +39,8 @@ public:
             std::uint32_t height, const UiFrame &ui,
             const FadeOverlay &overlay, SDL_GPUCommandBuffer *command,
             SDL_GPURenderPass *pass);
+  void DrawUi(const UiFrame &ui, SDL_GPUCommandBuffer *command,
+              SDL_GPURenderPass *pass);
   std::vector<std::uint8_t>
   DrawAndReadback(const RenderSnapshot &snapshot, std::uint32_t width,
                   std::uint32_t height, const UiFrame &ui,

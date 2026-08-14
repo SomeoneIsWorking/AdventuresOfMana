@@ -1,8 +1,9 @@
 ---
 id: I019
 kind: instrument
-status: trusted
+status: DISTRUSTED
 created: 2026-08-14
+distrusted_on: 2026-08-14
 ---
 
 ## Instrument
@@ -16,3 +17,9 @@ Positive: real M0001_00_00 frame 30 reported 3 instances (2 skinned), 3 cached a
 ## Known failure modes
 
 (none recorded yet)
+
+## DISTRUSTED 2026-08-14
+
+The --scene-pair option and hidden GLES window were intentionally removed; use the live SDL3 GPU capture plus focused renderer controls.
+
+> Every result this instrument produced is suspect until it is re-validated.

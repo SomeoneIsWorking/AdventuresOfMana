@@ -22,10 +22,15 @@ void FrameRenderer::Draw(const RenderSnapshot &snapshot, std::uint32_t width,
                          const FadeOverlay &overlay,
                          SDL_GPUCommandBuffer *command,
                          SDL_GPURenderPass *pass) {
-  ui_->Prepare(ui);
   scene_->Draw(snapshot, width, height, command, pass);
-  ui_->Draw(command, pass);
+  DrawUi(ui, command, pass);
   overlay_->Draw(command, pass, overlay);
+}
+
+void FrameRenderer::DrawUi(const UiFrame &ui, SDL_GPUCommandBuffer *command,
+                           SDL_GPURenderPass *pass) {
+  ui_->Prepare(ui);
+  ui_->Draw(command, pass);
 }
 
 std::vector<std::uint8_t> FrameRenderer::DrawAndReadback(

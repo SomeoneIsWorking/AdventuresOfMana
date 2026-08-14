@@ -1,12 +1,13 @@
 ---
 id: C042
 kind: claim
-status: holds
+status: falsified
 created: 2026-08-14
 tags: renderer,sdl3-gpu,snapshot
 depends: src/host/gpu_snapshot_renderer.cpp, src/host/scene_pair_capture.cpp, src/host/main.cpp
 reconfirmed: 2026-08-14
 verified_at: 2026-08-14 15:04:26
+falsified_on: 2026-08-14
 ---
 
 ## Claim
@@ -52,3 +53,9 @@ Reverified at implementation commit 51cc938 by complete tools/verify.sh in scrat
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full tools/verify.sh passed on the exact shared-frame-compositor tree: 87 source files/0 structure violations, 33/33 shaders, live offscreen GLES/SDL3 scene UI fade pair with zero audio, uncapped story through sccnt=20, and ALL PARSERS PASSED.
+
+## FALSIFIED 2026-08-14
+
+The paired GLES runtime comparator and --scene-pair instrument were retired after the live SDL3 renderer became the sole game path; its current evidence is the live GPU capture gate.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.

@@ -4,9 +4,9 @@ kind: claim
 status: holds
 created: 2026-08-14
 tags: renderer,sdl3-gpu,fade
-depends: src/host/render_overlay.cpp#FadeOverlay::FromEngineColor, src/host/gpu_overlay.cpp#OverlayRenderer::Draw, src/host/scene_pair_capture.cpp#ScenePairCapture::WriteFromGles, src/host/main.cpp
+depends: src/host/render_overlay.cpp#FadeOverlay, src/host/gpu_overlay.cpp#OverlayRenderer, src/host/gpu_frame_renderer.cpp#FrameRenderer, src/host/gpu_runtime_renderer.cpp#RuntimeRenderer
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 15:04:26
+verified_at: 2026-08-14 15:26:00
 ---
 
 ## Claim
@@ -40,3 +40,7 @@ Reverified at implementation commit 3bee232 by complete tools/verify.sh in scrat
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full tools/verify.sh passed on the exact shared-frame-compositor tree: 87 source files/0 structure violations, 33/33 shaders, live offscreen GLES/SDL3 scene UI fade pair with zero audio, uncapped story through sccnt=20, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+2026-08-14 full verifier re-confirmed the 12-pixel half-fade positive and 12-pixel zero-coverage negative, then the shipping RuntimeRenderer captured the live scene/UI/fade frame at authored 0.500 coverage with 0 SDL windows and 0 audio frames.

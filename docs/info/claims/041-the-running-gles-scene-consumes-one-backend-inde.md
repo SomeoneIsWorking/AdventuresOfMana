@@ -1,12 +1,13 @@
 ---
 id: C041
 kind: claim
-status: holds
+status: falsified
 created: 2026-08-14
 tags: renderer,snapshot,camera
 depends: src/host/render_camera.cpp#CameraTracker::Update, src/host/render_snapshot.cpp#RenderSnapshot::Add, src/host/main.cpp, tools/verify.sh
 reconfirmed: 2026-08-14
 verified_at: 2026-08-14 15:04:26
+falsified_on: 2026-08-14
 ---
 
 ## Claim
@@ -48,3 +49,9 @@ Reverified at implementation commit 51cc938 by complete tools/verify.sh in scrat
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full tools/verify.sh passed on the exact shared-frame-compositor tree: 87 source files/0 structure violations, 33/33 shaders, live offscreen GLES/SDL3 scene UI fade pair with zero audio, uncapped story through sccnt=20, and ALL PARSERS PASSED.
+
+## FALSIFIED 2026-08-14
+
+The running GLES game renderer was deliberately removed after the SDL3 GPU cutover; RenderSnapshot now has one shipping consumer.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.

@@ -1,12 +1,13 @@
 ---
 id: C046
 kind: claim
-status: holds
+status: falsified
 created: 2026-08-14
 tags: renderer,ui,sdl3,gles
 depends: src/host/render_ui.cpp#BuildGameUi, src/host/scene_pair_capture.cpp#WriteFromGles, src/host/main.cpp
 reconfirmed: 2026-08-14
 verified_at: 2026-08-14 15:04:26
+falsified_on: 2026-08-14
 ---
 
 ## Claim
@@ -28,3 +29,9 @@ if either backend stops consuming BuildGameUi output, the live pair omits UI, or
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full tools/verify.sh passed on the exact shared-frame-compositor tree: 87 source files/0 structure violations, 33/33 shaders, live offscreen GLES/SDL3 scene UI fade pair with zero audio, uncapped story through sccnt=20, and ALL PARSERS PASSED.
+
+## FALSIFIED 2026-08-14
+
+The shared layout remains authoritative, but the GLES game UI consumer was deleted; SDL3 GPU is now its sole shipping renderer.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.

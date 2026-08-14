@@ -4,6 +4,11 @@ The structure and UI reference for this port is the Dusklight checkout identifie
 pattern: a small host entry point that composes cohesive configuration, presentation, input, audio,
 save, diagnostic, and UI modules. Do not copy platform-specific implementation mechanically.
 
+Applied renderer ownership: `gpu_runtime_renderer` owns the shipping SDL3 GPU
+device and optional presentation; `gpu_frame_renderer` composes immutable scene,
+UI, and fade inputs; `gpu_presentation` owns the window/swapchain. GLES is not a
+game backend and remains only in the explicit single-model inspection path.
+
 USER 2026-08-14: "Please properly structure the project, don't put everything in one file/class, globally ban this behavior also"
 
 - `src/host/main.cpp` is legacy orchestration debt. Do not add a subsystem, gameplay rule, parser,

@@ -1,12 +1,13 @@
 ---
 id: C049
 kind: claim
-status: holds
+status: falsified
 created: 2026-08-14
 tags: renderer,structure
 depends: src/host/gles_asset.cpp#Asset::Release, src/host/main.cpp#main
 reconfirmed: 2026-08-14
 verified_at: 2026-08-14 15:04:26
+falsified_on: 2026-08-14
 ---
 
 ## Claim
@@ -28,3 +29,9 @@ A GLES handle reappears in host/render, an Asset copy becomes possible, a resour
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full tools/verify.sh passed on the exact shared-frame-compositor tree: 87 source files/0 structure violations, 33/33 shaders, live offscreen GLES/SDL3 scene UI fade pair with zero audio, uncapped story through sccnt=20, and ALL PARSERS PASSED.
+
+## FALSIFIED 2026-08-14
+
+The transitional GLES asset uploader and its running cache were deleted after the GPU runtime cutover, so this ownership claim no longer describes existing code.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.

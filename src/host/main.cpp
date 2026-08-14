@@ -25,8 +25,7 @@
 #include "engine/world.h"
 #include "host/render.h"
 #include "host/game_ui_content.h"
-#include "host/gles_asset.h"
-#include "host/gles_ui_renderer.h"
+#include "host/gpu_runtime_renderer.h"
 #include "host/image_write.h"
 #include "host/render_camera.h"
 #include "host/render_overlay.h"
@@ -34,7 +33,6 @@
 #include "host/render_snapshot.h"
 #include "host/render_sprite.h"
 #include "host/render_ui.h"
-#include "host/scene_pair_capture.h"
 #include "host/interaction.h"
 #include "host/navigation.h"
 #include "host/story_driver.h"
@@ -81,32 +79,6 @@ constexpr const char* kVSkin =
     "vPosition.xyz += SkinningPosition( position , int( incidence.x ) * 3 ) * (weight[0]); "
     "vPosition.xyz += SkinningPosition( position , int( incidence.y ) * 3 ) * (1.0 - weight[0]); "
     "texcoordVarying = texcoord0; colorVarying = color; gl_Position = mVP * vPosition; }";
-
-// The game's own fade shader pair, verbatim from .rodata: a clip-space quad in
-// a flat colour.
-constexpr const char* kVFade =
-    "attribute vec4 position; uniform vec4 vColor; varying vec4 colorVarying; "
-    "void main() { gl_Position = position; colorVarying = vColor; }";
-constexpr const char* kFFade =
-    "precision highp float; varying vec4 colorVarying; void main() "
-    "{ gl_FragColor = colorVarying; }";
-
-// 2D overlay: screen-space quads, an 8-bit coverage atlas in the red channel,
-// tinted. Used for the message window and its text.
-constexpr const char* kVText =
-    "attribute vec2 position; attribute vec2 texcoord; varying vec2 uv; "
-    "void main() { uv = texcoord; gl_Position = vec4(position, 0.0, 1.0); }";
-constexpr const char* kFText =
-    "precision highp float; varying vec2 uv; uniform sampler2D tex; "
-    "uniform vec4 tint; uniform float useTex; void main() { "
-    "float a = mix(1.0, texture2D(tex, uv).r, useTex); "
-    "gl_FragColor = vec4(tint.rgb, tint.a * a); }";
-
-// Full RGBA, for the boot art. The text shader samples only .r, because it
-// serves an 8-bit luminance font atlas; the logos are RGBA and need all four.
-constexpr const char* kFSprite =
-    "precision highp float; varying vec2 uv; uniform sampler2D tex; "
-    "uniform vec4 tint; void main() { gl_FragColor = texture2D(tex, uv) * tint; }";
 
 constexpr const char* kFS =
     "precision highp float; uniform sampler2D texture0; varying vec4 colorVarying; "
@@ -212,26 +184,6 @@ GLuint Compile(GLenum kind, const char* src) {
     return s;
 }
 
-GLuint LinkProgram(const char* vs, const char* fs) {
-    GLuint p = glCreateProgram();
-    glAttachShader(p, Compile(GL_VERTEX_SHADER, vs));
-    glAttachShader(p, Compile(GL_FRAGMENT_SHADER, fs));
-    glBindAttribLocation(p, 0, "position");
-    glBindAttribLocation(p, 1, "color");
-    glBindAttribLocation(p, 2, "texcoord0");
-    glBindAttribLocation(p, 3, "weight");
-    glBindAttribLocation(p, 4, "incidence");
-    glLinkProgram(p);
-    GLint ok = 0;
-    glGetProgramiv(p, GL_LINK_STATUS, &ok);
-    if (!ok) {
-        char log[2048]{};
-        glGetProgramInfoLog(p, sizeof(log), nullptr, log);
-        throw mcf::Error(std::format("link failed: {}", log));
-    }
-    return p;
-}
-
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -258,7 +210,7 @@ int main(int argc, char** argv) {
     std::string assets = assets_env && *assets_env ? assets_env : "scratch/raw/assets";
     std::string archive = assets + "/sk1/sk1.mpk";
     std::string model = "B0000_00";
-    std::string shot, scene_pair, anim;
+    std::string shot, anim;
     float anim_t = 0.f;
     bool census = false;
     bool room_census = false;
@@ -311,12 +263,6 @@ int main(int argc, char** argv) {
         if (a == "--archive" && i + 1 < argc) archive = argv[++i];
         else if (a == "--model" && i + 1 < argc) { model = argv[++i]; explicit_model = true; }
         else if (a == "--screenshot" && i + 1 < argc) shot = argv[++i];
-        else if (a == "--scene-pair" && i + 1 < argc) {
-            scene_pair = argv[++i];
-            fixed_step = true;
-            no_audio = true;
-            no_window = true;
-        }
         else if (a == "--anim" && i + 1 < argc) anim = argv[++i];
         else if (a == "--time" && i + 1 < argc) anim_t = std::stof(argv[++i]);
         else if (a == "--script-census") census = true;
@@ -404,7 +350,6 @@ int main(int argc, char** argv) {
                 "\nTools:\n"
                 "  --model NAME [--anim FILE] [--time T]   view one model\n"
                 "  --screenshot OUT.png [--warmup N]       render N frames, save, exit\n"
-                "  --scene-pair PREFIX [--warmup N]        same-frame GLES/SDL3 GPU scene PNGs\n"
                 "  --window            open a real window during a --screenshot run\n"
                 "  --no-window         use SDL's offscreen video backend\n"
                 "  --fixed-step        step at a fixed 30 Hz (implied by --warmup)\n"
@@ -2256,62 +2201,62 @@ int main(int argc, char** argv) {
         lucent::info("assets", "  {} draw range(s)", mdl.draws.size());
 
         bool have_display = SDL_getenv("DISPLAY") || SDL_getenv("WAYLAND_DISPLAY");
-        if (shot.empty() && scene_pair.empty() && !have_display)
+        if (shot.empty() && !have_display)
             lucent::warn("host", "no display detected; use --screenshot for headless");
         // A --screenshot run is headless by nature: it renders N frames, writes
         // a PNG and exits. Opening a real window for that steals focus and
         // flashes on the user's desktop for no benefit, so it goes through
         // SDL's offscreen driver whether or not a display exists. --window
         // opts back in for the rare case of watching a capture run live.
-        if ((no_window || !shot.empty() || !scene_pair.empty()) && !force_window)
+        if ((no_window || !shot.empty()) && !force_window)
             SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
 
         if (!SDL_Init(SDL_INIT_VIDEO))
             throw mcf::Error(std::format("SDL_Init: {}", SDL_GetError()));
 
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-
         const int W = 720, H = 720;
-        SDL_Window* win = SDL_CreateWindow("Adventures of Mana", W, H, SDL_WINDOW_OPENGL);
-        if (!win) throw mcf::Error(std::format("SDL_CreateWindow: {}", SDL_GetError()));
-        SDL_GLContext ctx = SDL_GL_CreateContext(win);
-        if (!ctx) throw mcf::Error(std::format("SDL_GL_CreateContext: {}", SDL_GetError()));
-        if (!force_window && !SDL_GL_SetSwapInterval(0))
-            lucent::warn("host", "could not disable swap pacing: {}", SDL_GetError());
-        lucent::info("host", "GL_VERSION  {}", (const char*)glGetString(GL_VERSION));
-        lucent::info("host", "GL_RENDERER {}", (const char*)glGetString(GL_RENDERER));
-        // Say which driver we got. "windowless" is easy to believe and hard to
-        // notice when it silently stops being true.
+        SDL_Window* win = nullptr;
+        SDL_GLContext ctx = nullptr;
+        const bool skinned = mdl.Find(mcf::VertexUsage::kWeight) != nullptr;
+        GLuint prog = 0;
+        if (render_room.empty()) {
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+            SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+            win = SDL_CreateWindow("Adventures of Mana", W, H,
+                                   SDL_WINDOW_OPENGL);
+            if (!win)
+                throw mcf::Error(std::format("SDL_CreateWindow: {}", SDL_GetError()));
+            ctx = SDL_GL_CreateContext(win);
+            if (!ctx)
+                throw mcf::Error(std::format("SDL_GL_CreateContext: {}", SDL_GetError()));
+            if (!force_window && !SDL_GL_SetSwapInterval(0))
+                lucent::warn("host", "could not disable swap pacing: {}", SDL_GetError());
+            lucent::info("host", "GL_VERSION  {}", (const char*)glGetString(GL_VERSION));
+            lucent::info("host", "GL_RENDERER {}", (const char*)glGetString(GL_RENDERER));
+            prog = glCreateProgram();
+            glAttachShader(prog, Compile(GL_VERTEX_SHADER, skinned ? kVSkin : kVS));
+            glAttachShader(prog, Compile(GL_FRAGMENT_SHADER, kFS));
+            glBindAttribLocation(prog, 0, "position");
+            glBindAttribLocation(prog, 1, "color");
+            glBindAttribLocation(prog, 2, "texcoord0");
+            glBindAttribLocation(prog, 3, "weight");
+            glBindAttribLocation(prog, 4, "incidence");
+            glLinkProgram(prog);
+            GLint linked = 0;
+            glGetProgramiv(prog, GL_LINK_STATUS, &linked);
+            if (!linked) {
+                char log[2048]{};
+                glGetProgramInfoLog(prog, sizeof(log), nullptr, log);
+                throw mcf::Error(std::format("link failed: {}", log));
+            }
+        }
         lucent::info("host", "video driver: {}", SDL_GetCurrentVideoDriver());
 
-        const bool skinned = mdl.Find(mcf::VertexUsage::kWeight) != nullptr;
-        GLuint prog = glCreateProgram();
-        glAttachShader(prog, Compile(GL_VERTEX_SHADER, skinned ? kVSkin : kVS));
-        glAttachShader(prog, Compile(GL_FRAGMENT_SHADER, kFS));
-        glBindAttribLocation(prog, 0, "position");
-        glBindAttribLocation(prog, 1, "color");
-        glBindAttribLocation(prog, 2, "texcoord0");
-        glBindAttribLocation(prog, 3, "weight");
-        glBindAttribLocation(prog, 4, "incidence");
-        glLinkProgram(prog);
-        GLint linked = 0;
-        glGetProgramiv(prog, GL_LINK_STATUS, &linked);
-        if (!linked) {
-            char log[2048]{};
-            glGetProgramInfoLog(prog, sizeof(log), nullptr, log);
-            throw mcf::Error(std::format("link failed: {}", log));
-        }
-
         if (!render_room.empty()) {
-            GLuint progFlat = LinkProgram(kVS, kFS);
-            GLuint progSkin = LinkProgram(kVSkin, kFS);
-            GLuint progFade = LinkProgram(kVFade, kFFade);
             // The game's own bitmap font, for the message window.
             mcf::Font font;
-            GLuint fontTex = 0, textVbo = 0;
             {
                 // The engine draws UI text with sk1/font_<lang>.bin, not with
                 // BasicFont: FontFileLoad @ 0x2c2608 builds the FTData from it.
@@ -2335,45 +2280,13 @@ int main(int argc, char** argv) {
                 } else {
                     lucent::info("text", "{}: {}x{} atlas, {} glyphs", fp,
                                  font.width(), font.height(), font.glyphs());
-                    glGenTextures(1, &fontTex);
-                    glBindTexture(GL_TEXTURE_2D, fontTex);
-                    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-                    // 8-bit coverage. GL_LUMINANCE replicates into rgb, so the
-                    // shader can read it from .r on both GLES2 and desktop GL.
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE,
-                                 GLsizei(font.width()), GLsizei(font.height()), 0,
-                                 GL_LUMINANCE, GL_UNSIGNED_BYTE, font.atlas().data());
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
                 }
-                glGenBuffers(1, &textVbo);
-            }
-            // The remaining boot/title UI here was laid out against BasicFont, whose tallest
-            // glyph reaches 17px below the line origin. A font_*.bin line is
-            // 28px, so text drawn at the same `scale` would be 1.6x too big and
-            // would overflow the boxes. Normalising by the ratio keeps the
-            // layout fixed and leaves BasicFont at exactly 1.0.
-            const float kDesignLine = 17.f;
-            const float font_scale =
-                font.line_height() ? kDesignLine / float(font.line_height()) : 1.f;
-            GLuint progText = LinkProgram(kVText, kFText);
-            GLuint fadeVbo = 0;
-            glGenBuffers(1, &fadeVbo);
-            {
-                const float quad[] = {-1,-1, 3,-1, -1,3};   // one oversized triangle
-                glBindBuffer(GL_ARRAY_BUFFER, fadeVbo);
-                glBufferData(GL_ARRAY_BUFFER, sizeof quad, quad, GL_STATIC_DRAW);
             }
             // Boot art. Names come from the modes' own string literals:
             // ModeMakerLogo formats "sk1/sqex%s.png", ModeTitle uses the
             // per-language title logo. Loaded lazily and only when --boot is
             // on, so a normal run pays nothing for them.
-            GLuint progSprite = LinkProgram(kVText, kFSprite);
-            GLuint spriteVbo = 0;
-            glGenBuffers(1, &spriteVbo);
-            struct Sprite { GLuint tex = 0; mana::SpriteImage image; };
+            struct Sprite { mana::SpriteImage image; };
             auto loadSprite = [&](const char* name) -> Sprite {
                 Sprite sp;
                 if (!ar.Has(name)) {
@@ -2387,16 +2300,6 @@ int main(int argc, char** argv) {
                     lucent::warn("boot", "{} did not decode", name);
                     return sp;
                 }
-                glGenTextures(1, &sp.tex);
-                glBindTexture(GL_TEXTURE_2D, sp.tex);
-                glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, GLsizei(sp.image.width),
-                             GLsizei(sp.image.height), 0, GL_RGBA,
-                             GL_UNSIGNED_BYTE, sp.image.rgba.data());
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
                 lucent::info("boot", "{}: {}x{}", name, sp.image.width,
                              sp.image.height);
                 return sp;
@@ -2407,46 +2310,30 @@ int main(int argc, char** argv) {
                 sprTitle = loadSprite(lang == "ja" ? "sk1/titlelogo_ja_color.png"
                                                    : "sk1/titlelogo_en_color.png");
             }
-            // Aspect-fit, because the art is authored at 960x544 and the window
-            // is whatever the user gave us. Letterboxing preserves the logo's
-            // proportions; stretching would not.
-            auto drawSprite = [&](const Sprite& sp) {
-                if (!sp.tex) return;
-                int vw = 0, vh = 0;
-                SDL_GetWindowSizeInPixels(win, &vw, &vh);
-                if (vw <= 0 || vh <= 0) { vw = W; vh = H; }
-                const auto vertices = mana::BuildAspectFitSprite(
-                    sp.image, std::uint32_t(vw), std::uint32_t(vh));
-                glUseProgram(progSprite);
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                glDisable(GL_DEPTH_TEST);
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, sp.tex);
-                glUniform1i(glGetUniformLocation(progSprite, "tex"), 0);
-                glUniform4f(glGetUniformLocation(progSprite, "tint"), 1, 1, 1, 1);
-                glBindBuffer(GL_ARRAY_BUFFER, spriteVbo);
-                glBufferData(GL_ARRAY_BUFFER,
-                             GLsizeiptr(vertices.size() * sizeof(mana::UiVertex)),
-                             vertices.data(), GL_STREAM_DRAW);
-                glEnableVertexAttribArray(0);
-                glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, nullptr);
-                glEnableVertexAttribArray(1);
-                glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16,
-                                      (const void*)(sizeof(float) * 2));
-                glDrawArrays(GL_TRIANGLES, 0, 6);
-            };
-
-            GLuint white = 0;
-            glGenTextures(1, &white);
-            glBindTexture(GL_TEXTURE_2D, white);
-            const uint8_t kW[4] = {255, 255, 255, 255};
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, kW);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            std::unique_ptr<mana::gpu::RuntimeRenderer> gpu_runtime;
+            if (force_window || !no_window || !shot.empty()) {
+                std::optional<mana::SpriteImage> maker_image;
+                std::optional<mana::SpriteImage> title_image;
+                if (!sprMaker.image.rgba.empty()) maker_image = sprMaker.image;
+                if (!sprTitle.image.rgba.empty()) title_image = sprTitle.image;
+                const bool windowed = force_window || (!no_window && shot.empty());
+                gpu_runtime = std::make_unique<mana::gpu::RuntimeRenderer>(
+                    font, std::move(maker_image), std::move(title_image),
+                    windowed, true);
+                win = gpu_runtime->window();
+                lucent::info("gpu", "runtime driver: {}", gpu_runtime->driver());
+            }
+            if (!force_window && (no_window || !shot.empty())) {
+                const int window_count =
+                    mana::gpu::RuntimeRenderer::WindowCount();
+                if (window_count != 0)
+                    throw mcf::Error(std::format(
+                        "windowless run created {} SDL window(s)", window_count));
+                lucent::info("host", "windowless run: 0 SDL windows");
+            }
 
             // Room-scoped state, rebuilt by loadRoom on every transition.
-            mana::gles::Asset stage;
+            mcf::RenderAsset stage;
             mcf::Collision col;
             bool have_col = false;
             mcf::GroundAttributes ground;
@@ -2462,10 +2349,10 @@ int main(int argc, char** argv) {
             std::vector<float>   chip_height;   // ModeGame + 0x9bb0's counterpart
             std::vector<int32_t> chip_dist;
             bool chip_fill_logged = false;
-            struct Placed { const mana::gles::Asset* r; float pos[3]; const mcf::Motion* mo; };
+            struct Placed { const mcf::RenderAsset* asset; float pos[3]; const mcf::Motion* mo; };
             std::vector<Placed> placed;
             struct PlacedObj {
-                const mana::gles::Asset* r;
+                const mcf::RenderAsset* asset;
                 float pos[3];
                 int32_t id = 0;
                 uint32_t flags = 0;
@@ -2473,7 +2360,7 @@ int main(int argc, char** argv) {
                 bool alive = true;
             };
             std::vector<PlacedObj> objects;
-            std::map<std::string, mana::gles::Asset> cache; // survives transitions
+            std::map<std::string, mcf::RenderAsset> cache; // survives transitions
             std::set<std::string> missing_actor_models;
             std::set<std::string> missing_actor_motions;
             std::set<std::string> reported_script_moves;
@@ -2577,8 +2464,8 @@ int main(int argc, char** argv) {
                 if (name == "M0010_00_01") bogard_house_visited = true;
                 if (bogard_house_visited && name == "M0000_07_04")
                     bogard_return_reached_vine_summit = true;
-                stage = mana::gles::Asset{};
-                if (!mana::gles::LoadAsset(ar, room_name, white, &stage)) {
+                stage = mcf::RenderAsset{};
+                if (!mcf::LoadRenderAsset(ar, room_name, &stage)) {
                     lucent::error("world", "no model for room {}", room_name);
                     return false;
                 }
@@ -2783,8 +2670,8 @@ int main(int argc, char** argv) {
                 auto nm = mcf::ActorModelName(a.kind, a.type_id);
                 if (nm.empty()) continue;   // eNPC.TRANS: invisible by design
                 if (!cache.count(nm)) {
-                    mana::gles::Asset r;
-                    if (!mana::gles::LoadAsset(ar, nm, white, &r)) {
+                    mcf::RenderAsset r;
+                    if (!mcf::LoadRenderAsset(ar, nm, &r)) {
                         lucent::warn("world", "actor {} (kind {} id {}) has no model {}",
                                      a.handle, a.kind, a.type_id, nm);
                         continue;
@@ -2814,7 +2701,7 @@ int main(int argc, char** argv) {
                 // filename is per-model and not canonical (137 files disagree
                 // with eMOTION), so only the numeric prefix is matched.
                 const mcf::Motion* mo = nullptr;
-                if (!cache[nm].source.model.bones.empty()) {
+                if (!cache[nm].model.bones.empty()) {
                     auto pre = mcf::World::MotionPrefix(nm, a.motion);
                     auto file = ar.FindByPrefix(pre);
                     if (file.empty()) {
@@ -2843,8 +2730,8 @@ int main(int argc, char** argv) {
                     const char* nm = mcf::MapObjectModel(o.id);
                     if (!nm) { ++missing_id; continue; }
                     if (!cache.count(nm)) {
-                        mana::gles::Asset r;
-                        if (!mana::gles::LoadAsset(ar, nm, white, &r)) {
+                        mcf::RenderAsset r;
+                        if (!mcf::LoadRenderAsset(ar, nm, &r)) {
                             ++missing_model;
                             continue;
                         }
@@ -2928,16 +2815,16 @@ int main(int argc, char** argv) {
                     if (!hit && opening_story && inventory.Has(17) &&
                         (object.flags & 0x08))
                         continue;
-                    const float lo_y = object.pos[1] + object.r->source.lo[1];
-                    const float hi_y = object.pos[1] + object.r->source.hi[1];
+                    const float lo_y = object.pos[1] + object.asset->lo[1];
+                    const float hi_y = object.pos[1] + object.asset->hi[1];
                     if (y + 30.f < lo_y || y > hi_y) continue;
-                    const float lo_x = object.pos[0] + object.r->source.lo[0] -
+                    const float lo_x = object.pos[0] + object.asset->lo[0] -
                                        kObjectPlayerRadius;
-                    const float hi_x = object.pos[0] + object.r->source.hi[0] +
+                    const float hi_x = object.pos[0] + object.asset->hi[0] +
                                        kObjectPlayerRadius;
-                    const float lo_z = object.pos[2] + object.r->source.lo[2] -
+                    const float lo_z = object.pos[2] + object.asset->lo[2] -
                                        kObjectPlayerRadius;
-                    const float hi_z = object.pos[2] + object.r->source.hi[2] +
+                    const float hi_z = object.pos[2] + object.asset->hi[2] +
                                        kObjectPlayerRadius;
                     float t0 = 0.f, t1 = 1.f;
                     auto clip = [&](float p, float q) {
@@ -2964,91 +2851,18 @@ int main(int argc, char** argv) {
             };
             float ctr[3], radius = 0;
             for (int k = 0; k < 3; ++k) {
-                ctr[k] = (stage.source.lo[k] + stage.source.hi[k]) * .5f;
-                radius = std::max(radius, stage.source.hi[k] - stage.source.lo[k]);
+                ctr[k] = (stage.lo[k] + stage.hi[k]) * .5f;
+                radius = std::max(radius, stage.hi[k] - stage.lo[k]);
             }
-            Mat4 vp;   // rebuilt each frame from the camera slots
-
-            glEnable(GL_DEPTH_TEST);
-            glClearColor(0.10f, 0.11f, 0.14f, 1.f);
-            glViewport(0, 0, W, H);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-            auto drawOne = [&](const mana::gles::Asset& r, const float t[3],
-                               const mcf::Motion* mo, float yaw = 0.f) {
-                GLuint pr = r.skinned() ? progSkin : progFlat;
-                glUseProgram(pr);
-                Mat4 m = Mat4::Identity();
-                float cs = std::cos(yaw), sn = std::sin(yaw);
-                m.m[0] = cs; m.m[2] = -sn; m.m[8] = sn; m.m[10] = cs;
-                m.m[12] = t[0]; m.m[13] = t[1]; m.m[14] = t[2];
-                Mat4 mvp = vp * m;
-                glUniformMatrix4fv(glGetUniformLocation(pr, "mVP"), 1, GL_FALSE, mvp.m);
-                glUniform1i(glGetUniformLocation(pr, "texture0"), 0);
-                if (r.skinned()) {
-                    std::vector<float> j;
-                    mcf::BuildJointPalette(r.source.model, mo, anim_t, &j);
-                    glUniform4fv(glGetUniformLocation(pr, "vJoint"), 80 * 3, j.data());
-                }
-                glActiveTexture(GL_TEXTURE0);
-                glBindBuffer(GL_ARRAY_BUFFER, r.vertices);
-                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, r.indices);
-                GLsizei st = GLsizei(r.source.model.vertex_stride);
-                const auto* pa = r.source.model.Find(mcf::VertexUsage::kPosition);
-                const auto* ca = r.source.model.Find(mcf::VertexUsage::kColor);
-                const auto* ta = r.source.model.Find(mcf::VertexUsage::kTexcoord0);
-                glEnableVertexAttribArray(0);
-                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, st, (void*)(uintptr_t)pa->offset);
-                if (ca) { glEnableVertexAttribArray(1);
-                    glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, st, (void*)(uintptr_t)ca->offset); }
-                if (ta) { glEnableVertexAttribArray(2);
-                    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, st, (void*)(uintptr_t)ta->offset); }
-                if (r.skinned()) {
-                    const auto* wa = r.source.model.Find(mcf::VertexUsage::kWeight);
-                    const auto* ia = r.source.model.Find(mcf::VertexUsage::kIncidence);
-                    glEnableVertexAttribArray(3);
-                    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, st, (void*)(uintptr_t)wa->offset);
-                    glEnableVertexAttribArray(4);
-                    glVertexAttribPointer(4, 4, GL_UNSIGNED_BYTE, GL_FALSE, st, (void*)(uintptr_t)ia->offset);
-                } else {
-                    glDisableVertexAttribArray(3);
-                    glDisableVertexAttribArray(4);
-                }
-                GLenum it = r.source.model.index_size == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
-                // Two passes: opaque ranges first, then the blended ones, so a
-                // shadow plane composites over the ground it lies on instead of
-                // depth-fighting it. Blended geometry still tests depth but does
-                // not write it, which is the standard ordering-independent
-                // treatment for flat decals like these.
-                auto blended = [&](size_t i) {
-                    uint32_t mi = r.source.model.draws[i].material;
-                    return mi < r.source.model.materials.size() && r.source.model.materials[mi].blend;
-                };
-                for (int pass = 0; pass < 2; ++pass) {
-                    if (pass == 1) {
-                        glEnable(GL_BLEND);
-                        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                        glDepthMask(GL_FALSE);
-                    }
-                    for (size_t i = 0; i < r.source.model.draws.size(); ++i) {
-                        if (blended(i) != (pass == 1)) continue;
-                        glBindTexture(GL_TEXTURE_2D, r.draw_textures[i]);
-                        glDrawElements(GL_TRIANGLES, GLsizei(r.source.model.draws[i].index_count), it,
-                                       (void*)(uintptr_t)r.source.model.draws[i].byte_offset);
-                    }
-                    if (pass == 1) { glDepthMask(GL_TRUE); glDisable(GL_BLEND); }
-                }
-            };
-
             // The player. Scripts address it as "MainPlayer" (_plName in
             // sk1.lua) and it uses the C0000_00 character model.
             // The player's model must also live in `cache`: the combat test
             // resolves an attacker's model through that map, so loading it only
             // into `hero` made the player invisible to its own hit test.
             bool have_hero = cache.count("C0000_00") ||
-                             mana::gles::LoadAsset(ar, "C0000_00", white, &cache["C0000_00"]);
+                             mcf::LoadRenderAsset(ar, "C0000_00", &cache["C0000_00"]);
             if (!have_hero) cache.erase("C0000_00");
-            mana::gles::Asset& hero = cache["C0000_00"];
+            mcf::RenderAsset& hero = cache["C0000_00"];
             std::map<int, mcf::Motion> hero_motions;
             auto heroMotion = [&](int id) -> const mcf::Motion* {
                 auto it = hero_motions.find(id);
@@ -3077,8 +2891,8 @@ int main(int argc, char** argv) {
                 if (nm.empty()) return nullptr; // eNPC.TRANS is intentionally invisible
                 auto it = cache.find(nm);
                 if (it == cache.end()) {
-                    mana::gles::Asset late;
-                    if (!mana::gles::LoadAsset(ar, nm, white, &late)) {
+                    mcf::RenderAsset late;
+                    if (!mcf::LoadRenderAsset(ar, nm, &late)) {
                         if (missing_actor_models.insert(nm).second)
                             lucent::warn("world", "late actor {} (kind {} id {}) "
                                          "has no model {}", a.handle, a.kind,
@@ -3088,7 +2902,7 @@ int main(int argc, char** argv) {
                     lucent::info("world", "loaded late actor {} model {}", a.handle, nm);
                     it = cache.emplace(nm, std::move(late)).first;
                 }
-                if (it->second.source.model.bones.empty()) return nullptr;
+                if (it->second.model.bones.empty()) return nullptr;
                 auto prefix = mcf::World::MotionPrefix(nm, a.motion);
                 auto file = ar.FindByPrefix(prefix);
                 if (file.empty()) {
@@ -3331,13 +3145,6 @@ int main(int argc, char** argv) {
             bool level_up_open = false;
             int level_up_choice = 0;
             mana::CameraTracker camera_tracker;
-            std::unique_ptr<mana::ScenePairCapture> scene_pair_capture;
-            if (!scene_pair.empty()) {
-                scene_pair_capture =
-                    std::make_unique<mana::ScenePairCapture>(scene_pair, font);
-                lucent::info("gpu", "live snapshot capture driver: {}",
-                             scene_pair_capture->driver());
-            }
             bool running = true;
             bool stop_room_reached = stop_room.empty() || room_name == stop_room;
             struct RoomExitReq {
@@ -3628,20 +3435,25 @@ int main(int argc, char** argv) {
                             }
                             if (k == SDLK_ESCAPE) running = false;
                         }
-                        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                        mana::UiFrame title_frame;
+                        mana::gpu::BootSprite boot_sprite =
+                            mana::gpu::BootSprite::kNone;
                         // ModeCESA's art (cesa.png) is NOT in this archive --
                         // 0 hits in all 9886 entries, and no PNG in the assets
                         // root either. Its screen stays black on purpose, and
                         // the log says so once rather than pretending.
-                        if (modes.current == mcf::Mode::kMakerLogo)
-                            drawSprite(sprMaker);
+                        if (modes.current == mcf::Mode::kMakerLogo) {
+                            boot_sprite = mana::gpu::BootSprite::kMaker;
+                        }
                         else if (modes.current == mcf::Mode::kTitle) {
                             // Name entry is its own screen, not an overlay on
                             // the logo.
                             // Name entry and the crawl are their own
                             // screens, not overlays on the logo.
                             if ((!naming || naming_done) &&
-                                (!crawling || crawl_done)) drawSprite(sprTitle);
+                                (!crawling || crawl_done)) {
+                                boot_sprite = mana::gpu::BootSprite::kTitle;
+                            }
                             mana::TitleUiState title_ui;
                             title_ui.frames = modes.frames;
                             title_ui.cursor = title.cursor;
@@ -3659,29 +3471,23 @@ int main(int argc, char** argv) {
                                 title_ui.screen = mana::TitleUiScreen::kAttract;
                             else
                                 title_ui.screen = mana::TitleUiScreen::kMenu;
-                            const auto title_frame = mana::BuildTitleUi(
+                            title_frame = mana::BuildTitleUi(
                                 font, strings, W, H, title_ui);
-                            mana::DrawUiGles(title_frame, progText, fontTex,
-                                             textVbo);
                         }
+                        if (gpu_runtime && gpu_runtime->window())
+                            gpu_runtime->PresentTitle(boot_sprite, title_frame);
                         // --shot-mode NAME captures this screen and exits, so
                         // "the logo draws" can be checked on real pixels rather
                         // than asserted. Without it the splash is invisible to
                         // --screenshot, which counts gameplay frames only.
                         if (!shot.empty() && shot_mode == mcf::ModeName(modes.current) &&
                             modes.frames >= shot_delay) {
-                            std::vector<uint8_t> px(size_t(W) * H * 4);
-                            glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-                            std::vector<uint8_t> fl(px.size());
-                            for (int y = 0; y < H; ++y)
-                                std::memcpy(&fl[size_t(y) * W * 4],
-                                            &px[size_t(H - 1 - y) * W * 4], size_t(W) * 4);
-                            WritePng(shot, W, H, fl);
+                            WritePng(shot, W, H, gpu_runtime->CaptureTitle(
+                                boot_sprite, title_frame, W, H));
                             lucent::info("host", "wrote {} during {}", shot,
                                          mcf::ModeName(modes.current));
                             running = false;
                         }
-                        SDL_GL_SwapWindow(win);
                         continue;
                     }
                 }
@@ -5789,16 +5595,10 @@ int main(int argc, char** argv) {
                                  pz - room_org[2]);
                 }
                 // Resolve the live script camera once into backend-independent
-                // frame state. GLES and SDL3 GPU consume this same frame.
+                // frame state consumed by the SDL3 GPU renderer.
                 const auto camera_frame = camera_tracker.Update(
                     world, {px, py, pz},
                     {room_org[0], room_org[1], room_org[2]}, dt);
-                const float up[3]{0, 1, 0};
-                vp = Perspective(camera_frame.vertical_fov_radians,
-                                 float(W) / H, camera_frame.near_plane,
-                                 camera_frame.far_plane) *
-                     LookAt(camera_frame.eye.data(), camera_frame.target.data(),
-                            up);
 
                 // Drive the player's attack volume from the swing, and keep the
                 // world actor in sync so the shared hit test sees it.
@@ -6192,14 +5992,14 @@ int main(int argc, char** argv) {
                             if (!av.valid || av.bone.empty()) continue;
                             ++cs.swing_frames;
                             float ap[3]{0.f, 0.f, 0.f};
-                            if (!mcf::BoneLocalPos(ait->second.source.model, nullptr, t,
+                            if (!mcf::BoneLocalPos(ait->second.model, nullptr, t,
                                                    av.bone, ap)) {
                                 ++cs.atk_no_bone;
                                 // SiModelBase::GetBoneIDByName @ 0x35b414
                                 // returns ID 0 after an exact-strcmp miss.
-                                if (!ait->second.source.model.bones.empty())
-                                    mcf::BoneLocalPos(ait->second.source.model, nullptr, t,
-                                        ait->second.source.model.bones.front().name, ap);
+                                if (!ait->second.model.bones.empty())
+                                    mcf::BoneLocalPos(ait->second.model, nullptr, t,
+                                        ait->second.model.bones.front().name, ap);
                             }
                             for (int k = 0; k < 3; ++k)
                                 ap[k] += acts[aidx].pos[k] + room_org[k] + av.offset[k];
@@ -6215,7 +6015,7 @@ int main(int argc, char** argv) {
                                 for (const auto& [di, dv] : acts[didx].damage) {
                                     if (!dv.valid || dv.bone.empty()) continue;
                                     float dp[3];
-                                    if (!mcf::BoneLocalPos(dit->second.source.model, nullptr, t,
+                                    if (!mcf::BoneLocalPos(dit->second.model, nullptr, t,
                                                            dv.bone, dp))
                                         { ++cs.def_no_bone; continue; }
                                     for (int k = 0; k < 3; ++k)
@@ -6655,25 +6455,20 @@ int main(int argc, char** argv) {
                 // do not rebuild every skeletal palette merely to throw the
                 // offscreen framebuffer away. Capture runs still render.
                 ++frames;
-                if (!no_window || !shot.empty() || !scene_pair.empty()) {
-                glViewport(0, 0, W, H);
-                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                if (!no_window || !shot.empty()) {
                 mana::RenderSnapshot render_snapshot(camera_frame);
-                std::map<const mcf::RenderAsset*, const mana::gles::Asset*>
-                    snapshot_sources;
-                auto add_snapshot = [&](const mana::gles::Asset& renderable,
+                auto add_snapshot = [&](const mcf::RenderAsset& asset,
                                         std::array<float, 3> position,
                                         float yaw = 0.f,
                                         const mcf::Motion* motion = nullptr,
                                         float motion_time = 0.f) {
-                    render_snapshot.Add(renderable.source, position, yaw, motion,
+                    render_snapshot.Add(asset, position, yaw, motion,
                                         motion_time);
-                    snapshot_sources[&renderable.source] = &renderable;
                 };
                 add_snapshot(stage, {0.f, 0.f, 0.f});
                 for (const auto& o : objects)
                     if (o.alive && sc.ObjectVisible(o.script_id))
-                        add_snapshot(*o.r, {o.pos[0], o.pos[1], o.pos[2]});
+                        add_snapshot(*o.asset, {o.pos[0], o.pos[1], o.pos[2]});
                 // Draw from LIVE actor state: `placed` was a load-time snapshot,
                 // so enemies that move would have rendered at their spawn point.
                 for (auto& a : world.actors_mutable()) {
@@ -6692,19 +6487,11 @@ int main(int argc, char** argv) {
                 if (have_hero)
                     add_snapshot(hero, {px, py, pz}, pdeg,
                                  heroMotion(moving ? 1 : 0), t);
-                for (const auto& instance : render_snapshot.instances) {
-                    anim_t = instance.motion_time;
-                    drawOne(*snapshot_sources.at(instance.asset),
-                            instance.position.data(), instance.motion,
-                            instance.yaw);
-                }
                 const auto ui_content = mana::BuildGameUiContent(
                     strings, ps, show_hud, level_up_open, level_up_choice,
                     sc.last_message);
-                const mana::UiFrame ui_frame =
-                    fontTex ? mana::BuildGameUi(font, W, H, ui_content)
-                            : mana::UiFrame{};
-                mana::DrawUiGles(ui_frame, progText, fontTex, textVbo);
+                const mana::UiFrame ui_frame = mana::BuildGameUi(
+                    font, W, H, ui_content);
                 if (ui_frame.missing_glyphs &&
                     sc.last_message != last_warned_message) {
                     last_warned_message = sc.last_message;
@@ -6715,51 +6502,17 @@ int main(int argc, char** argv) {
                         ui_frame.missing_glyphs,
                         ui_frame.first_missing_codepoint);
                 }
-
-                // Fade overlay, drawn last so it covers everything.
-                if (world.fade.Coverage() > 0.001f) {
-                    glUseProgram(progFade);
-                    glDisable(GL_DEPTH_TEST);
-                    glEnable(GL_BLEND);
-                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                    const auto& fc = world.fade.colour;
-                    glUniform4f(glGetUniformLocation(progFade, "vColor"),
-                                fc[0] / 255.f, fc[1] / 255.f, fc[2] / 255.f,
-                                world.fade.Coverage());
-                    glBindBuffer(GL_ARRAY_BUFFER, fadeVbo);
-                    glEnableVertexAttribArray(0);
-                    glDisableVertexAttribArray(1);
-                    glDisableVertexAttribArray(2);
-                    glDisableVertexAttribArray(3);
-                    glDisableVertexAttribArray(4);
-                    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
-                    glDrawArrays(GL_TRIANGLES, 0, 3);
-                    glDisable(GL_BLEND);
-                    glEnable(GL_DEPTH_TEST);
-                }
-                if (!scene_pair.empty() && frames >= warmup) {
-                    scene_pair_capture->WriteFromGles(render_snapshot, W, H,
-                        ui_frame,
-                        mana::FadeOverlay::FromEngineColor(
-                            world.fade.colour, world.fade.Coverage()));
-                    running = false;
-                }
-
-                // Capture BEFORE presenting: SDL_GL_SwapWindow may discard the
-                // back buffer, so reading after it returns an undefined (here,
-                // black) image.
+                const auto fade_overlay = mana::FadeOverlay::FromEngineColor(
+                    world.fade.colour, world.fade.Coverage());
+                if (gpu_runtime->window())
+                    gpu_runtime->PresentGame(render_snapshot, ui_frame,
+                                             fade_overlay);
                 if (!shot.empty() && frames >= warmup) {
-                    std::vector<uint8_t> px(size_t(W) * H * 4);
-                    glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-                    std::vector<uint8_t> fl(px.size());
-                    for (int y = 0; y < H; ++y)
-                        std::memcpy(&fl[size_t(y) * W * 4],
-                                    &px[size_t(H - 1 - y) * W * 4], size_t(W) * 4);
-                    WritePng(shot, W, H, fl);
+                    WritePng(shot, W, H, gpu_runtime->CaptureGame(
+                        render_snapshot, ui_frame, fade_overlay, W, H));
                     lucent::info("host", "wrote {}", shot);
                     running = false;
                 }
-                SDL_GL_SwapWindow(win);
                 }
             }
             lucent::info("host", "{} frames; audio decoded {} sounds / {} frames, bgm={}",
@@ -6831,11 +6584,7 @@ int main(int argc, char** argv) {
             // SDL GPU resources must die while SDL's video subsystem is still
             // alive. These objects are declared with the running-world state,
             // whose lexical scope otherwise extends past SDL_Quit below.
-            scene_pair_capture.reset();
-            cache.clear();
-            stage = {};
-            SDL_GL_DestroyContext(ctx);
-            SDL_DestroyWindow(win);
+            gpu_runtime.reset();
             SDL_Quit();
             return run_failed ? 1 : 0;
         }

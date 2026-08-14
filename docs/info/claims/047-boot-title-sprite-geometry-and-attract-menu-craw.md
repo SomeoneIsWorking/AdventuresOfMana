@@ -1,12 +1,13 @@
 ---
 id: C047
 kind: claim
-status: holds
+status: falsified
 created: 2026-08-14
 tags: renderer,title,sdl3,gles
 depends: src/host/title_ui.cpp#BuildTitleUi, src/host/render_sprite.cpp#BuildAspectFitSprite, src/host/main.cpp
 reconfirmed: 2026-08-14
 verified_at: 2026-08-14 15:04:26
+falsified_on: 2026-08-14
 ---
 
 ## Claim
@@ -24,3 +25,9 @@ if main stops calling BuildTitleUi, SDL3 stops consuming BuildAspectFitSprite/Bu
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full tools/verify.sh passed on the exact shared-frame-compositor tree: 87 source files/0 structure violations, 33/33 shaders, live offscreen GLES/SDL3 scene UI fade pair with zero audio, uncapped story through sccnt=20, and ALL PARSERS PASSED.
+
+## FALSIFIED 2026-08-14
+
+The backend-independent title data still holds, but the running GLES title consumer was deleted during the SDL3 GPU cutover.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.

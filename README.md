@@ -10,8 +10,8 @@ reversed from that binary's own loaders and is cited by function address in
 `docs/assets.md`. The game's Lua scripts run unmodified on a real Lua 5.3 with
 all 200 of the engine's `cmd` bindings reimplemented natively.
 
-The renderer is GLES2-compatible GL over SDL3, matching what the original engine
-targeted.
+The game and title renderer use SDL3 GPU with portable SPIR-V, DXIL, and MSL
+shaders. GLES2 remains only in the explicit single-model inspection tool.
 
 ## What works
 
@@ -63,7 +63,7 @@ Some reversing tools additionally want the game's `libmcfandroid.so` at
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-./build/mana                 # boots into the game
+./run.sh                     # builds stale inputs and boots the game
 ./build/mana --help          # every flag
 ```
 
@@ -89,7 +89,7 @@ that must fail — because a check that cannot say "no" is not a check.
 |---|---|
 | `src/mcf/` | asset layer: MPK archive, `.stex`, `.smdl`, `.smot`, `.scol`, room tables, strings |
 | `src/engine/` | world, actors, Lua bridge and the 200 `cmd` bindings |
-| `src/host/` | SDL3 + GL host, game loop, renderer |
+| `src/host/` | SDL3 GPU presentation/render owners, host orchestration, UI and diagnostics |
 | `tools/asset/` | Python reference implementations, the cross-check for `src/mcf/` |
 | `docs/` | reversed formats, the `cmd` API, the codemap, the RE frontier |
 
