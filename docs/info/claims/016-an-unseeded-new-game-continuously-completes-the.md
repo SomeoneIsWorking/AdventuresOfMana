@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: gameplay,progression,verification
 depends: src/host/main.cpp#main, src/engine/script.cpp#Dispatch, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 11:07:55
+verified_at: 2026-08-14 11:19:33
 ---
 
 ## Claim
@@ -88,3 +88,7 @@ Commit a80ff75: the complete mandatory ./tools/verify.sh passed in scratch/logs/
 ## Re-confirmed 2026-08-14
 
 Reverified unchanged behavior after commit 6e5d104 by full ./tools/verify.sh: scratch/logs/verify-chain-flail.log ALL PARSERS PASSED on 2026-08-14; mandatory story run was fixed-step uncapped, SDL-offscreen, and decoded 0 audio frames.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commits adedb5d/addb897 by full ./tools/verify.sh: scratch/logs/verify-sdl3-gpu-negative.log ALL PARSERS PASSED on 2026-08-14; mandatory story remained fixed-step uncapped, SDL-offscreen, and decoded 0 audio frames.

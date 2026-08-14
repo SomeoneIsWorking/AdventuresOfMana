@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: gameplay,progression,cutscenes
 depends: src/engine/script.cpp#ClearRoomScript, src/engine/script.cpp#GlobalNumber, src/host/main.cpp#opening_story, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 11:07:54
+verified_at: 2026-08-14 11:19:33
 ---
 
 ## Claim
@@ -104,3 +104,7 @@ Commit a80ff75: the complete mandatory ./tools/verify.sh passed in scratch/logs/
 ## Re-confirmed 2026-08-14
 
 Reverified unchanged behavior after commit 6e5d104 by full ./tools/verify.sh: scratch/logs/verify-chain-flail.log ALL PARSERS PASSED on 2026-08-14; mandatory story run was fixed-step uncapped, SDL-offscreen, and decoded 0 audio frames.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commits adedb5d/addb897 by full ./tools/verify.sh: scratch/logs/verify-sdl3-gpu-negative.log ALL PARSERS PASSED on 2026-08-14; mandatory story remained fixed-step uncapped, SDL-offscreen, and decoded 0 audio frames.
