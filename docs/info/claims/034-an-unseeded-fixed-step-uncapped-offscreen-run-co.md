@@ -1,0 +1,20 @@
+---
+id: C034
+kind: claim
+status: holds
+created: 2026-08-14
+tags: progression,kett,lua,headless
+depends: src/host/story_driver.cpp#StoryDriver::Target, src/engine/script.cpp#Script::StartTreasureCallback, src/host/main.cpp#main, tools/verify.sh
+---
+
+## Claim
+
+An unseeded fixed-step uncapped offscreen run continues after Steward Wolf through Kett's authored hidden-floor route, spends a third Keyring use, opens the Chain Flail chest with item 104, and reaches settled sccnt=20 at frame 21961 with zero decoded audio frames
+
+## Evidence
+
+Commit 6e5d104; full ./tools/verify.sh passed in scratch/logs/verify-chain-flail.log on 2026-08-14; scratch/logs/silver-key-story.log records SDL offscreen, item 104, sccnt=20, frame 21961, and 0 sounds / 0 frames; treasure callback selftest proves handler-present and handler-absent cases
+
+## What would falsify it
+
+if an unseeded mandatory run fails to reach sccnt=20, does not acquire item 104 through the live box, opens a window or audio device, or any callback selftest class fails
