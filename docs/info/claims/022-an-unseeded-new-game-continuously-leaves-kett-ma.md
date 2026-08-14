@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-14
 tags: progression,headless
 depends: src/host/main.cpp, tools/verify.sh
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 06:27:19
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ An unseeded new game continuously leaves Kett Manor after scenario 15, defeats a
 ## What would falsify it
 
 Any unseeded ./tools/verify.sh run fails the Silver Key assertions, decodes audio, opens a window, fails to acquire item 30, or changes the cited driver without equivalent re-verification.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the Hydra-dungeon pressure-switch changes; its Silver Key acquisition gate remains mandatory inside the longer progression run.

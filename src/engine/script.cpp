@@ -108,6 +108,16 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
     auto S = [&](int i) { return lua_isstring(L, i) ? lua_tostring(L, i) : ""; };
     auto N = [&](int i) { return float(luaL_optnumber(L, i, 0)); };
 
+    if (n == "ObjVisible") {
+        if (auto* self = FromState(L))
+            self->object_visible[int(N(1))] = lua_toboolean(L, 2);
+        return true;
+    }
+    if (n == "ObjIsVisible") {
+        auto* self = FromState(L);
+        lua_pushboolean(L, !self || self->ObjectVisible(int(N(1))));
+        return true;
+    }
     if (n == "math_atan2") {
         lua_pushnumber(L, std::atan2(N(1), N(2)));
         return true;
@@ -691,6 +701,16 @@ double Script::GlobalNumber(std::string_view name, double fallback) const {
     return value;
 }
 
+void Script::SetGlobalNumber(std::string_view name, double value) {
+    lua_pushnumber(L_, value);
+    lua_setglobal(L_, std::string(name).c_str());
+}
+
+bool Script::ObjectVisible(int script_id) const {
+    auto it = object_visible.find(script_id);
+    return it == object_visible.end() || it->second;
+}
+
 void Script::ClearRoomScript() {
     for (int ref : co_) luaL_unref(L_, LUA_REGISTRYINDEX, ref);
     co_.clear();
@@ -699,6 +719,7 @@ void Script::ClearRoomScript() {
         lua_setglobal(L_, fn.c_str());
     }
     room_functions_.clear();
+    object_visible.clear();
     // These are transient mode/input locks, not save globals. A coroutine can
     // intentionally MapJump while a fade owns control; destroying that room's
     // coroutine must not strand the destination with input permanently off.

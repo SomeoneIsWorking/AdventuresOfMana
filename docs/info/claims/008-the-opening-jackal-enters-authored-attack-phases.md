@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: bosses,combat,collision,scripting
 depends: src/mcf/assets.cpp#ParseGdt, src/mcf/assets.cpp#Collision::BlockedXZ, src/engine/script.cpp#ChrAttackBoneValid, src/engine/world.cpp#TickScriptMoves, src/host/main.cpp#ground_attribute, src/host/main.cpp#hit_this_swing, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 06:11:35
+verified_at: 2026-08-14 06:27:11
 ---
 
 ## Claim
@@ -104,3 +104,7 @@ Full ./tools/verify.sh passed on 2026-08-14 after the Silver Key doorway changes
 ## Re-confirmed 2026-08-14
 
 Final full ./tools/verify.sh passed on 2026-08-14 after removing unused route branches; all parser negatives, gameplay gates, selftests, 993-room census, command/world-map checks, and continuous offscreen/no-audio progression through M0013_03_01 passed.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the Hydra-dungeon pressure-switch changes, including all negatives, gameplay gates through M0013_00_04, 48/48 movement cases, 993-room census, cmd API, and world-map checks.

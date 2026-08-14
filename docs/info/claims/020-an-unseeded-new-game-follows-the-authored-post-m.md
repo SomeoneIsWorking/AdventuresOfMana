@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: progression,tooling,windowless,audio
 depends: src/host/main.cpp#main, src/mcf/assets.cpp#Inventory::Add, src/mcf/mcf.h, src/engine/item_uses.inc, tools/asset/item_table.py, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 06:11:36
+verified_at: 2026-08-14 06:27:12
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Full ./tools/verify.sh passed on 2026-08-14 after the Silver Key doorway changes
 ## Re-confirmed 2026-08-14
 
 Final full ./tools/verify.sh passed on 2026-08-14 after removing unused route branches; all parser negatives, gameplay gates, selftests, 993-room census, command/world-map checks, and continuous offscreen/no-audio progression through M0013_03_01 passed.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the Hydra-dungeon pressure-switch changes, including all negatives, gameplay gates through M0013_00_04, 48/48 movement cases, 993-room census, cmd API, and world-map checks.

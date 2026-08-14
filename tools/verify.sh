@@ -352,11 +352,12 @@ echo "=== combat self-test ==="
 
   # Keep driving the same unseeded state out of Kett Manor, through the
   # authored lizardman encounter, and back across the overworld to use the
-  # equipped Silver Key. This is also the discriminator for 3D auto-combat
-  # range and for floor-aware diagonal routing at the elevated key doorway.
-  echo "=== continuous route through the Silver Key doorway ==="
+  # equipped Silver Key, then continue through the first authored dungeon
+  # pressure switch. This is also the discriminator for 3D auto-combat range,
+  # floor-aware diagonal routing, and the switch_result callback payload.
+  echo "=== continuous route through the first Hydra-dungeon switch ==="
   silver_key_log=scratch/logs/silver-key-story.log
-  ./build/mana --opening-story --continue-story --stop-room M0013_03_01 \
+  ./build/mana --opening-story --continue-story --stop-room M0013_00_04 \
     >"$silver_key_log" 2>&1 || fail=1
   grep -F "entered event box 'out_1'" "$silver_key_log" || fail=1
   grep -F "mapjump -> M0000_10_09 at (165,0,135) arrow 2" \
@@ -374,7 +375,13 @@ echo "=== combat self-test ==="
   grep -F "entered event box 'in_01'" "$silver_key_log" || fail=1
   grep -F "mapjump -> M0013_03_01 at (225,0,45) arrow 3" \
     "$silver_key_log" || fail=1
-  grep -F "reached requested stop room M0013_03_01" \
+  grep -F "room exit 0 -> M0013_03_00" "$silver_key_log" || fail=1
+  grep -F "room exit 3 -> M0013_02_00" "$silver_key_log" || fail=1
+  grep -F "entered event box 'sw_01'" "$silver_key_log" || fail=1
+  grep -F "entered event box 'down_1'" "$silver_key_log" || fail=1
+  grep -F "mapjump -> M0013_00_04 at (75,0,75) arrow 2" \
+    "$silver_key_log" || fail=1
+  grep -F "reached requested stop room M0013_00_04" \
     "$silver_key_log" || fail=1
   grep -F "video driver: offscreen" "$silver_key_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$silver_key_log" || fail=1

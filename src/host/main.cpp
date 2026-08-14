@@ -1305,6 +1305,19 @@ int main(int argc, char** argv) {
                !script.player_control_enabled &&
                run("control-on", "SetPlayerControllEnable(true)\n") &&
                script.player_control_enabled);
+            script.SetGlobalNumber("switch_result", 0.0);
+            const bool released_switch =
+                script.GlobalNumber("switch_result", -1.0) == 0.0;
+            script.SetGlobalNumber("switch_result", 1.0);
+            ck("host switch payload distinguishes released and pressed",
+               released_switch &&
+               script.GlobalNumber("switch_result", -1.0) == 1.0);
+            ck("object visibility exposes both visible and hidden states",
+               run("object-visible",
+                   "ObjVisible(1302, true)\n"
+                   "assert(ObjIsVisible(1302))\n"
+                   "ObjVisible(1302, false)\n"
+                   "assert(not ObjIsVisible(1302))\n"));
             ck("Lua inventory commands exercise success and refusal classes",
                run("inventory-bridge",
                    "assert(IsAddItem(17))\n"
@@ -4076,6 +4089,41 @@ int main(int argc, char** argv) {
                                         (bx.lo[2] + bx.hi[2]) * .5f;
                                     break;
                                 }
+                        } else if (room_name == "M0013_03_01" &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
+                            active_walk_x = room_size.w * .5f;
+                            active_walk_z = -30.f;
+                        } else if (room_name == "M0013_03_00" &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
+                            active_walk_x = -30.f;
+                            active_walk_z = room_size.h * .5f;
+                        } else if (room_name == "M0013_02_00" &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
+                            const mcf::EventBox* target = nullptr;
+                            for (const auto& bx : world.boxes)
+                                if (bx.enabled && !bx.no_touch &&
+                                    (bx.name == "down_1" ||
+                                     (!target && bx.name == "sw_01")))
+                                    target = &bx;
+                            if (target) {
+                                active_goal_boxes.push_back(target);
+                                active_walk_x =
+                                    (target->lo[0] + target->hi[0]) * .5f;
+                                active_walk_z =
+                                    (target->lo[2] + target->hi[2]) * .5f;
+                            }
+                        } else if (room_name == "M0013_01_00" &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
+                            for (const auto& bx : world.boxes)
+                                if (bx.enabled && !bx.no_touch &&
+                                    bx.name == "down_01") {
+                                    active_goal_boxes.push_back(&bx);
+                                    active_walk_x =
+                                        (bx.lo[0] + bx.hi[0]) * .5f;
+                                    active_walk_z =
+                                        (bx.lo[2] + bx.hi[2]) * .5f;
+                                    break;
+                                }
                         } else if ((room_name == "M0011_00_00" ||
                                     room_name == "M0011_00_01") &&
                                    story_sccnt == 14 && inventory.Has(17)) {
@@ -4724,7 +4772,12 @@ int main(int argc, char** argv) {
                             if (dx * dx + dz * dz >
                                 waypoint_reach * waypoint_reach)
                                 break;
-                            if (std::fabs(driver_route.front().y - py) >= 5.f) {
+                            // A lattice sample and live triangle interpolation
+                            // can legitimately differ by one 7.5-unit ground
+                            // cell on a slope. They are different connected
+                            // components only at the shipping 30-unit step
+                            // boundary, not at an arbitrary 5-unit tolerance.
+                            if (std::fabs(driver_route.front().y - py) >= 30.f) {
                                 lucent::info(
                                     "host", "opening route in {} reached "
                                     "waypoint ({:.1f},{:.1f}) on floor {:.1f}, "
@@ -5659,6 +5712,12 @@ int main(int argc, char** argv) {
                                          bx.name);
                         } else {
                             lucent::info("world", "entered event box '{}'", bx.name);
+                            // EvBoxSwitch expands to flags 0x1c. Its callback
+                            // reads the engine-supplied switch_result payload;
+                            // a generic zero return makes every authored floor
+                            // switch silently take its release branch.
+                            if (bx.flags == 0x1c)
+                                sc.SetGlobalNumber("switch_result", 1.0);
                             if (!sc.StartCoroutine(bx.name))
                                 lucent::warn("lua", "{}: {}", bx.name,
                                              sc.last_error());

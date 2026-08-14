@@ -33,6 +33,8 @@ public:
     bool CallFunction(std::string_view fn);
     bool HasFunction(std::string_view fn) const;
     double GlobalNumber(std::string_view name, double fallback = 0.0) const;
+    void SetGlobalNumber(std::string_view name, double value);
+    bool ObjectVisible(int script_id) const;
 
     // A map script shares scenario globals (sccnt, scflagNN) with later maps,
     // but its callbacks and active coroutines belong to that map only. Drop
@@ -110,6 +112,7 @@ public:
     int party_id = 0;
 
     std::map<std::string, CallRecord> calls;
+    std::map<int, bool> object_visible;
     bool trace_first = false;
 
 private:
