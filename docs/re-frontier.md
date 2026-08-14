@@ -79,9 +79,9 @@ this file retain the derivations and corrections behind these entries.
 ### progression.wendel — Reach Wendel and advance the main quest
 - status: re-partial
 - deps: progression.bogard-with-heroine
-- evidence: The unseeded, fixed-step uncapped, silent, renderless-offscreen run acquires Mattock item 17 with the binary's seven-use count, crosses `M0011_00_00..02`, preserves the elevated `M0000_09_06/in_2` arrival floor without reversing, descends the authored `M0000_08_06` wall pairs, follows the collision-proven route to Kett, climbs its three visible 30-unit steps, enters `M0012_00_00/bed_01`, acquires Cure, removes the kidnapped heroine, and settles at scenario 15 in 9,259 frames with zero decoded audio.
+- evidence: The unseeded, fixed-step uncapped, silent, renderless-offscreen run acquires Mattock item 17 with the binary's seven-use count, crosses `M0011_00_00..02`, preserves the elevated `M0000_09_06/in_2` arrival floor without reversing, descends the authored `M0000_08_06` wall pairs, follows the collision-proven route to Kett, climbs its three visible 30-unit steps, enters `M0012_00_00/bed_01`, acquires Cure, removes the kidnapped heroine, leaves through the shipping `out_1` mapjump, defeats all five scenario-15 lizardmen across stacked floors, takes the Warrior regimen through the real level-up path, and acquires Silver Key item 30 in 10,831 frames with zero decoded audio.
 - where: `src/host/main.cpp`, `tools/verify.sh`
-- gap: Continue scenario 15 through Kett Manor's lizardman/mirror progression toward Wendel and implement the next binary-owned interaction encountered. General AppObject collision shapes/policies beyond proven breakable flag `0x08` remain debt.
+- gap: Continue from the Silver Key through the authored cave entrance and Hydra/Mirror progression toward Wendel. General AppObject collision shapes/policies beyond proven breakable flag `0x08` remain debt.
 - notes:
 
 ## Gameplay systems

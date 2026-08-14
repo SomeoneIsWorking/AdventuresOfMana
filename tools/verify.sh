@@ -350,6 +350,26 @@ echo "=== combat self-test ==="
   grep -F "video driver: offscreen" "$post_matock_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$post_matock_log" || fail=1
 
+  # Keep driving the same unseeded state out of Kett Manor and through the
+  # authored lizardman encounter. This is also the discriminator for 3D
+  # auto-combat range: three enemies are on a lower floor, where an X/Z-only
+  # range check attacks forever without producing another hit.
+  echo "=== continuous route through Silver Key acquisition ==="
+  silver_key_log=scratch/logs/silver-key-story.log
+  ./build/mana --opening-story --continue-story --stop-item 30 \
+    >"$silver_key_log" 2>&1 || fail=1
+  grep -F "entered event box 'out_1'" "$silver_key_log" || fail=1
+  grep -F "mapjump -> M0000_10_09 at (165,0,135) arrow 2" \
+    "$silver_key_log" || fail=1
+  grep -F "room exit 1 -> M0000_11_09" "$silver_key_log" || fail=1
+  grep -F "room exit 2 -> M0000_13_10" "$silver_key_log" || fail=1
+  test "$(grep -Fc 'MainPlayer killed enemy5_' "$silver_key_log")" -eq 5 || fail=1
+  grep -F "Warrior -> level 2" "$silver_key_log" || fail=1
+  grep -F "opened box and acquired item 30" "$silver_key_log" || fail=1
+  grep -F "reached settled requested item 30" "$silver_key_log" || fail=1
+  grep -F "video driver: offscreen" "$silver_key_log" || fail=1
+  grep -F "audio decoded 0 sounds / 0 frames" "$silver_key_log" || fail=1
+
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --camera-selftest >/dev/null 2>&1 || fail=1

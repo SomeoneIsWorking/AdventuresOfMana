@@ -328,6 +328,7 @@ int main(int argc, char** argv) {
             opening_story = true;
             auto_attack = true;
             auto_advance = true;
+            auto_levelup = 0;
             walk_to = true;
             walk_x = 30.f;
             walk_z = 30.f;
@@ -3160,7 +3161,7 @@ int main(int argc, char** argv) {
             bool level_up_announced = false;
             bool auto_attack_armed = auto_attack && !walk_to;
             bool auto_attack_armed_logged = false;
-            bool auto_attack_target_logged = false;
+            std::string auto_attack_target_logged;
             // GameRandom @ 0x3da480 is NOT reversed, so this is a stand-in with
             // the same range contract, seeded fixed so a headless run is
             // reproducible. The SHAPE of the roll is the engine's; the sequence
@@ -3934,7 +3935,8 @@ int main(int argc, char** argv) {
                             active_walk_x = 150.f;
                             active_walk_z = room_size.h + 30.f;
                         } else if (room_name == "M0000_10_09" &&
-                                   post_matock_cave_crossed) {
+                                   post_matock_cave_crossed &&
+                                   story_sccnt == 14) {
                             for (const auto& bx : world.boxes)
                                 if (bx.enabled && !bx.no_touch &&
                                     bx.name == "in_01") {
@@ -3965,6 +3967,42 @@ int main(int argc, char** argv) {
                                         (bx.lo[2] + bx.hi[2]) * .5f;
                                     break;
                                 }
+                        } else if (room_name == "M0012_00_00" &&
+                                   story_sccnt >= 15) {
+                            active_walk_x = room_size.w * .5f;
+                            active_walk_z = room_size.h + 30.f;
+                        } else if (room_name == "M0012_00_01" &&
+                                   story_sccnt >= 15) {
+                            active_walk_x = room_size.w + 30.f;
+                            active_walk_z = room_size.h * .5f;
+                        } else if (room_name == "M0012_01_01" &&
+                                   story_sccnt >= 15) {
+                            for (const auto& bx : world.boxes)
+                                if (bx.enabled && !bx.no_touch &&
+                                    bx.name == "out_1") {
+                                    active_goal_boxes.push_back(&bx);
+                                    active_walk_x =
+                                        (bx.lo[0] + bx.hi[0]) * .5f;
+                                    active_walk_z =
+                                        (bx.lo[2] + bx.hi[2]) * .5f;
+                                    break;
+                                }
+                        } else if ((room_name == "M0000_10_09" ||
+                                    room_name == "M0000_11_09" ||
+                                    room_name == "M0000_12_09") &&
+                                   story_sccnt == 15 && !inventory.Has(30)) {
+                            active_walk_x = room_size.w + 30.f;
+                            active_walk_z = room_size.h * .5f;
+                        } else if (room_name == "M0000_13_09" &&
+                                   story_sccnt == 15 && !inventory.Has(30)) {
+                            active_walk_x = room_size.w * .5f;
+                            active_walk_z = room_size.h + 30.f;
+                        } else if (room_name == "M0000_13_10" &&
+                                   story_sccnt == 15 && !inventory.Has(30)) {
+                            if (const auto* box = world.Find("_BOX")) {
+                                active_walk_x = box->pos[0];
+                                active_walk_z = box->pos[2] + 20.f;
+                            }
                         } else if ((room_name == "M0011_00_00" ||
                                     room_name == "M0011_00_01") &&
                                    story_sccnt == 14 && inventory.Has(17)) {
@@ -4710,8 +4748,13 @@ int main(int argc, char** argv) {
                         if (!a.alive || a.defeated ||
                             mcf::CharType(a) != mcf::Actor::kEnemy) continue;
                         float dx = a.pos[0] + room_org[0] - px;
+                        float dy = a.pos[1] + room_org[1] - py;
                         float dz = a.pos[2] + room_org[2] - pz;
-                        float d2 = dx * dx + dz * dz;
+                        // An enemy directly below the player is not in melee
+                        // range. X/Z-only selection made the driver swing
+                        // forever across stacked floors while the unchanged
+                        // narrow phase correctly rejected every volume pair.
+                        float d2 = dx * dx + dy * dy + dz * dz;
                         if (d2 <= auto_attack_dist2) {
                             auto_attack_dist2 = d2;
                             auto_attack_target = &a;
@@ -4719,8 +4762,8 @@ int main(int argc, char** argv) {
                     }
                 }
                 if (auto_attack_target) {
-                    if (!auto_attack_target_logged) {
-                        auto_attack_target_logged = true;
+                    if (auto_attack_target_logged != auto_attack_target->handle) {
+                        auto_attack_target_logged = auto_attack_target->handle;
                         lucent::info("combat", "auto attack acquired {} at "
                                      "origin distance {:.1f}",
                                      auto_attack_target->handle,
