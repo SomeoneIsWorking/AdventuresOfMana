@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-14
 tags:
 depends: src/host/story_driver.cpp, src/host/navigation.cpp, src/host/main.cpp, src/engine/script.cpp, tools/verify.sh
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 10:53:03
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ tools/verify.sh passed in scratch/logs/verify-hydra-defeat.log; it records sw_01
 ## What would falsify it
 
 A continuous unseeded shipping run fails to settle at sccnt=16, bypasses either authored switch or EnemyDead, regains per-waypoint M0013_08_04 route rebuilds, creates a desktop window, or decodes any audio frame.
+
+## Re-confirmed 2026-08-14
+
+Commit a80ff75: the complete mandatory ./tools/verify.sh passed in scratch/logs/verify-steward-wolf.log after the landed changes, exercising this claim's positive and negative checks offscreen; the extended continuous run settled at sccnt=19 with zero decoded audio frames.

@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: progression,tooling,windowless,audio
 depends: src/host/main.cpp#main, src/mcf/assets.cpp#Inventory::Add, src/mcf/mcf.h, src/engine/item_uses.inc, tools/asset/item_table.py, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 10:31:40
+verified_at: 2026-08-14 10:53:03
 ---
 
 ## Claim
@@ -52,3 +52,7 @@ Commit af6e3c5 passed the complete offscreen/dummy-audio fixed-step tools/verify
 ## Re-confirmed 2026-08-14
 
 Commit fe20918 passed the complete fixed-step uncapped offscreen/dummy-audio tools/verify.sh gate through Hydra's authored sccnt=16 defeat transition on 2026-08-14; evidence is scratch/logs/verify-hydra-defeat.log.
+
+## Re-confirmed 2026-08-14
+
+Commit a80ff75: the complete mandatory ./tools/verify.sh passed in scratch/logs/verify-steward-wolf.log after the landed changes, exercising this claim's positive and negative checks offscreen; the extended continuous run settled at sccnt=19 with zero decoded audio frames.

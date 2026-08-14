@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: bosses,scripting,combat
 depends: src/engine/script.cpp#Dispatch, src/engine/script.h#motion_duration, src/engine/world.cpp#TickLookTargets, src/engine/world.cpp#TickScriptMoves, src/host/main.cpp#resolveMotionDuration, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 10:31:39
+verified_at: 2026-08-14 10:53:02
 ---
 
 ## Claim
@@ -132,3 +132,7 @@ Commit af6e3c5 passed the complete offscreen/dummy-audio fixed-step tools/verify
 ## Re-confirmed 2026-08-14
 
 Commit fe20918 passed the complete fixed-step uncapped offscreen/dummy-audio tools/verify.sh gate through Hydra's authored sccnt=16 defeat transition on 2026-08-14; evidence is scratch/logs/verify-hydra-defeat.log.
+
+## Re-confirmed 2026-08-14
+
+Commit a80ff75: the complete mandatory ./tools/verify.sh passed in scratch/logs/verify-steward-wolf.log after the landed changes, exercising this claim's positive and negative checks offscreen; the extended continuous run settled at sccnt=19 with zero decoded audio frames.
