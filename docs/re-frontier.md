@@ -79,9 +79,9 @@ this file retain the derivations and corrections behind these entries.
 ### progression.wendel — Reach Wendel and advance the main quest
 - status: re-partial
 - deps: progression.bogard-with-heroine
-- evidence: The mandatory unseeded, fixed-step uncapped, silent, renderless-offscreen run acquires Mattock item 17 with the binary's seven-use count, follows the authored two-vine route through `M0000_08_05`, enters `M0000_09_06/in_1` at y=90, mapjumps to `M0011_00_00`, breaks the two blocking object-id-9 rocks through Matock weapon kind 6, avoids the 45-unit room-1 pit, and reaches `M0011_00_02` with five uses remaining.
+- evidence: The unseeded, fixed-step uncapped, silent, renderless-offscreen run acquires Mattock item 17 with the binary's seven-use count, crosses `M0011_00_00..02`, preserves the elevated `M0000_09_06/in_2` arrival floor without reversing, descends the authored `M0000_08_06` wall pairs, follows the collision-proven route to Kett, climbs its three visible 30-unit steps, enters `M0012_00_00/bed_01`, acquires Cure, removes the kidnapped heroine, and settles at scenario 15 in 9,259 frames with zero decoded audio.
 - where: `src/host/main.cpp`, `tools/verify.sh`
-- gap: Continue the authored cave route from `M0011_00_02/in_1` toward Wendel and implement the next binary-owned interaction encountered. General AppObject collision shapes/policies beyond proven breakable flag `0x08` remain debt.
+- gap: Continue scenario 15 through Kett Manor's lizardman/mirror progression toward Wendel and implement the next binary-owned interaction encountered. General AppObject collision shapes/policies beyond proven breakable flag `0x08` remain debt.
 - notes:
 
 ## Gameplay systems
@@ -166,7 +166,6 @@ this file retain the derivations and corrections behind these entries.
 | Shop / inn / ring menu UI | all the DATA: item names (`ITEM_NAME_<id>`), buy and sell prices, categories, and the `@I`/`@P` message slots the dialogue uses | the screens |
 | Text control code `@<digits>` | it indexes a caller-supplied argument array | every caller on the dialogue path passes NULL. 1 of 393 strings is affected |
 | enemydat `+0x51`, `+0x53`, `+0x58`, `+0x5c` | where `SetEnemyId` puts them | what they are |
-| `tblItem` `kind` | — | no consumer found; Candy/Ether/Elixir share kind 1 while Potion and Hi-Potion are kind 2 |
 | 98 of 60,803 motion time arrays | they are non-monotonic, in 9 files | what that means |
 
 ## Corrections this project has had to make

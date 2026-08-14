@@ -2483,9 +2483,20 @@ int main(int argc, char** argv) {
             bool bogard_house_visited = false;
             bool bogard_return_reached_vine_summit = false;
             bool post_matock_middle_crossed = false;
+            bool post_matock_cave_crossed = false;
+            std::optional<mcf::EventBox> mapjump_floor_owner;
+            float mapjump_floor_owner_y = 0.f;
             bool fallman_talked = false;
             auto loadRoom = [&](const std::string& name) -> bool {
+                const std::string previous_room = room_name;
                 room_name = name;
+                mapjump_floor_owner.reset();
+                if (previous_room == "M0011_00_02" &&
+                    name == "M0000_09_06") {
+                    post_matock_cave_crossed = true;
+                    lucent::info("world", "completed authored post-Matock cave "
+                                 "crossing through M0011_00_02/in_1");
+                }
                 if (name == "M0010_00_01") bogard_house_visited = true;
                 if (bogard_house_visited && name == "M0000_07_04")
                     bogard_return_reached_vine_summit = true;
@@ -3229,6 +3240,7 @@ int main(int argc, char** argv) {
             float eye_cur[3]{};
             bool cam_init = false;
             bool running = true;
+            bool run_failed = false;
             struct RoomExitReq {
                 bool pending = false;
                 std::string dest;
@@ -3315,6 +3327,8 @@ int main(int argc, char** argv) {
             float driver_route_through_x = std::numeric_limits<float>::quiet_NaN();
             float driver_route_through_z = std::numeric_limits<float>::quiet_NaN();
             std::deque<std::pair<float, float>> driver_route;
+            bool driver_route_is_staging = false;
+            float driver_route_staging_floor = 0.f;
             bool event_wall_inside = false;
             bool reported_unlinked_event_wall_contact = false;
             const float kWalk = 60.f;   // units/sec; rooms are 300x240
@@ -3848,6 +3862,18 @@ int main(int argc, char** argv) {
                             active_walk_x = room_size.w + 30.f;
                             active_walk_z = 105.f;
                         } else if (room_name == "M0000_08_06" &&
+                                   post_matock_cave_crossed) {
+                            if (py > 100.f) {
+                                active_walk_x = 225.f;
+                                active_walk_z = 0.f;
+                            } else if (py > 30.f) {
+                                active_walk_x = 135.f;
+                                active_walk_z = 60.f;
+                            } else {
+                                active_walk_x = 150.f;
+                                active_walk_z = room_size.h + 30.f;
+                            }
+                        } else if (room_name == "M0000_08_06" &&
                                    story_sccnt == 14 && inventory.Has(17)) {
                             if (py < 50.f ||
                                 (py < 100.f && post_matock_middle_crossed)) {
@@ -3861,7 +3887,16 @@ int main(int argc, char** argv) {
                             }
                         } else if (room_name == "M0000_08_05" &&
                                    story_sccnt == 14 && inventory.Has(17)) {
-                            if (py < 100.f) {
+                            if (post_matock_cave_crossed) {
+                                // The cave exit reaches this cell's isolated
+                                // y=150 southeast component. Measured route
+                                // diagnostics find 93 reachable south-band
+                                // samples, 56 east (the way back), and zero
+                                // north/west; continue through the authored
+                                // southern edge.
+                                active_walk_x = 225.f;
+                                active_walk_z = room_size.h + 30.f;
+                            } else if (py < 100.f) {
                                 post_matock_middle_crossed = true;
                                 active_walk_x = 195.f;
                                 active_walk_z = room_size.h + 30.f;
@@ -3871,17 +3906,63 @@ int main(int argc, char** argv) {
                             }
                         } else if (room_name == "M0000_09_05" &&
                                    story_sccnt == 14 && inventory.Has(17)) {
-                            active_walk_x = 195.f;
-                            active_walk_z = room_size.h + 30.f;
+                            active_walk_x = post_matock_cave_crossed
+                                ? -30.f : 195.f;
+                            active_walk_z = post_matock_cave_crossed
+                                ? 210.f : room_size.h + 30.f;
                         } else if (room_name == "M0000_09_06" &&
                                    story_sccnt == 14 && inventory.Has(17) &&
-                                   py >= 85.f) {
+                                   py >= 85.f && !post_matock_cave_crossed) {
                             for (const auto& bx : world.boxes)
                                 if (bx.enabled && !bx.no_touch &&
                                     bx.name == "in_1") {
                                     active_goal_boxes.push_back(&bx);
                                     active_walk_x = (bx.lo[0] + bx.hi[0]) * .5f;
                                     active_walk_z = (bx.lo[2] + bx.hi[2]) * .5f;
+                                    break;
+                                }
+                        } else if (room_name == "M0000_09_06" &&
+                                   post_matock_cave_crossed) {
+                            active_walk_x = 135.f;
+                            active_walk_z = -30.f;
+                        } else if (room_name == "M0000_09_08" &&
+                                   post_matock_cave_crossed) {
+                            active_walk_x = room_size.w + 30.f;
+                            active_walk_z = 135.f;
+                        } else if (room_name == "M0000_10_08" &&
+                                   post_matock_cave_crossed) {
+                            active_walk_x = 150.f;
+                            active_walk_z = room_size.h + 30.f;
+                        } else if (room_name == "M0000_10_09" &&
+                                   post_matock_cave_crossed) {
+                            for (const auto& bx : world.boxes)
+                                if (bx.enabled && !bx.no_touch &&
+                                    bx.name == "in_01") {
+                                    active_goal_boxes.push_back(&bx);
+                                    active_walk_x =
+                                        (bx.lo[0] + bx.hi[0]) * .5f;
+                                    active_walk_z =
+                                        (bx.lo[2] + bx.hi[2]) * .5f;
+                                    break;
+                                }
+                        } else if (room_name == "M0012_01_01" &&
+                                   story_sccnt == 14) {
+                            active_walk_x = -30.f;
+                            active_walk_z = 135.f;
+                        } else if (room_name == "M0012_00_01" &&
+                                   story_sccnt == 14) {
+                            active_walk_x = 150.f;
+                            active_walk_z = -30.f;
+                        } else if (room_name == "M0012_00_00" &&
+                                   story_sccnt == 14) {
+                            for (const auto& bx : world.boxes)
+                                if (bx.enabled && !bx.no_touch &&
+                                    bx.name == "bed_01") {
+                                    active_goal_boxes.push_back(&bx);
+                                    active_walk_x =
+                                        (bx.lo[0] + bx.hi[0]) * .5f;
+                                    active_walk_z =
+                                        (bx.lo[2] + bx.hi[2]) * .5f;
                                     break;
                                 }
                         } else if ((room_name == "M0011_00_00" ||
@@ -3946,13 +4027,18 @@ int main(int argc, char** argv) {
                         const bool seek_wall_down =
                             (bogard_house_visited && !escorting_heroine &&
                              room_name == "M0000_06_05") ||
+                            (post_matock_cave_crossed &&
+                             room_name == "M0000_08_06" && py > 30.f) ||
                             (returning_through_vines &&
                              bogard_return_reached_vine_summit);
                         const bool seek_wall_up =
                             (room_name == "M0000_07_05" &&
                              (!bogard_house_visited || escorting_heroine ||
                               !bogard_return_reached_vine_summit)) ||
-                            (room_name == "M0000_08_06" && story_sccnt == 14 &&
+                            (room_name == "M0000_09_06" &&
+                             post_matock_cave_crossed) ||
+                            (room_name == "M0000_08_06" &&
+                             !post_matock_cave_crossed && story_sccnt == 14 &&
                              inventory.Has(17) &&
                              (py < 50.f ||
                               (py < 100.f && post_matock_middle_crossed)));
@@ -3977,6 +4063,12 @@ int main(int argc, char** argv) {
                         // The 7.5-unit lattice is the room ground-attribute
                         // resolution and preserves doorways that lie between
                         // the coarser AI chip centres.
+                        const bool outside_left = active_walk_x < 0.f;
+                        const bool outside_right =
+                            active_walk_x >= room_size.w;
+                        const bool outside_up = active_walk_z < 0.f;
+                        const bool outside_down =
+                            active_walk_z >= room_size.h;
                         const bool route_changed =
                             driver_route_room != room_name ||
                             driver_route_goal_x != active_walk_x ||
@@ -3986,6 +4078,7 @@ int main(int argc, char** argv) {
                             driver_route_goal_x = active_walk_x;
                             driver_route_goal_z = active_walk_z;
                             driver_route.clear();
+                            driver_route_is_staging = false;
                             driver_route_contact_x = active_walk_x;
                             driver_route_contact_z = active_walk_z;
                             driver_route_through_x = active_walk_x;
@@ -4000,14 +4093,11 @@ int main(int argc, char** argv) {
                             int sz = std::clamp(int(std::lround(
                                 (pz - room_org[2]) / kNavStep)), 0, nav_h - 1);
                             int start = sz * nav_w + sx;
-                            const bool outside_left = active_walk_x < 0.f;
-                            const bool outside_right = active_walk_x >= room_size.w;
-                            const bool outside_up = active_walk_z < 0.f;
-                            const bool outside_down = active_walk_z >= room_size.h;
                             std::vector<float> height(size_t(nav_w) * size_t(nav_h),
                                                       kChipNoFloor);
                             std::vector<int> prev(height.size(), -1);
                             std::vector<int> dist(height.size(), -1);
+                            float nav_query_y = py + 30.f;
                             for (int z = 0; z < nav_h; ++z)
                                 for (int x = 0; x < nav_w; ++x) {
                                     const int sample = z * nav_w + x;
@@ -4030,7 +4120,7 @@ int main(int argc, char** argv) {
                                         continue;
                                     float floor;
                                     if (col.GetFloorBelow(nav_x(x), nav_z(z),
-                                                          py + 30.f,
+                                                          nav_query_y,
                                                           mcf::Collision::kFloorMask,
                                                           &floor))
                                         height[size_t(sample)] = floor;
@@ -4074,14 +4164,18 @@ int main(int argc, char** argv) {
                                 dist[size_t(start)] = 0;
                                 pending.push(start);
                             }
-                            static constexpr int kDx[4] = {1, -1, 0, 0};
-                            static constexpr int kDz[4] = {0, 0, 1, -1};
+                            static constexpr int kDx[8] =
+                                {1, -1, 0, 0, 1, 1, -1, -1};
+                            static constexpr int kDz[8] =
+                                {0, 0, 1, -1, 1, -1, 1, -1};
+                            const int nav_neighbor_count =
+                                active_goal_boxes.empty() ? 4 : 8;
                             while (!pending.empty()) {
                                 const int here = pending.front();
                                 pending.pop();
                                 const int hx = here % nav_w;
                                 const int hz = here / nav_w;
-                                for (int k = 0; k < 4; ++k) {
+                                for (int k = 0; k < nav_neighbor_count; ++k) {
                                     const int nx = hx + kDx[k];
                                     const int nz = hz + kDz[k];
                                     if (nx < 0 || nz < 0 || nx >= nav_w || nz >= nav_h)
@@ -4101,13 +4195,22 @@ int main(int argc, char** argv) {
                                     const auto event_link = world.FindEventWall(
                                         nav_x(hx), nav_z(hz), nav_x(nx), nav_z(nz),
                                         height[size_t(here)], room_org[0], room_org[2]);
-                                    if (((active_event_walls.empty() &&
-                                          std::fabs(height[size_t(next)] -
-                                                    height[size_t(here)]) > 30.f) ||
-                                         col.BlockedXZ(nav_x(hx), nav_z(hz),
+                                    const bool stair_step =
+                                        height[size_t(next)] >
+                                            height[size_t(here)] + .01f &&
+                                        height[size_t(next)] -
+                                                height[size_t(here)] <= 30.f;
+                                    if ((std::fabs(mid_floor -
+                                                   height[size_t(here)]) > 30.f ||
+                                         std::fabs(height[size_t(next)] -
+                                                   mid_floor) > 30.f ||
+                                         std::fabs(height[size_t(next)] -
+                                                   height[size_t(here)]) > 30.f ||
+                                         (!stair_step && col.BlockedXZ(
+                                                       nav_x(hx), nav_z(hz),
                                                        nav_x(nx), nav_z(nz),
                                                        height[size_t(here)], 30.f,
-                                                       mcf::Collision::kWallMask) ||
+                                                       mcf::Collision::kWallMask)) ||
                                          objectBlockedXZ(nav_x(hx), nav_z(hz),
                                                          nav_x(nx), nav_z(nz),
                                                          height[size_t(here)],
@@ -4122,6 +4225,7 @@ int main(int argc, char** argv) {
                             int goal = -1;
                             float best = std::numeric_limits<float>::infinity();
                             int reached = 0;
+                            int reachable_side[4]{};
                             for (int i = 0; i < int(dist.size()); ++i) {
                                 if (dist[size_t(i)] < 0) continue;
                                 ++reached;
@@ -4145,6 +4249,12 @@ int main(int argc, char** argv) {
                                 constexpr float kExitApproach = 60.f;
                                 const float cx = gx * kNavStep;
                                 const float cz = gz * kNavStep;
+                                if (cz <= kExitApproach) ++reachable_side[0];
+                                if (cx >= room_size.w - kExitApproach)
+                                    ++reachable_side[1];
+                                if (cz >= room_size.h - kExitApproach)
+                                    ++reachable_side[2];
+                                if (cx <= kExitApproach) ++reachable_side[3];
                                 if (active_event_walls.empty() &&
                                     ((outside_left && cx > kExitApproach) ||
                                      (outside_right &&
@@ -4168,7 +4278,13 @@ int main(int argc, char** argv) {
                                 if (!in_goal_box)
                                     for (const auto* bx : active_goal_boxes)
                                         if (cx > bx->lo[0] && cx < bx->hi[0] &&
-                                            cz > bx->lo[2] && cz < bx->hi[2]) {
+                                            cz > bx->lo[2] && cz < bx->hi[2] &&
+                                            height[size_t(i)] +
+                                                    kEventBoxProbeHeight >
+                                                room_org[1] + bx->lo[1] &&
+                                            height[size_t(i)] +
+                                                    kEventBoxProbeHeight <
+                                                room_org[1] + bx->hi[1]) {
                                             in_goal_box = true;
                                             break;
                                         }
@@ -4190,18 +4306,122 @@ int main(int argc, char** argv) {
                                     goal = i;
                                 }
                             }
+                            if (goal < 0 && !active_goal_boxes.empty()) {
+                                float best_stage_height = py + 5.f;
+                                float best_stage_distance =
+                                    std::numeric_limits<float>::infinity();
+                                for (int i = 0; i < int(dist.size()); ++i) {
+                                    if (dist[size_t(i)] < 0 ||
+                                        height[size_t(i)] < best_stage_height)
+                                        continue;
+                                    const float cx = (i % nav_w) * kNavStep;
+                                    const float cz = (i / nav_w) * kNavStep;
+                                    const float dx = cx - active_walk_x;
+                                    const float dz = cz - active_walk_z;
+                                    const float d2 = dx * dx + dz * dz;
+                                    if (height[size_t(i)] >
+                                            best_stage_height + .01f ||
+                                        d2 < best_stage_distance) {
+                                        best_stage_height = height[size_t(i)];
+                                        best_stage_distance = d2;
+                                        goal = i;
+                                    }
+                                }
+                                if (goal >= 0) {
+                                    driver_route_is_staging = true;
+                                    driver_route_staging_floor =
+                                        height[size_t(goal)];
+                                    lucent::info("host", "opening route in {} "
+                                                 "stages toward a vertical "
+                                                 "goal via floor {:.1f}",
+                                                 room_name,
+                                                 height[size_t(goal)]);
+                                }
+                            }
                             if (goal < 0) {
+                                float max_sampled = -std::numeric_limits<float>::infinity();
+                                float max_reachable = -std::numeric_limits<float>::infinity();
+                                int rise_frontier = 0;
+                                int rise_low_wall = 0;
+                                int rise_high_wall = 0;
+                                int rise_object = 0;
+                                for (int i = 0; i < int(height.size()); ++i) {
+                                    if (height[size_t(i)] < kChipNoFloor)
+                                        max_sampled = std::max(
+                                            max_sampled, height[size_t(i)]);
+                                    if (dist[size_t(i)] >= 0)
+                                        max_reachable = std::max(
+                                            max_reachable, height[size_t(i)]);
+                                    if (dist[size_t(i)] < 0) continue;
+                                    const int ix = i % nav_w;
+                                    const int iz = i / nav_w;
+                                    for (int k = 0; k < nav_neighbor_count; ++k) {
+                                        const int nx = ix + kDx[k];
+                                        const int nz = iz + kDz[k];
+                                        if (nx < 0 || nz < 0 || nx >= nav_w ||
+                                            nz >= nav_h)
+                                            continue;
+                                        const int next = nz * nav_w + nx;
+                                        const float rise = height[size_t(next)] -
+                                                           height[size_t(i)];
+                                        if (dist[size_t(next)] >= 0 || rise <= .01f ||
+                                            rise > 30.f)
+                                            continue;
+                                        ++rise_frontier;
+                                        if (col.BlockedXZ(
+                                                nav_x(ix), nav_z(iz), nav_x(nx),
+                                                nav_z(nz), height[size_t(i)], 30.f,
+                                                mcf::Collision::kWallMask))
+                                            ++rise_low_wall;
+                                        if (col.BlockedXZ(
+                                                nav_x(ix), nav_z(iz), nav_x(nx),
+                                                nav_z(nz), height[size_t(next)], 30.f,
+                                                mcf::Collision::kWallMask))
+                                            ++rise_high_wall;
+                                        if (objectBlockedXZ(
+                                                nav_x(ix), nav_z(iz), nav_x(nx),
+                                                nav_z(nz), height[size_t(i)], nullptr))
+                                            ++rise_object;
+                                    }
+                                }
                                 lucent::error("host",
                                     "opening route from nav ({},{}) scanned {} "
                                     "of {} samples but found no reachable target "
-                                    "for ({:.1f},{:.1f}) in {}",
+                                    "for ({:.1f},{:.1f}) in {}; reachable "
+                                    "contact-band samples up/right/down/left="
+                                    "{}/{}/{}/{}; max sampled/reachable floor="
+                                    "{:.1f}/{:.1f}; rise frontier={} (low-wall "
+                                    "{}, high-wall {}, object {})",
                                     sx, sz, reached, height.size(),
-                                    active_walk_x, active_walk_z, room_name);
+                                    active_walk_x, active_walk_z, room_name,
+                                    reachable_side[0], reachable_side[1],
+                                    reachable_side[2], reachable_side[3],
+                                    max_sampled, max_reachable, rise_frontier,
+                                    rise_low_wall, rise_high_wall, rise_object);
+                                run_failed = true;
                                 running = false;
                                 mx = mz = 0.f;
                             } else {
                                 driver_route_contact_x = float(goal % nav_w) * kNavStep;
                                 driver_route_contact_z = float(goal / nav_w) * kNavStep;
+                                if (outside_left) {
+                                    driver_route_through_x = -30.f;
+                                    driver_route_through_z =
+                                        driver_route_contact_z;
+                                } else if (outside_right) {
+                                    driver_route_through_x = room_size.w + 30.f;
+                                    driver_route_through_z =
+                                        driver_route_contact_z;
+                                } else if (outside_up) {
+                                    driver_route_through_x =
+                                        driver_route_contact_x;
+                                    driver_route_through_z = -30.f;
+                                } else if (outside_down) {
+                                    driver_route_through_x =
+                                        driver_route_contact_x;
+                                    driver_route_through_z =
+                                        room_size.h + 30.f;
+                                }
                             }
                             if (goal >= 0 && goal != start) {
                                 std::vector<int> reverse_path;
@@ -4278,7 +4498,7 @@ int main(int argc, char** argv) {
                                     check_x = next_x;
                                     check_z = next_z;
                                 }
-                                if (!compressed_clear && active_event_walls.empty()) {
+                                if (!compressed_clear) {
                                     driver_route.clear();
                                     const float attach_x = float(start % nav_w) * kNavStep;
                                     const float attach_z = float(start / nav_w) * kNavStep;
@@ -4292,7 +4512,7 @@ int main(int argc, char** argv) {
                                             float(*it / nav_w) * kNavStep);
                                     lucent::info("host", "compressed opening route in {} "
                                                  "failed shipping movement; emitted {} "
-                                                 "validated lattice waypoint(s)",
+                                                 "exact lattice waypoint(s)",
                                                  room_name, driver_route.size());
                                 }
                             }
@@ -4306,18 +4526,38 @@ int main(int argc, char** argv) {
                                              driver_route_contact_z,
                                              driver_route.size());
                         }
+                        const float waypoint_reach =
+                            (mapjump_floor_owner ||
+                             (driver_route_is_staging &&
+                              py >= driver_route_staging_floor - 5.f))
+                            ? kWalk * dt : .1f;
                         while (!driver_route.empty()) {
                             const float dx = driver_route.front().first -
                                              (px - room_org[0]);
                             const float dz = driver_route.front().second -
                                              (pz - room_org[2]);
-                            if (dx * dx + dz * dz > .01f) break;
+                            // A map-jump arrival lattice node can lie exactly
+                            // on the collision shell which owns the temporary
+                            // arrival floor. The mover cannot close its final
+                            // sub-step into that shell, so use one simulation
+                            // step only while that ownership is active. Normal
+                            // routes retain their exact 0.1-unit discipline;
+                            // widening every waypoint cuts dungeon corners.
+                            if (dx * dx + dz * dz >
+                                waypoint_reach * waypoint_reach)
+                                break;
                             driver_route.pop_front();
                         }
                         if (!driver_route.empty()) {
                             active_walk_x = driver_route.front().first;
                             active_walk_z = driver_route.front().second;
-                        } else if (!active_event_walls.empty()) {
+                        } else if (driver_route_is_staging) {
+                            driver_route_room.clear();
+                            driver_route_is_staging = false;
+                            active_walk_x = px - room_org[0];
+                            active_walk_z = pz - room_org[2];
+                        } else if (!active_event_walls.empty() || outside_left ||
+                                   outside_right || outside_up || outside_down) {
                             active_walk_x = driver_route_through_x;
                             active_walk_z = driver_route_through_z;
                         }
@@ -4518,12 +4758,27 @@ int main(int argc, char** argv) {
                     pz += mz / len * move_step;
                     pdeg = std::atan2(mx, mz);
                     float g;
+                    bool touching_mapjump_floor_owner = false;
+                    if (mapjump_floor_owner) {
+                        const auto& bx = *mapjump_floor_owner;
+                        const float lx = px - room_org[0];
+                        const float lz = pz - room_org[2];
+                        touching_mapjump_floor_owner =
+                            lx > bx.lo[0] - kEventBoxProbeHeight &&
+                            lx < bx.hi[0] + kEventBoxProbeHeight &&
+                            lz > bx.lo[2] - kEventBoxProbeHeight &&
+                            lz < bx.hi[2] + kEventBoxProbeHeight;
+                    }
                     PlacedObj* hit_object = nullptr;
+                    const bool move_has_floor = !have_col || col.GetFloorBelow(
+                        px, pz, py + 30.f, mcf::Collision::kFloorMask, &g);
+                    const bool move_stair_step = have_col && move_has_floor &&
+                        g > py + .01f && g - py <= 30.f;
                     const bool static_blocked = have_col &&
-                        (col.BlockedXZ(ox, oz, px, pz, py, 30.f,
-                                       mcf::Collision::kWallMask) ||
-                         !col.GetFloorBelow(px, pz, py + 30.f,
-                                            mcf::Collision::kFloorMask, &g));
+                        (!move_has_floor ||
+                         (!move_stair_step && col.BlockedXZ(
+                             ox, oz, px, pz, py, 30.f,
+                             mcf::Collision::kWallMask)));
                     bool object_blocked = objectBlockedXZ(
                         ox, oz, px, pz, py, &hit_object);
                     if (object_blocked && hit_object && opening_story &&
@@ -4660,6 +4915,8 @@ int main(int argc, char** argv) {
                         const bool upward =
                             (wall.source->flags & mcf::EventBox::kWallUp) != 0;
                         py = wall.destination->lo[1] + (upward ? 14.f : 1.f);
+                        float clear_dir_x = dx;
+                        float clear_dir_z = dz;
                         // An upward wall at a room boundary hands the player to
                         // the elevated neighbouring cell. Its paired downward
                         // wall returns to the lower shell in THIS cell; carrying
@@ -4669,15 +4926,22 @@ int main(int argc, char** argv) {
                         // the current room, as the destination event volume is.
                         if (!upward) {
                             px = std::clamp(px,
-                                std::nextafter(room_org[0],
-                                               std::numeric_limits<float>::infinity()),
-                                std::nextafter(room_org[0] + room_size.w,
-                                               -std::numeric_limits<float>::infinity()));
+                                room_org[0] + kEventBoxProbeHeight,
+                                room_org[0] + room_size.w -
+                                    kEventBoxProbeHeight);
                             pz = std::clamp(pz,
-                                std::nextafter(room_org[2],
-                                               std::numeric_limits<float>::infinity()),
-                                std::nextafter(room_org[2] + room_size.h,
-                                               -std::numeric_limits<float>::infinity()));
+                                room_org[2] + kEventBoxProbeHeight,
+                                room_org[2] + room_size.h -
+                                    kEventBoxProbeHeight);
+                            if (wall.destination->lo[0] <= 0.f) {
+                                clear_dir_x = 1.f; clear_dir_z = 0.f;
+                            } else if (wall.destination->hi[0] >= room_size.w) {
+                                clear_dir_x = -1.f; clear_dir_z = 0.f;
+                            } else if (wall.destination->lo[2] <= 0.f) {
+                                clear_dir_x = 0.f; clear_dir_z = 1.f;
+                            } else if (wall.destination->hi[2] >= room_size.h) {
+                                clear_dir_x = 0.f; clear_dir_z = -1.f;
+                            }
                         }
                         traversed_event_wall = true;
                         event_wall_inside = true;
@@ -4685,10 +4949,12 @@ int main(int argc, char** argv) {
                         // Rebuild it from the destination landing next frame.
                         driver_route.clear();
                         driver_route_room.clear();
-                        const float traverse_len = std::sqrt(dx * dx + dz * dz);
-                        const float clear_x = px + dx / traverse_len *
+                        const float traverse_len = std::sqrt(
+                            clear_dir_x * clear_dir_x +
+                            clear_dir_z * clear_dir_z);
+                        const float clear_x = px + clear_dir_x / traverse_len *
                                                    kEventBoxProbeHeight;
-                        const float clear_z = pz + dz / traverse_len *
+                        const float clear_z = pz + clear_dir_z / traverse_len *
                                                    kEventBoxProbeHeight;
                         float clear_floor = 0.f;
                         const bool clear_has_floor = !have_col ||
@@ -4724,8 +4990,32 @@ int main(int argc, char** argv) {
                     // silently floating: revert the step if there is no floor.
                     if (blocked && !traversed_event_wall) { px = ox; pz = oz; }
                     else if (!blocked && !traversed_event_wall && have_col &&
-                             !event_wall_inside && !touching_event_wall)
-                        py = g;
+                             !event_wall_inside && !touching_event_wall) {
+                        // The shipping character volume still overlaps an
+                        // authored MapJump arrival box when its centre lies a
+                        // few units beyond a stacked ledge. Keep that box's
+                        // measured collision floor until the body clears it;
+                        // once the centre reaches ordinary upper terrain, the
+                        // unchanged point query takes ownership again.
+                        if (mapjump_floor_owner &&
+                            std::fabs(g - mapjump_floor_owner_y) >= 5.f) {
+                            // Do not drop stacked-floor ownership merely
+                            // because the centre has cleared the arrival box:
+                            // the body can still bridge the short seam to the
+                            // next collision polygon. Transfer ownership only
+                            // when the point query sees the same level.
+                            py = mapjump_floor_owner_y;
+                        } else {
+                            py = g;
+                            if (mapjump_floor_owner &&
+                                !touching_mapjump_floor_owner) {
+                                lucent::info("world", "mapjump arrival floor "
+                                             "transferred to point ground at "
+                                             "{:.1f}", g);
+                                mapjump_floor_owner.reset();
+                            }
+                        }
+                    }
                 }
                 // The opening boss's own script gates its charge on EX_1, and
                 // the requested point lies beyond the physical wall. Reaching
@@ -5096,10 +5386,25 @@ int main(int argc, char** argv) {
                 for (auto& bx : world.boxes) {
                     bool in = bx.IsHit(px, py + kEventBoxProbeHeight, pz,
                                       room_org[0], room_org[2]);
+                    const bool continuing_mapjump_overlap =
+                        in && mapjump_floor_owner &&
+                        bx.name == mapjump_floor_owner->name &&
+                        bx.flags == mapjump_floor_owner->flags &&
+                        std::equal(std::begin(bx.lo), std::end(bx.lo),
+                                   std::begin(mapjump_floor_owner->lo)) &&
+                        std::equal(std::begin(bx.hi), std::end(bx.hi),
+                                   std::begin(mapjump_floor_owner->hi));
                     if (in && !bx.inside) {
-                        lucent::info("world", "entered event box '{}'", bx.name);
-                        if (!sc.StartCoroutine(bx.name))
-                            lucent::warn("lua", "{}: {}", bx.name, sc.last_error());
+                        if (continuing_mapjump_overlap) {
+                            lucent::info("world", "continued through mapjump "
+                                         "arrival box '{}' without reversing",
+                                         bx.name);
+                        } else {
+                            lucent::info("world", "entered event box '{}'", bx.name);
+                            if (!sc.StartCoroutine(bx.name))
+                                lucent::warn("lua", "{}: {}", bx.name,
+                                             sc.last_error());
+                        }
                     }
                     bx.inside = in;
                 }
@@ -5452,8 +5757,90 @@ int main(int argc, char** argv) {
                         pz = j.z + room_org[2];
                         py = j.y + room_org[1];
                         if (have_col) {
-                            float g;
-                            if (col.GetFloor(px, pz, mcf::Collision::kFloorMask, &g)) py = g;
+                            float point_floor;
+                            const bool point_hit = col.GetFloor(
+                                px, pz, mcf::Collision::kFloorMask,
+                                &point_floor);
+                            if (point_hit) py = point_floor;
+
+                            // MapJump authors its destination immediately
+                            // outside the matching arrival box. The shipping
+                            // character is grounded as a volume, so its body
+                            // can still own a ledge which ends just before the
+                            // centre point (M0011_00_02 -> M0000_09_06 is the
+                            // discriminator). A point-only ray instead falls
+                            // through to an unrelated stacked floor. Re-sample
+                            // every event box touched by the established body
+                            // radius and take the nearest box's own collision
+                            // floor; no room name or authored height enters the
+                            // decision.
+                            int touchable_boxes = 0;
+                            int nearby_boxes = 0;
+                            int floor_candidates = 0;
+                            float best_box_d2 =
+                                std::numeric_limits<float>::infinity();
+                            float best_box_floor = py;
+                            mcf::EventBox* best_box = nullptr;
+                            for (auto& bx : world.boxes) {
+                                if (!bx.enabled || bx.no_touch) continue;
+                                ++touchable_boxes;
+                                const float lx = px - room_org[0];
+                                const float lz = pz - room_org[2];
+                                const float dx = lx < bx.lo[0]
+                                    ? bx.lo[0] - lx
+                                    : (lx > bx.hi[0] ? lx - bx.hi[0] : 0.f);
+                                const float dz = lz < bx.lo[2]
+                                    ? bx.lo[2] - lz
+                                    : (lz > bx.hi[2] ? lz - bx.hi[2] : 0.f);
+                                const float d2 = dx * dx + dz * dz;
+                                if (d2 > kEventBoxProbeHeight *
+                                             kEventBoxProbeHeight)
+                                    continue;
+                                ++nearby_boxes;
+                                const float cx = room_org[0] +
+                                    (bx.lo[0] + bx.hi[0]) * .5f;
+                                const float cz = room_org[2] +
+                                    (bx.lo[2] + bx.hi[2]) * .5f;
+                                float box_floor;
+                                if (!col.GetFloorBelow(
+                                        cx, cz,
+                                        room_org[1] + bx.hi[1] +
+                                            kEventBoxProbeHeight,
+                                        mcf::Collision::kFloorMask,
+                                        &box_floor) ||
+                                    box_floor < room_org[1] + bx.lo[1] -
+                                                    kEventBoxProbeHeight)
+                                    continue;
+                                ++floor_candidates;
+                                if (d2 < best_box_d2) {
+                                    best_box_d2 = d2;
+                                    best_box_floor = box_floor;
+                                    best_box = &bx;
+                                }
+                            }
+                            if (floor_candidates) {
+                                py = best_box_floor;
+                                mapjump_floor_owner = *best_box;
+                                mapjump_floor_owner_y = best_box_floor;
+                                // The character volume already overlaps this
+                                // arrival box even though the authored centre
+                                // point lies just outside it. Seed the normal
+                                // edge-trigger latch: the initial move onto
+                                // the box-owned ledge is continuation of that
+                                // overlap, not a fresh entry. The event loop
+                                // clears it after the body leaves the volume;
+                                // the headless planner separately excludes a
+                                // later re-entry while pursuing another goal.
+                                best_box->inside = true;
+                            }
+                            lucent::info(
+                                "world", "mapjump grounding at local "
+                                "({:.1f},{:.1f}): point floor={} ({:.1f}); "
+                                "scanned {} touchable boxes, {} within body "
+                                "radius, {} owned a collision floor; chose {:.1f}",
+                                j.x, j.z, point_hit, point_hit ? point_floor : 0.f,
+                                touchable_boxes, nearby_boxes, floor_candidates,
+                                py);
                         }
                         world.Spawn("MainPlayer", 0, px - room_org[0],
                                     py - room_org[1], pz - room_org[2]).kind = 'C';
@@ -5980,7 +6367,7 @@ int main(int argc, char** argv) {
             SDL_GL_DestroyContext(ctx);
             SDL_DestroyWindow(win);
             SDL_Quit();
-            return 0;
+            return run_failed ? 1 : 0;
         }
 
         GLuint vbo, ibo;

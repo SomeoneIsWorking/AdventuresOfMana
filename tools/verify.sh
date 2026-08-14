@@ -327,11 +327,12 @@ echo "=== combat self-test ==="
   grep -F "audio decoded 0 sounds / 0 frames" "$matock_log" || fail=1
 
   # Keep driving the same unseeded state after acquiring the Mattock. The
-  # authored two-vine overworld route must enter the cave, consume the tool
-  # through live object contact, avoid the room-1 pit, and reach room 2.
-  echo "=== continuous post-Matock cave route ==="
+  # authored route must cross the cave without reversing through its arrival
+  # box, descend the paired walls, climb Kett's physical steps, and execute the
+  # bed scene through its real event box.
+  echo "=== continuous post-Matock route through Kett scenario 15 ==="
   post_matock_log=scratch/logs/post-matock-story.log
-  ./build/mana --opening-story --continue-story --stop-room M0011_00_02 \
+  ./build/mana --opening-story --continue-story --stop-sccnt 15 \
     >"$post_matock_log" 2>&1 || fail=1
   grep -F "opened box and acquired item 17" "$post_matock_log" || fail=1
   grep -F "mapjump -> M0011_00_00" "$post_matock_log" || fail=1
@@ -340,7 +341,12 @@ echo "=== combat self-test ==="
   grep -F "5 use(s) remain" "$post_matock_log" || fail=1
   grep -F "room exit 2 -> M0011_00_01" "$post_matock_log" || fail=1
   grep -F "room exit 2 -> M0011_00_02" "$post_matock_log" || fail=1
-  grep -F "reached requested stop room M0011_00_02" "$post_matock_log" || fail=1
+  grep -F "continued through mapjump arrival box 'in_2' without reversing" \
+    "$post_matock_log" || fail=1
+  grep -F "mapjump -> M0012_01_01" "$post_matock_log" || fail=1
+  grep -F "entered event box 'bed_01'" "$post_matock_log" || fail=1
+  grep -F "You receive the Book of Curing." "$post_matock_log" || fail=1
+  grep -F "reached settled scenario state sccnt=15" "$post_matock_log" || fail=1
   grep -F "video driver: offscreen" "$post_matock_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$post_matock_log" || fail=1
 
