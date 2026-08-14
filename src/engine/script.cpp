@@ -791,6 +791,14 @@ void Script::SetGlobalNumber(std::string_view name, double value) {
     lua_setglobal(L_, std::string(name).c_str());
 }
 
+bool Script::StartTreasureCallback(int item_id) {
+    // ModeGame's box-open path publishes the selected payload before calling
+    // the room's shared `_BOX` handler. Fourteen shipping scripts branch on
+    // this global; invoking the handler without it silently takes no branch.
+    SetGlobalNumber("tmp_tresureitem", item_id);
+    return !HasFunction("_BOX") || StartCoroutine("_BOX");
+}
+
 bool Script::ObjectVisible(int script_id) const {
     auto it = object_visible.find(script_id);
     return it == object_visible.end() || it->second;
@@ -856,6 +864,30 @@ void Script::ResumeCoroutines() {
         luaL_unref(L_, LUA_REGISTRYINDEX, co_[i]);
         co_.erase(co_.begin() + long(i));
     }
+}
+
+int RunTreasureCallbackSelfTest() {
+    int bad = 0;
+    auto check = [&](std::string_view what, bool pass) {
+        if (!pass) { ++bad; lucent::error("lua", "SELFTEST FAIL: {}", what); }
+        else lucent::info("lua", "  ok: {}", what);
+    };
+    Script without_handler;
+    check("treasure payload is published when the room has no handler",
+          without_handler.StartTreasureCallback(17) &&
+              without_handler.GlobalNumber("tmp_tresureitem", -1) == 17);
+    Script with_handler;
+    static constexpr std::string_view source =
+        "box_item_seen=0\nfunction _BOX() box_item_seen=tmp_tresureitem end\n";
+    check("treasure handler sees the selected shipping payload",
+          with_handler.Run("treasure-callback-selftest",
+                           std::span<const uint8_t>(
+                               reinterpret_cast<const uint8_t*>(source.data()),
+                               source.size())) &&
+              with_handler.StartTreasureCallback(104) &&
+              with_handler.GlobalNumber("box_item_seen", -1) == 104);
+    lucent::info("lua", "SELFTEST: 2 treasure callback cases, {} failures", bad);
+    return bad;
 }
 
 std::vector<std::string> Script::Globals() const {

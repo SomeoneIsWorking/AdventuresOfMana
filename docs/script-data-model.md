@@ -49,6 +49,11 @@ The 19 unmatched NPC ids have no `N<id>_00` model; several are aliases
 (`WOLFMAN`/`WOLF_MAN`) and others likely reuse character (`C####`) models. The
 host logs each unmatched actor by handle rather than dropping it silently.
 
+Opening a shipping `AddBox` publishes its selected payload as the Lua global
+`tmp_tresureitem` before invoking the room's shared `_BOX()` callback. Fourteen
+room scripts branch on that value; the bridge's treasure-callback selftest
+proves both the handler-present and handler-absent paths.
+
 ## Room coordinates
 
 Scripts give actor positions in **room-local** coordinates; map models are

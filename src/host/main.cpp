@@ -1170,8 +1170,9 @@ int main(int argc, char** argv) {
             };
             bad += mana::host::RunInteractionSelfTest(); checked += 4;
             bad += mana::host::RunNavigationSelfTest(); checked += 6;
-            bad += mana::host::RunStoryDriverSelfTest(); checked += 8;
+            bad += mana::host::RunStoryDriverSelfTest(); checked += 10;
             bad += mcf::RunActorModelSelfTest(); checked += 4;
+            bad += mcf::RunTreasureCallbackSelfTest(); checked += 2;
             ck("ChrMoveTo starts and reports an automatic move",
                run("movement-start",
                    "ChrMoveTo('MainPlayer',10,6,8)\n"
@@ -5356,7 +5357,7 @@ int main(int argc, char** argv) {
                             post_matock_middle_crossed = false;
                             lucent::info("inventory", "opened box and acquired item {}",
                                          nearest_box->treasure_item);
-                            if (sc.HasFunction("_BOX") && !sc.StartCoroutine("_BOX"))
+                            if (!sc.StartTreasureCallback(nearest_box->treasure_item))
                                 lucent::error("lua", "_BOX coroutine: {}", sc.last_error());
                         }
                     } else if (!(opening_story && room_name == "M0010_00_01" &&

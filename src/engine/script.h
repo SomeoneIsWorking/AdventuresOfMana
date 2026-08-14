@@ -34,6 +34,7 @@ public:
     bool HasFunction(std::string_view fn) const;
     double GlobalNumber(std::string_view name, double fallback = 0.0) const;
     void SetGlobalNumber(std::string_view name, double value);
+    bool StartTreasureCallback(int item_id);
     bool ObjectVisible(int script_id) const;
 
     // A map script shares scenario globals (sccnt, scflagNN) with later maps,
@@ -132,5 +133,7 @@ private:
     lua_State* L_ = nullptr;
     std::string last_error_;
 };
+
+int RunTreasureCallbackSelfTest();
 
 }  // namespace mcf

@@ -64,7 +64,7 @@ this file retain the derivations and corrections behind these entries.
 - status: re-partial
 - deps: runtime.world
 - evidence: Mandatory uncapped, silent, offscreen run starts unseeded, completes both Jackals, waterfall recovery, Bogard route, five upward/three downward vine traversals, three Myconids, `EnemyDead`, and Hasim's scene at settled `sccnt=12`.
-- where: `src/host/main.cpp`, `tools/verify.sh`
+- where: `src/engine/script.cpp`, `src/host/main.cpp`, `src/host/story_driver.cpp`, `tools/verify.sh`
 - gap: Continue the authored execution spine from `sccnt=12`; internal progression evidence does not yet establish visual/behavioral parity with a reference Android run.
 - notes: The gate proves continuity and state ownership, not whole-game completion.
 
@@ -76,13 +76,13 @@ this file retain the derivations and corrections behind these entries.
 - gap: Party follow AI between room loads and visual/behavioral parity against an Android reference run remain unverified.
 - notes: The story-continuity mechanism is live; this remains partial rather than claiming reference fidelity.
 
-### progression.wendel — Reach Wendel, defeat Hydra, and expose Kett's Butler
+### progression.wendel — Reach Wendel, defeat Hydra, and obtain the Chain Flail
 - status: re-partial
 - deps: progression.bogard-with-heroine
 - evidence: The unseeded, fixed-step uncapped, silent, offscreen run acquires Mattock item 17 with the binary's seven-use count and Cure, crosses the post-Mattock cave and Kett, defeats all five scenario-15 lizardmen, takes the Warrior regimen, buys and equips four-use Keyring item 18 from Motie's authored shop in button slot 4, acquires and equips one-use Silver Key item 30 in slot 5, recruits the Red Mage, operates the first Hydra switch and upper log, breaks the required rocks, climbs the lone-WALL_UP mountain in X/Y wall-plane movement, preserves both keys past the optional Roper side room, spends one Keyring use at each of two KEY doors while retaining both equipped items, completes `M0013_11_00`'s recovery spring, descends through `wall_02b`, presses both `M0013_09_01` switches, enters their script-created `down_1`, crosses `M0013_08_04` without route-rebuild churn, defeats Hydra, opens the authored Fire and Mirror boxes in order, equips Mirror without replacing either key, runs `AfterBossEvent`, returns across the connected overworld route, exposes the Butler with Mirror, loads the original engine's special `AddEnemy(123)` model `B0023_00`, defeats Steward Wolf, and settles at `sccnt=19` in 19,546 frames with zero decoded audio. The shipping `_HEALSPRING` coroutine is executed against damaged live player state and restores both HP and MP after its authored wait.
 - where: `src/host/main.cpp`, `tools/verify.sh`
-- gap: Continue the unseeded execution spine beyond `sccnt=19`. Hydra's three-part presentation/attack fidelity, Steward Wolf behavior fidelity, and Android-reference parity remain unverified even though both live scripts reach their authored defeat transitions. The interactive shop screen and general AppObject collision shapes/policies beyond proven breakable flag `0x08` also remain debt.
-- notes:
+- gap: Continue the unseeded execution spine beyond `sccnt=20` to rescue the heroine and fight Vampire. Hydra's three-part presentation/attack fidelity, Steward Wolf behavior fidelity, and Android-reference parity remain unverified even though both live scripts reach their authored defeat transitions. The interactive shop screen and general AppObject collision shapes/policies beyond proven breakable flag `0x08` also remain debt.
+- notes: The same mandatory run continues through Kett's first-stair and hidden-floor mapjumps, operates the hidden switch, spends a third Keyring use, opens the Chain Flail chest through the shipping `_BOX` payload callback, and settles at `sccnt=20` in 21,961 frames.
 
 ## Gameplay systems
 

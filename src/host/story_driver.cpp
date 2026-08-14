@@ -146,6 +146,27 @@ std::optional<StoryTarget> StoryDriver::Target(
                 if (actor.alive && actor.handle == "BULTER")
                     return StoryTarget{actor.pos[0], actor.pos[2] + 20.f};
     }
+    if (inventory_.Has(505) && !inventory_.Has(31)) {
+        if (room == "M0012_01_01" || room == "M0012_02_01" ||
+            room == "M0012_06_00" || room == "M0012_07_00" ||
+            room == "M0012_10_02")
+            return StoryTarget{room_width + 30.f, room_height * .5f};
+        if (room == "M0012_03_01" || room == "M0012_11_02" ||
+            room == "M0012_11_01")
+            return StoryTarget{room_width * .5f, -30.f};
+        if (room == "M0012_03_00" || room == "M0012_08_02")
+            return StoryTarget{-30.f, room_height * .5f};
+        if (room == "M0012_02_00") return eventTarget("up_1");
+        if (room == "M0012_08_00" || room == "M0012_08_01")
+            return StoryTarget{room_width * .5f, room_height + 30.f};
+        if (room == "M0012_07_02")
+            for (std::string_view name : {"sw_1", "down_1"})
+                if (auto target = eventTarget(name)) return target;
+        if (room == "M0012_11_00")
+            for (const auto& actor : world.actors())
+                if (actor.alive && actor.treasure_box && !actor.treasure_open)
+                    return StoryTarget{actor.pos[0], actor.pos[2] + 20.f};
+    }
     return std::nullopt;
 }
 
@@ -217,8 +238,22 @@ int RunStoryDriverSelfTest() {
                            7.5f);
     check("post-Hydra route takes the reachable south exit toward Kett",
           target && target->x == 150.f && target->z == 270.f);
+    inventory.Del(31);
+    inventory.Add(505);
+    target = driver.Target("M0012_01_01", world, 330.f, 270.f, "", 30.f,
+                           7.5f);
+    check("post-Steward route starts through the authored east door",
+          target && target->x == 360.f && target->z == 135.f);
+    mcf::World chain_world;
+    auto& chain = chain_world.Spawn("_BOX", 32, 150.f, 0.f, 105.f);
+    chain.treasure_box = true;
+    chain.treasure_item = 104;
+    target = driver.Target("M0012_11_00", chain_world, 330.f, 270.f, "", 30.f,
+                           7.5f);
+    check("Kett trap room targets its live Chain Flail chest",
+          target && target->x == 150.f && target->z == 125.f);
 
-    lucent::info("story", "SELFTEST: 8 cases, {} failures", bad);
+    lucent::info("story", "SELFTEST: 10 cases, {} failures", bad);
     return bad;
 }
 

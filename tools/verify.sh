@@ -382,7 +382,7 @@ echo "=== combat self-test ==="
   # diagonal routing, and breakable-object item consumption.
   echo "=== continuous route through the Hydra recovery spring ==="
   silver_key_log=scratch/logs/silver-key-story.log
-  ./build/mana --opening-story --continue-story --stop-sccnt 19 \
+  ./build/mana --opening-story --continue-story --stop-sccnt 20 \
     >"$silver_key_log" 2>&1 || mark_failure
   grep -F "entered event box 'out_1'" "$silver_key_log" || mark_failure
   grep -F "mapjump -> M0000_10_09 at (165,0,135) arrow 2" \
@@ -446,9 +446,10 @@ echo "=== combat self-test ==="
   # recovery branch, down the authored wall plane, through the two-switch
   # hidden stair and Hydra's real EnemyDead transition, then opens both rewards,
   # runs AfterBossEvent, returns to Kett, reveals the Butler, and defeats the
-  # shipping AddEnemy(123) Steward Wolf. Reuse its log: a second full-story run
-  # would only duplicate evidence.
-  echo "=== continuous Hydra defeat, rewards, and Steward Wolf return ==="
+  # shipping AddEnemy(123) Steward Wolf, then traverses Kett's hidden floor and
+  # obtains the Chain Flail. Reuse its log: a second full-story run would only
+  # duplicate evidence.
+  echo "=== continuous Hydra return through Kett's Chain Flail ==="
   boss_cluster_log="$silver_key_log"
   grep -F "completed the authored Hydra recovery spring" \
     "$boss_cluster_log" || mark_failure
@@ -490,7 +491,16 @@ echo "=== combat self-test ==="
   grep -F "loaded late actor enemy123_1 model B0023_00" \
     "$boss_cluster_log" || mark_failure
   grep -F "MainPlayer killed enemy123_1" "$boss_cluster_log" || mark_failure
-  grep -F "reached settled scenario state sccnt=19" \
+  grep -F "mapjump -> M0012_06_00 at (225,0,45) arrow 3" \
+    "$boss_cluster_log" || mark_failure
+  grep -F "entered event box 'sw_1'" "$boss_cluster_log" || mark_failure
+  grep -F "mapjump -> M0012_10_02 at (225,0,195) arrow 3" \
+    "$boss_cluster_log" || mark_failure
+  grep -F "used equipped key item 18 from slot 4 to open room side 0" \
+    "$boss_cluster_log" || mark_failure
+  grep -F "room exit 0 -> M0012_11_00" "$boss_cluster_log" || mark_failure
+  grep -F "opened box and acquired item 104" "$boss_cluster_log" || mark_failure
+  grep -F "reached settled scenario state sccnt=20" \
     "$boss_cluster_log" || mark_failure
   grep -F "video driver: offscreen" "$boss_cluster_log" || mark_failure
   grep -F "audio decoded 0 sounds / 0 frames" "$boss_cluster_log" || mark_failure
