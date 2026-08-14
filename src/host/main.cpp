@@ -2518,6 +2518,7 @@ int main(int argc, char** argv) {
             bool bogard_return_reached_vine_summit = false;
             bool post_matock_middle_crossed = false;
             bool post_matock_cave_crossed = false;
+            bool hydra_upper_bridge_crossed = false;
             std::optional<mcf::EventBox> mapjump_floor_owner;
             float mapjump_floor_owner_y = 0.f;
             bool fallman_talked = false;
@@ -2531,6 +2532,9 @@ int main(int argc, char** argv) {
                     lucent::info("world", "completed authored post-Matock cave "
                                  "crossing through M0011_00_02/in_1");
                 }
+                if (previous_room == "M0013_00_04" &&
+                    name == "M0013_02_00")
+                    hydra_upper_bridge_crossed = true;
                 if (name == "M0010_00_01") bogard_house_visited = true;
                 if (bogard_house_visited && name == "M0000_07_04")
                     bogard_return_reached_vine_summit = true;
@@ -3281,6 +3285,7 @@ int main(int argc, char** argv) {
                 int arrow = 0;
                 float world_x = 0.f, world_z = 0.f;
             } room_exit;
+            std::set<std::pair<std::string, int>> warned_empty_room_edges;
             auto requestRoomExit = [&](int side, float lx, float lz) {
                 constexpr float kDoorHalfWidth = 30.f;
                 const int door = world.DoorType(side);
@@ -3298,8 +3303,9 @@ int main(int argc, char** argv) {
                 const std::string& next = mcf::WorldRoomName(
                     map, gx + kDx[side], gy + kDy[side]);
                 if (next.empty()) {
-                    lucent::warn("world", "room edge {} in {} leads to an "
-                                 "empty world-table cell", side, room_name);
+                    if (warned_empty_room_edges.emplace(room_name, side).second)
+                        lucent::warn("world", "room edge {} in {} leads to an "
+                                     "empty world-table cell", side, room_name);
                     return false;
                 }
                 float wx = room_org[0] + lx;
@@ -4099,19 +4105,36 @@ int main(int argc, char** argv) {
                             active_walk_z = room_size.h * .5f;
                         } else if (room_name == "M0013_02_00" &&
                                    story_sccnt == 15 && inventory.Has(30)) {
-                            const mcf::EventBox* target = nullptr;
+                            if (hydra_upper_bridge_crossed) {
+                                active_walk_x = -30.f;
+                                active_walk_z = room_size.h * .5f;
+                            } else {
+                                const mcf::EventBox* target = nullptr;
+                                for (const auto& bx : world.boxes)
+                                    if (bx.enabled && !bx.no_touch &&
+                                        (bx.name == "down_1" ||
+                                         (!target && bx.name == "sw_01")))
+                                        target = &bx;
+                                if (target) {
+                                    active_goal_boxes.push_back(target);
+                                    active_walk_x =
+                                        (target->lo[0] + target->hi[0]) * .5f;
+                                    active_walk_z =
+                                        (target->lo[2] + target->hi[2]) * .5f;
+                                }
+                            }
+                        } else if (room_name == "M0013_00_04" &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
                             for (const auto& bx : world.boxes)
                                 if (bx.enabled && !bx.no_touch &&
-                                    (bx.name == "down_1" ||
-                                     (!target && bx.name == "sw_01")))
-                                    target = &bx;
-                            if (target) {
-                                active_goal_boxes.push_back(target);
-                                active_walk_x =
-                                    (target->lo[0] + target->hi[0]) * .5f;
-                                active_walk_z =
-                                    (target->lo[2] + target->hi[2]) * .5f;
-                            }
+                                    bx.name == "left_1") {
+                                    active_goal_boxes.push_back(&bx);
+                                    active_walk_x =
+                                        (bx.lo[0] + bx.hi[0]) * .5f;
+                                    active_walk_z =
+                                        (bx.lo[2] + bx.hi[2]) * .5f;
+                                    break;
+                                }
                         } else if (room_name == "M0013_01_00" &&
                                    story_sccnt == 15 && inventory.Has(30)) {
                             for (const auto& bx : world.boxes)
@@ -6110,8 +6133,12 @@ int main(int argc, char** argv) {
                                     ? bx.lo[2] - lz
                                     : (lz > bx.hi[2] ? lz - bx.hi[2] : 0.f);
                                 const float d2 = dx * dx + dz * dz;
-                                if (d2 > kEventBoxProbeHeight *
-                                             kEventBoxProbeHeight)
+                                // Character/event volumes are strict: exact
+                                // tangency is not overlap. Accepting equality
+                                // can assign a MapJump arrival the floor of an
+                                // adjacent box that the body never entered.
+                                if (d2 >= kEventBoxProbeHeight *
+                                              kEventBoxProbeHeight)
                                     continue;
                                 ++nearby_boxes;
                                 const float cx = room_org[0] +
