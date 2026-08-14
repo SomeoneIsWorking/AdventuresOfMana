@@ -1260,6 +1260,34 @@ int main(int argc, char** argv) {
                                       "ChrSetData('MainPlayer',0,12)\n"
                                       "assert(ChrGetData('MainPlayer',0) == 12)\n") &&
                actor.hp == 12);
+            mcf::PlayerStats script_player_stats;
+            script_player_stats.hp = 3;
+            script_player_stats.mp = 1;
+            script.player_stats = &script_player_stats;
+            actor.hp = 99;
+            actor.max_hp = 100;
+            actor.data[mcf::chr_data::kMP] = 99;
+            actor.data[mcf::chr_data::kMaxMP] = 100;
+            ck("MainPlayer script HP and MP share authoritative player stats",
+               run("player-status", "assert(ChrGetData('MainPlayer',0) == 3)\n"
+                                      "assert(ChrGetData('MainPlayer',1) == 19)\n"
+                                      "assert(ChrGetData('MainPlayer',2) == 1)\n"
+                                      "assert(ChrGetData('MainPlayer',3) == 6)\n"
+                                      "ChrSetData('MainPlayer',0,ChrGetData('MainPlayer',1))\n"
+                                      "ChrSetData('MainPlayer',2,ChrGetData('MainPlayer',3))\n") &&
+               script_player_stats.hp == script_player_stats.max_hp() &&
+               script_player_stats.mp == script_player_stats.max_mp());
+            script_player_stats.hp = 2;
+            script_player_stats.mp = 0;
+            ck("shipping healing spring refills authoritative HP and MP after its wait",
+               script.Run("sk1.lua", ar.Read("sk1/sk1.lua")) &&
+               script.StartCoroutine("_HEALSPRING"));
+            script.game_time_ms = 1001;
+            script.ResumeCoroutines();
+            ck("shipping healing spring completes with both resources full",
+               script.live_coroutines() == 0 &&
+               script_player_stats.hp == script_player_stats.max_hp() &&
+               script_player_stats.mp == script_player_stats.max_mp());
             ck("script attack phases advance once per false-to-true edge",
                run("attack-phase",
                    "ChrAttackBoneSet('MainPlayer',2,'cog')\n"
@@ -2557,8 +2585,7 @@ int main(int argc, char** argv) {
             bool post_matock_cave_crossed = false;
             bool hydra_upper_bridge_crossed = false;
             bool hydra_mountain_climbed = false;
-            bool hydra_silver_door_opened = false;
-            bool hydra_roper_room_cleared = false;
+            bool hydra_spring_visited = false;
             std::optional<mcf::EventBox> mapjump_floor_owner;
             float mapjump_floor_owner_y = 0.f;
             bool fallman_talked = false;
@@ -2578,9 +2605,11 @@ int main(int argc, char** argv) {
                 if (previous_room == "M0013_06_05" &&
                     name == "M0013_01_00")
                     hydra_mountain_climbed = true;
-                if (previous_room == "M0013_01_01" &&
-                    name == "M0013_00_01")
-                    hydra_roper_room_cleared = true;
+                if (previous_room == "M0013_11_00" &&
+                    name == "M0013_02_01") {
+                    hydra_spring_visited = true;
+                    lucent::info("world", "completed the authored Hydra recovery spring");
+                }
                 if (name == "M0010_00_01") bogard_house_visited = true;
                 if (bogard_house_visited && name == "M0000_07_04")
                     bogard_return_reached_vine_summit = true;
@@ -3212,6 +3241,7 @@ int main(int argc, char** argv) {
             // What is NOT modelled is the SAVE -- there is no load path, so
             // this is always a new game's level 1 and its granted equipment.
             mcf::PlayerStats ps;
+            sc.player_stats = &ps;
             lucent::info("player", "level {}  HP {}/{}  MP {}/{}  {} GP  "
                          "power {} stamina {} wisdom {} will {}",
                          ps.level, ps.hp, ps.max_hp(), ps.mp, ps.max_mp(),
@@ -3861,7 +3891,6 @@ int main(int argc, char** argv) {
                 // rooms) can be exercised without a human at the keyboard.
                 if (walk_to && player_input_enabled) {
                     float active_walk_x = walk_x, active_walk_z = walk_z;
-                    bool active_lower_actor_goal = false;
                     std::vector<const mcf::EventBox*> active_event_walls;
                     std::vector<const mcf::EventBox*> active_goal_boxes;
                     if (opening_story) {
@@ -4219,8 +4248,8 @@ int main(int argc, char** argv) {
                                     break;
                                 }
                         } else if (room_name == "M0013_01_00" &&
-                                   story_sccnt == 15 && inventory.Has(30)) {
-                            if (hydra_mountain_climbed) {
+                                   story_sccnt == 15) {
+                            if (hydra_mountain_climbed && !hydra_spring_visited) {
                                 active_walk_x = -30.f;
                                 active_walk_z = room_size.h * .5f;
                             } else {
@@ -4236,33 +4265,81 @@ int main(int argc, char** argv) {
                                     }
                             }
                         } else if (room_name == "M0013_00_00" &&
-                                   story_sccnt == 15 && inventory.Has(30)) {
-                            active_walk_x = room_size.w * .5f;
-                            active_walk_z = room_size.h + 30.f;
+                                   story_sccnt == 15) {
+                            active_walk_x = hydra_spring_visited
+                                                ? room_size.w + 30.f
+                                                : room_size.w * .5f;
+                            active_walk_z = hydra_spring_visited
+                                                ? room_size.h * .5f
+                                                : room_size.h + 30.f;
                         } else if (room_name == "M0013_00_01" &&
-                                   story_sccnt == 15 &&
-                                   (inventory.Has(30) ||
-                                    hydra_silver_door_opened)) {
-                            if (hydra_roper_room_cleared) {
+                                   story_sccnt == 15) {
+                            active_walk_x = room_size.w * .5f;
+                            active_walk_z = hydra_spring_visited
+                                                ? -30.f
+                                                : room_size.h + 30.f;
+                        } else if (room_name == "M0013_00_02" &&
+                                   story_sccnt == 15) {
+                            active_walk_x = hydra_spring_visited
+                                                ? room_size.w * .5f
+                                                : room_size.w + 30.f;
+                            active_walk_z = hydra_spring_visited
+                                                ? -30.f
+                                                : room_size.h * .5f;
+                        } else if (room_name == "M0013_01_02" &&
+                                   story_sccnt == 15) {
+                            active_walk_x = hydra_spring_visited
+                                                ? -30.f
+                                                : room_size.w + 30.f;
+                            active_walk_z = room_size.h * .5f;
+                        } else if (room_name == "M0013_02_02" &&
+                                   story_sccnt == 15) {
+                            active_walk_x = hydra_spring_visited
+                                                ? -30.f
+                                                : room_size.w * .5f;
+                            active_walk_z = hydra_spring_visited
+                                                ? room_size.h * .5f
+                                                : -30.f;
+                        } else if (room_name == "M0013_02_01" &&
+                                   story_sccnt == 15) {
+                            if (hydra_spring_visited) {
                                 active_walk_x = room_size.w * .5f;
                                 active_walk_z = room_size.h + 30.f;
                             } else {
-                                active_walk_x = room_size.w + 30.f;
-                                active_walk_z = room_size.h * .5f;
-                            }
-                        } else if (room_name == "M0013_01_01" &&
-                                   story_sccnt == 15 &&
-                                   hydra_silver_door_opened) {
-                            if (const auto* box = world.Find("_BOX")) {
-                                if (!box->treasure_open) {
-                                    active_walk_x = box->pos[0];
-                                    active_walk_z = box->pos[2];
-                                    active_lower_actor_goal =
-                                        box->pos[1] + room_org[1] < py - .01f;
-                                } else {
-                                    active_walk_x = -30.f;
-                                    active_walk_z = room_size.h * .5f;
+                                const mcf::EventBox* target = nullptr;
+                                for (const auto& bx : world.boxes)
+                                    if (bx.enabled && !bx.no_touch &&
+                                        (bx.name == "down_1" ||
+                                         (!target && bx.name == "sw_01")))
+                                        target = &bx;
+                                if (target) {
+                                    active_goal_boxes.push_back(target);
+                                    active_walk_x =
+                                        (target->lo[0] + target->hi[0]) * .5f;
+                                    active_walk_z =
+                                        (target->lo[2] + target->hi[2]) * .5f;
                                 }
+                            }
+                        } else if (room_name == "M0013_11_00" &&
+                                   story_sccnt == 15) {
+                            const mcf::EventBox* target = nullptr;
+                            for (const auto& bx : world.boxes) {
+                                if (!bx.enabled || bx.no_touch) continue;
+                                if (bx.name == "Recovery" ||
+                                    bx.name == "Recovery2") {
+                                    target = &bx;
+                                    break;
+                                }
+                                if (!target && bx.name == "up_1" &&
+                                    sc.live_coroutines() == 0)
+                                    target = &bx;
+                            }
+                            if (target) {
+                                active_goal_boxes.push_back(target);
+                                active_walk_x =
+                                    (target->lo[0] + target->hi[0]) * .5f;
+                                active_walk_z =
+                                    (target->lo[2] + target->hi[2]) * .5f;
                             }
                         } else if (room_name == "M0013_06_05" &&
                                    story_sccnt == 15 && inventory.Has(30)) {
@@ -4360,8 +4437,7 @@ int main(int argc, char** argv) {
                             });
                         if (target_starts_below)
                             driver_route_descending = true;
-                        headless_lower_goal = driver_route_descending ||
-                                              active_lower_actor_goal;
+                        headless_lower_goal = driver_route_descending;
 
                         // Multi-level overworld rooms author paired WALL_UP /
                         // WALL_DN volumes. Approach the direction belonging to
@@ -5418,8 +5494,6 @@ int main(int argc, char** argv) {
                                     const int key_id =
                                         inventory.Equipped(key_slot);
                                     if (inventory.Consume(key_id)) {
-                                        if (key_id == 30)
-                                            hydra_silver_door_opened = true;
                                         world.SetDoor(
                                             side, mcf::World::kNoDoor);
                                         passable = true;

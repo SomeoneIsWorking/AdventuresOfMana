@@ -365,13 +365,15 @@ echo "=== combat self-test ==="
   grep -F "audio decoded 0 sounds / 0 frames" "$post_matock_log" || fail=1
 
   # Keep driving the same unseeded state out of Kett Manor, through the
-  # authored lizardman encounter, and back across the overworld to use the
-  # equipped Silver Key, then continue through the first authored dungeon
-  # pressure switch. This is also the discriminator for 3D auto-combat range,
-  # floor-aware diagonal routing, and the switch_result callback payload.
-  echo "=== continuous route through the Hydra Silver Key side room ==="
+  # authored lizardman encounter, and back across the overworld to preserve
+  # the equipped Silver Key through the optional side room, use it on the main
+  # route, operate the next pressure switch, and complete the recovery spring.
+  # This is also the discriminator for 3D auto-combat range, floor-aware
+  # diagonal routing, and the switch_result callback payload.
+  echo "=== continuous route through the Hydra recovery spring ==="
   silver_key_log=scratch/logs/silver-key-story.log
-  ./build/mana --opening-story --continue-story --stop-room M0013_00_02 \
+  ./build/mana --opening-story --continue-story \
+    --screenshot scratch/screenshots/silver-key-story.png --warmup 14200 \
     >"$silver_key_log" 2>&1 || fail=1
   grep -F "entered event box 'out_1'" "$silver_key_log" || fail=1
   grep -F "mapjump -> M0000_10_09 at (165,0,135) arrow 2" \
@@ -416,14 +418,18 @@ echo "=== combat self-test ==="
   grep -F "mapjump -> M0013_01_00 at (225,0,45) arrow 3" \
     "$silver_key_log" || fail=1
   grep -F "room exit 3 -> M0013_00_00" "$silver_key_log" || fail=1
-  grep -F "used equipped key item 30 from slot 4 to open room side 1" \
+  grep -F "used equipped key item 30 from slot 4 to open room side 0" \
     "$silver_key_log" || fail=1
-  grep -F "opened box and acquired item 402" "$silver_key_log" || fail=1
-  grep -F "room exit 3 -> M0013_00_01" "$silver_key_log" || fail=1
+  grep -F "room exit 0 -> M0013_02_01" "$silver_key_log" || fail=1
+  grep -F "entered event box 'sw_01'" "$silver_key_log" || fail=1
+  grep -F "mapjump -> M0013_11_00 at (225,0,45) arrow 3" \
+    "$silver_key_log" || fail=1
+  grep -F "entered event box 'Recovery'" "$silver_key_log" || fail=1
+  grep -F "completed the authored Hydra recovery spring" \
+    "$silver_key_log" || fail=1
+  grep -F "mapjump -> M0013_02_01 at (225,0,45) arrow 3" \
+    "$silver_key_log" || fail=1
   grep -F "room exit 2 -> M0013_00_02" "$silver_key_log" || fail=1
-  grep -F "cast Cure" "$silver_key_log" || fail=1
-  grep -F "reached requested stop room M0013_00_02" \
-    "$silver_key_log" || fail=1
   grep -F "video driver: offscreen" "$silver_key_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$silver_key_log" || fail=1
 

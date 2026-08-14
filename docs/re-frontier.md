@@ -79,9 +79,9 @@ this file retain the derivations and corrections behind these entries.
 ### progression.wendel — Reach Wendel and advance the main quest
 - status: re-partial
 - deps: progression.bogard-with-heroine
-- evidence: The unseeded, fixed-step uncapped, silent, renderless-offscreen run acquires Mattock item 17 with the binary's seven-use count and Cure, crosses the post-Mattock cave and Kett, defeats all five scenario-15 lizardmen, takes the Warrior regimen, acquires and equips Silver Key item 30, recruits the Red Mage, operates the first Hydra switch and upper log, breaks script object 1306, climbs the lone-WALL_UP mountain in X/Y wall-plane movement, enters `up_01`, consumes equipped Silver Key 30 at `M0013_00_01`'s KEY door, defeats five Ropers, descends to their authored chest, acquires Iron Shield 402, returns through the opened side, and reaches `M0013_00_02` in 13,580 frames with zero decoded audio.
+- evidence: The unseeded, fixed-step uncapped, silent, renderless-offscreen run acquires Mattock item 17 with the binary's seven-use count and Cure, crosses the post-Mattock cave and Kett, defeats all five scenario-15 lizardmen, takes the Warrior regimen, acquires and equips Silver Key item 30, recruits the Red Mage, operates the first Hydra switch and upper log, breaks script object 1306, climbs the lone-WALL_UP mountain in X/Y wall-plane movement, enters `up_01`, preserves the key past the optional Roper side room, consumes it at `M0013_02_02`'s main KEY door, operates `M0013_02_01/sw_01`, and completes the authored `M0013_11_00` recovery spring with zero decoded audio. The shipping `_HEALSPRING` coroutine is executed against damaged live player state and restores both HP and MP after its authored wait.
 - where: `src/host/main.cpp`, `tools/verify.sh`
-- gap: Continue from `M0013_00_02` through the remaining Hydra/Mirror dungeon route and boss progression toward Wendel. General AppObject collision shapes/policies beyond proven breakable flag `0x08` remain debt.
+- gap: Backtrack from the recovery spring, descend the Hydra mountain into the boss cluster, and continue through the remaining Hydra/Mirror dungeon route toward Wendel. General AppObject collision shapes/policies beyond proven breakable flag `0x08` remain debt.
 - notes:
 
 ## Gameplay systems

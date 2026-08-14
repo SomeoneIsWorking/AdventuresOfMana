@@ -56,6 +56,10 @@ public:
     static std::string ShiftJisToUtf8(std::span<const uint8_t> in);
 
     World* world = nullptr;   // optional; when set, hot cmd calls act
+    // MainPlayer's HP and MP belong to GameParameter, represented by the
+    // host's PlayerStats. Room scripts (healing springs in particular) must
+    // read and write that same state rather than Actor's presentation copy.
+    PlayerStats* player_stats = nullptr;
     // GameParameter's four inventory bags survive room loads just like the
     // scenario globals. The host owns the concrete state; Lua's AddItem,
     // DelItem and chest actors all operate on this same instance.

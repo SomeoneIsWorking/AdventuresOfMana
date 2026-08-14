@@ -291,9 +291,19 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
     if (n == "DelNPC" || n == "DeadEnemy") { w.Remove(S(1)); return true; }
 
     if (n == "ChrSetData") {                // (name, slot, value)
+        auto* self = FromState(L);
+        int slot = int(N(2));
+        int value = int(N(3));
+        if (self && self->player_stats && std::string_view(S(1)) == "MainPlayer") {
+            if (slot == chr_data::kHP) {
+                self->player_stats->hp = PlayerStats::Clamp(value, self->player_stats->max_hp());
+                value = self->player_stats->hp;
+            } else if (slot == chr_data::kMP) {
+                self->player_stats->mp = PlayerStats::Clamp(value, self->player_stats->max_mp());
+                value = self->player_stats->mp;
+            }
+        }
         if (auto* a = w.Find(S(1))) {
-            int slot = int(N(2));
-            int value = int(N(3));
             if (slot == chr_data::kHP) a->hp = value;
             else if (slot == chr_data::kMaxHP) a->max_hp = value;
             else a->data[slot] = N(3);
@@ -304,7 +314,14 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         auto* a = w.Find(S(1));
         int slot = int(N(2));
         float value = 0.f;
-        if (a) {
+        auto* self = FromState(L);
+        if (self && self->player_stats && std::string_view(S(1)) == "MainPlayer" &&
+            slot >= chr_data::kHP && slot <= chr_data::kMaxMP) {
+            if (slot == chr_data::kHP) value = float(self->player_stats->hp);
+            else if (slot == chr_data::kMaxHP) value = float(self->player_stats->max_hp());
+            else if (slot == chr_data::kMP) value = float(self->player_stats->mp);
+            else value = float(self->player_stats->max_mp());
+        } else if (a) {
             if (slot == chr_data::kHP) value = float(a->hp);
             else if (slot == chr_data::kMaxHP) value = float(a->max_hp);
             else value = a->Get(slot);
