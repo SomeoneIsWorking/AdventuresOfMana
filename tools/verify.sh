@@ -17,9 +17,18 @@ python3 tools/check_structure.py || exit 1
 
 echo "=== build shipping runtime ==="
 cmake --build build --target mana mana_gpu_selftest -j2 || exit 1
+mkdir -p scratch/logs
 
 echo "=== SDL3 GPU offscreen device self-test ==="
 ./build/mana_gpu_selftest || exit 1
+gpu_negative_log=scratch/logs/gpu-readback-negative.log
+if ./build/mana_gpu_selftest --negative-control >"$gpu_negative_log" 2>&1; then
+  echo "FATAL: SDL3 GPU readback negative control returned success"
+  exit 1
+fi
+grep -F "magenta clear scanned 12 pixels, 12 mismatched" \
+  "$gpu_negative_log" || exit 1
+echo "  wrong-color negative passed (12/12 pixels rejected)"
 
 check_runtime() {
   if [ ! -x "$1" ]; then
@@ -37,7 +46,6 @@ check_runtime() {
 }
 
 check_runtime build/mana scratch/raw/assets scratch/raw/libmcfandroid.so || exit 1
-mkdir -p scratch/logs
 
 archive=scratch/raw/assets/sk1/sk1.mpk
 if [ ! -f "$archive" ]; then

@@ -158,7 +158,7 @@ std::vector<std::uint8_t> Device::ClearAndReadback(std::uint32_t width,
   return pixels;
 }
 
-int RunDeviceSelfTest() {
+int RunDeviceSelfTest(bool negative_control) {
   int bad = 0;
   const bool video_before = (SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) != 0;
   const bool audio_before = (SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO) != 0;
@@ -213,7 +213,9 @@ int RunDeviceSelfTest() {
     };
     check_clear("black clear", SDL_FColor{0.f, 0.f, 0.f, 1.f}, {0, 0, 0, 255});
     check_clear("magenta clear", SDL_FColor{1.f, 0.f, 1.f, 1.f},
-                {255, 0, 255, 255});
+                negative_control
+                    ? std::array<std::uint8_t, 4>{0, 0, 0, 255}
+                    : std::array<std::uint8_t, 4>{255, 0, 255, 255});
 
     const bool audio_during =
         (SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO) != 0;

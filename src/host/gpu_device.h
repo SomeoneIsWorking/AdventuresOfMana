@@ -28,6 +28,6 @@ private:
   bool owns_video_ = false;
 };
 
-int RunDeviceSelfTest();
+int RunDeviceSelfTest(bool negative_control = false);
 
 } // namespace mana::gpu

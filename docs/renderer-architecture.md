@@ -28,7 +28,8 @@ The first owner deliberately has no dependency on game assets or `main.cpp`.
 `mana_gpu_selftest` initializes SDL's offscreen video driver, creates no window,
 opens no audio subsystem, clears an RGBA8 GPU target to black and magenta, and
 reads every pixel back. The two-color discriminator prevents an all-zero or
-stale transfer buffer from looking like a successful capture.
+stale transfer buffer from looking like a successful capture; the mandatory
+wrong-color negative proves the same shipping readback rejects all 12 pixels.
 
 ## Migration order
 
