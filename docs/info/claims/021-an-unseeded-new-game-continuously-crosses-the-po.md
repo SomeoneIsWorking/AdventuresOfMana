@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: progression,tooling,windowless,audio
 depends: src/host/main.cpp, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 11:53:29
+verified_at: 2026-08-14 12:17:16
 ---
 
 ## Claim
@@ -80,3 +80,7 @@ Reverified after commit f5b4048 by full ./tools/verify.sh: scratch/logs/verify-s
 ## Re-confirmed 2026-08-14
 
 Reverified after commit bff6051 by the complete mandatory ./tools/verify.sh run in scratch/logs/verify-sdl3-gpu-assets-final.log on 2026-08-14; ALL PARSERS PASSED, the continuous story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, and audio decoded 0 sounds / 0 frames.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commit 7a2b1ed by the complete tools/verify.sh gate in scratch/logs/verify-sdl3-gpu-skinning-final.log: all focused positives and negatives passed, the unseeded story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, audio decoded 0 frames, and ALL PARSERS PASSED.

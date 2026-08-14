@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,sdl3,gpu,depth,blending
 depends: src/host/gpu_device.cpp#Device::RenderAndReadback, src/host/gpu_asset_pipeline.cpp#AssetPipeline::Draw, src/tools/gpu_asset_selftest.cpp#RunAssetPipelineSelfTest, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 12:07:12
+verified_at: 2026-08-14 12:17:17
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ if the depth-enabled far redraw changes a pixel, the depth-disabled control chan
 ## Re-confirmed 2026-08-14
 
 Tracked baseline established after commit 065f52a; the complete mandatory tools/verify.sh run remains scratch/logs/verify-sdl3-gpu-depth-blend-final.log with 0 depth-enabled differences, 3868 depth-disabled differences, 128 blend-control differences, offscreen video, zero decoded audio, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commit 7a2b1ed by the complete tools/verify.sh gate in scratch/logs/verify-sdl3-gpu-skinning-final.log: all focused positives and negatives passed, the unseeded story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, audio decoded 0 frames, and ALL PARSERS PASSED.
