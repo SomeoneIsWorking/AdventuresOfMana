@@ -4,9 +4,9 @@ kind: claim
 status: holds
 created: 2026-08-14
 tags: renderer,sdl3,gpu,tooling
-depends: src/host/gpu_device.cpp#Device::ClearAndReadback, src/host/gpu_device.cpp#RunDeviceSelfTest, src/tools/gpu_selftest.cpp#main, tools/verify.sh
+depends: src/host/gpu_device.cpp#Device::ClearAndReadback, src/host/gpu_device.cpp#Device::RenderAndReadback, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 11:53:29
+verified_at: 2026-08-14 12:06:42
 ---
 
 ## Claim
@@ -32,3 +32,7 @@ Reverified after commit f5b4048 by full ./tools/verify.sh: scratch/logs/verify-s
 ## Re-confirmed 2026-08-14
 
 Reverified after commit bff6051 by the complete mandatory ./tools/verify.sh run in scratch/logs/verify-sdl3-gpu-assets-final.log on 2026-08-14; ALL PARSERS PASSED, the continuous story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, and audio decoded 0 sounds / 0 frames.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commit 8481aa2 by full tools/verify.sh in scratch/logs/verify-sdl3-gpu-depth-blend-final.log: offscreen Vulkan device read exact black/magenta across 24 pixels, wrong-color rejected 12/12, zero SDL windows, audio remained uninitialized, and ALL PARSERS PASSED.

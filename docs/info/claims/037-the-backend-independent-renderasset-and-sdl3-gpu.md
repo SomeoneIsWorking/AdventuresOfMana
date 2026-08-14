@@ -4,7 +4,9 @@ kind: claim
 status: holds
 created: 2026-08-14
 tags: renderer,sdl3,gpu,assets,headless
-depends: src/host/render_asset.cpp#LoadRenderAsset, src/host/gpu_asset.cpp#Asset::Asset, src/host/gpu_asset_pipeline.cpp#RunAssetPipelineSelfTest, tools/verify.sh
+depends: src/host/render_asset.cpp#LoadRenderAsset, src/host/gpu_asset.cpp#Asset::Asset, src/tools/gpu_asset_selftest.cpp#RunAssetPipelineSelfTest, tools/verify.sh
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 12:06:42
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Commit bff6051; full tools/verify.sh passed in scratch/logs/verify-sdl3-gpu-asse
 ## What would falsify it
 
 if a shipping-asset run creates an SDL window or initializes/decodes audio, any draw range or material texture is not uploaded/submitted, the textured output matches forced-white, the no-draw class changes a pixel, or the mandatory verifier omits these checks
+
+## Re-confirmed 2026-08-14
+
+Reverified after commit 8481aa2 by full tools/verify.sh in scratch/logs/verify-sdl3-gpu-depth-blend-final.log: M0001_00_00 uploaded 12 draws, 3868 textured pixels differed from forced-white, no-draw changed 0, depth control discriminated 3868 pixels, and ALL PARSERS PASSED.
