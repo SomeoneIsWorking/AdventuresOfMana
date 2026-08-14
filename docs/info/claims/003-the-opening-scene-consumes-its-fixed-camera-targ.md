@@ -3,10 +3,10 @@ id: C003
 kind: claim
 status: holds
 created: 2026-08-13
-tags:
+tags: 
 depends: src/engine/world.h#Camera, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 04:29:41
+verified_at: 2026-08-14 04:30:43
 ---
 
 ## Claim
@@ -116,3 +116,7 @@ Full ./tools/verify.sh passed on 2026-08-14 after the post-Matock route-planner 
 ## Re-confirmed 2026-08-14
 
 Full ./tools/verify.sh passed 2026-08-14 after replacing the false Chocobot-detour gate: all existing discriminators passed, and the corrected unseeded continuation reached M0011_00_02 in 6785 fixed-step uncapped offscreen frames with zero gameplay audio decode.
+
+## Re-confirmed 2026-08-14
+
+Reconfirmed against pushed commit 61c7781; its pre-commit full ./tools/verify.sh pass exercised the identical tree, including all existing discriminators and the corrected 6785-frame offscreen silent M0011_00_02 continuation.
