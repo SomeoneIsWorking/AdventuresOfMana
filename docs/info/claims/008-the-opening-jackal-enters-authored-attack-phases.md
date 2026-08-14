@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: bosses,combat,collision,scripting
 depends: src/mcf/assets.cpp#ParseGdt, src/mcf/assets.cpp#Collision::BlockedXZ, src/engine/script.cpp#ChrAttackBoneValid, src/engine/world.cpp#TickScriptMoves, src/host/main.cpp#ground_attribute, src/host/main.cpp#hit_this_swing, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 12:28:27
+verified_at: 2026-08-14 12:37:33
 ---
 
 ## Claim
@@ -156,3 +156,7 @@ Reverified after commit 7a2b1ed by the complete tools/verify.sh gate in scratch/
 ## Re-confirmed 2026-08-14
 
 Reverified after commit 9dea2fe by the complete tools/verify.sh gate in scratch/logs/verify-sdl3-gpu-scene-final.log: all focused positives and negatives passed, the SDL3 GPU shipping scene wrote its checked capture, the unseeded story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, audio decoded 0 frames, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commit 7b7e22c by the complete tools/verify.sh gate in scratch/logs/verify-render-snapshot-final.log: all focused positives and negatives passed, CameraTracker reported 7/7 and RenderSnapshot 3/3, both 21961-frame story runs stayed fixed-step uncapped/offscreen with 0 audio frames, and ALL PARSERS PASSED.
