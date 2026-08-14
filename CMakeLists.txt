@@ -35,9 +35,19 @@ add_library(mcf STATIC
 target_include_directories(mcf PUBLIC src)
 target_link_libraries(mcf PUBLIC lucent::lucent)
 
-add_library(engine STATIC src/engine/script.cpp src/engine/world.cpp src/engine/audio.cpp src/engine/mode.cpp)
+add_library(engine STATIC
+  src/engine/audio.cpp
+  src/engine/event_box.cpp
+  src/engine/mode.cpp
+  src/engine/script.cpp
+  src/engine/world.cpp)
 target_include_directories(engine PUBLIC src)
 target_link_libraries(engine PUBLIC lua lucent::lucent SDL3::SDL3 PkgConfig::VORBISFILE)
 
-add_executable(mana src/host/main.cpp src/host/render.cpp)
+add_executable(mana
+  src/host/interaction.cpp
+  src/host/main.cpp
+  src/host/navigation.cpp
+  src/host/render.cpp
+  src/host/story_driver.cpp)
 target_link_libraries(mana PRIVATE mcf engine SDL3::SDL3 PkgConfig::GLESV2)

@@ -278,6 +278,10 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         a.rot_y = 0.f;
         a.random_place = (x == 0.f && z == 0.f);
         a.place_extent = extent;
+        // ModeGame::AddNPC always sends this argument through the character's
+        // virtual SetCollisionCircle path; random placement also reuses it as
+        // the AddCharacterRandomPos extent.
+        a.collision_circle = extent;
         return true;
     };
     if (n == "AddNPC")                      // (name, id, x, y, z, extent)
@@ -539,6 +543,9 @@ bool Dispatch(lua_State* L, const CmdDef* def, World& w) {
         }
         b.flags = uint32_t(N(8));
         b.floor_y = N(3) == -1.f;
+        // AddEventBox @ 0x2c84f0 passes y0 - 1 to the strict event volume.
+        // The sentinel path applies the same inset after resolving its floor.
+        if (!b.floor_y) b.lo[1] -= 1.f;
         // Names identify the callback, not a unique volume. Scripts register
         // adjacent boxes under one name to form a single trigger region.
         w.boxes.push_back(std::move(b));

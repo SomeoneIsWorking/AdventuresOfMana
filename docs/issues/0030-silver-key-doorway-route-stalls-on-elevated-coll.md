@@ -14,7 +14,7 @@ Two missing or false instrument behaviors compounded. The Lua bridge stubbed bin
 
 ## Resolution
 
-Implemented the binary-derived eight equipment slots and GetEquipID slot bounds, equipped the acquired Silver Key into BTN_SUB slot 4, made planner edge sweeps start at the actual lattice node at the shipping fixed-step distance, retained exact BFS lattice routes whenever floor height changes, and added a 120-frame non-silent route-stall diagnostic. The unseeded offscreen/no-audio fixed-step uncapped run now enters M0000_14_08/in_01, executes mapjump to M0013_03_01, exits 0 after 11,740 frames, and reports 0 decoded sounds / 0 frames.
+Implemented the binary-derived eight equipment slots and GetEquipID slot bounds, equipped the acquired Silver Key in the first free sub-item button (slot 5 when Keyring occupies slot 4), made planner edge sweeps start at the actual lattice node at the shipping fixed-step distance, retained exact BFS lattice routes whenever floor height changes, and added a 120-frame non-silent route-stall diagnostic. The unseeded offscreen/no-audio fixed-step uncapped run now enters M0000_14_08/in_01, executes mapjump to M0013_03_01, and reports 0 decoded sounds / 0 frames.
 
 ## Discriminator
 

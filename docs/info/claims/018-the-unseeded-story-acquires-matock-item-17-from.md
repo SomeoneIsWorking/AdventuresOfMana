@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: progression,inventory,tooling
 depends: src/engine/script.cpp, src/host/main.cpp, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 07:51:12
+verified_at: 2026-08-14 10:17:36
 ---
 
 ## Claim
@@ -56,3 +56,7 @@ Full ./tools/verify.sh passed on 2026-08-14 after the Hydra mountain change; all
 ## Re-confirmed 2026-08-14
 
 Full ./tools/verify.sh passed on 2026-08-14 after the verifier was made to rebuild mana first; 62 inventory cases and all continuous offscreen zero-audio gates passed.
+
+## Re-confirmed 2026-08-14
+
+Full offscreen/dummy-audio fixed-step gate tools/verify.sh passed on 2026-08-14; scratch/logs/verify-keyring-structure-v4.log ends VERIFICATION OK.

@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: progression,hydra,player-state
 depends: src/engine/script.cpp, src/host/main.cpp, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 08:07:25
+verified_at: 2026-08-14 10:17:36
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ if Lua MainPlayer HP/MP reads diverge from combat PlayerStats, the shipping reco
 ## Re-confirmed 2026-08-14
 
 Full ./tools/verify.sh passed on 2026-08-14 after the PlayerStats bridge and corrected recovery route: 51 movement cases including the shipping damaged/full healing discriminator; main key side 0 consumed; Recovery entered and completed; SDL offscreen; audio decoded 0 sounds / 0 frames.
+
+## Re-confirmed 2026-08-14
+
+Full offscreen/dummy-audio fixed-step gate tools/verify.sh passed on 2026-08-14; scratch/logs/verify-keyring-structure-v4.log ends VERIFICATION OK.

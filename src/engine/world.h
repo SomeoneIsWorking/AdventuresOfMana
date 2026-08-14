@@ -19,6 +19,8 @@
 #include <utility>
 #include <vector>
 
+#include "engine/event_box.h"
+
 namespace mcf {
 
 // eChrGetData, from sk1.lua. Only the slots the scripts actually touch are named
@@ -171,6 +173,7 @@ struct Actor {
     // that legitimately landed at room-local (0,0).
     bool random_placed = false;
     float place_extent = 0.f;
+    float collision_circle = 0.f;
     // ModeGame::AddBox stores its supplied item id in the four drop slots at
     // actor +0x3a24..+0x3a30. A value of 97 is the shipping already-open box.
     bool treasure_box = false;
@@ -200,41 +203,6 @@ struct Actor {
 inline bool UsesHostEnemyAI(const Actor& a) {
     return a.alive && !a.defeated && a.kind == 'E';
 }
-
-// AddEventBox(name, x0,y0,z0, x1,y1,z1, flag) -- the most-called cmd function
-// (552 calls across the shipping scripts). When the player enters the volume the
-// engine calls the global Lua function of the same name, which is how map
-// transitions, cutscenes and shops all start.
-struct EventBox {
-    static constexpr uint32_t kWallUp = 0x01;
-    static constexpr uint32_t kWallDown = 0x02;
-    std::string name;
-    float lo[3]{}, hi[3]{};
-    uint32_t flags = 0;      // SetEventBoxFlg: engine ORs/clears requested bits
-    bool floor_y = false;    // AddEventBox y0 == -1: resolve lower bound from floor
-    bool enabled = true;
-    bool no_touch = false;   // SetEventBoxNoTouchEvent
-    bool inside = false;     // edge-triggered: fire on entry, not every frame
-
-    // AppEventBoxBase::IsHit @ 0x2bb0f8 tests all three axes strictly: a
-    // boundary point is outside. X/Z are room-local in scripts and translated
-    // to world coordinates by AddEventBox; Y is already world height.
-    bool IsHit(float x, float y, float z, float room_x, float room_z) const {
-        return enabled && !no_touch &&
-               x > lo[0] + room_x && x < hi[0] + room_x &&
-               y > lo[1]          && y < hi[1] &&
-               z > lo[2] + room_z && z < hi[2] + room_z;
-    }
-
-    // AddEventBox @ 0x2c8598 probes the floor for y0 == -1, replacing only
-    // the sentinel lower bound and translating the upper bound by that floor.
-    void ResolveFloorY(float y) {
-        if (!floor_y) return;
-        lo[1] = y;
-        hi[1] += y;
-        floor_y = false;
-    }
-};
 
 struct EventWallLink {
     const EventBox* source = nullptr;

@@ -2769,6 +2769,18 @@ That choice is *not* confirmed by the standalone `"M0000_00_00"` literal at
 recording because it is exactly the sort of coincidence that would otherwise
 read as confirmation.
 
+#### Event-box floor resolution
+
+`AddEventBox` @ `0x2c84f0` does not treat a lower Y of `-1` as a literal bound.
+It probes the room floor at local X `(x0+x1)/2`, local Z `(z0+2*z1)/3`, with a
+query Y of 10000. The resolved box stores `lowerY = floor + y0 - 1` and
+`upperY = floor + y1`; ordinary non-sentinel boxes also store `y0 - 1` as
+their lower bound. The biased Z probe matters in stacked Topple geometry: a
+box-centre probe selected the elevated porch and made Motie's authored `in_1`
+unreachable, while the binary's probe selects the connected ground floor.
+`mcf::EventBox::ResolveFloorY` owns this rule and its shipping selftest covers
+the probe coordinates, sentinel resolution, and strict boundary behavior.
+
 #### The world map: how the engine names a room
 
 The engine does not name a room with a string; it names it with a **grid

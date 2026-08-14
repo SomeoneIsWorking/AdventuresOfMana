@@ -1,12 +1,13 @@
 ---
 id: C023
 kind: claim
-status: holds
+status: falsified
 created: 2026-08-14
 tags: progression,equipment,navigation
 depends: src/host/main.cpp, src/engine/script.cpp, src/mcf/assets.cpp, src/mcf/mcf.h, tools/verify.sh
 reconfirmed: 2026-08-14
 verified_at: 2026-08-14 07:51:12
+falsified_on: 2026-08-14
 ---
 
 ## Claim
@@ -40,3 +41,9 @@ Full ./tools/verify.sh passed on 2026-08-14 after the Hydra mountain change; all
 ## Re-confirmed 2026-08-14
 
 Full ./tools/verify.sh passed on 2026-08-14 after the verifier was made to rebuild mana first; 62 inventory cases and all continuous offscreen zero-audio gates passed.
+
+## FALSIFIED 2026-08-14
+
+The authored Motie shop now equips Keyring item 18 in slot 4 and Silver Key item 30 in slot 5; the main-route door consumes Keyring 18, not Silver Key 30. Full verifier evidence is scratch/logs/silver-key-story.log.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.

@@ -28,25 +28,13 @@
 #include "engine/audio.h"
 #include "engine/world.h"
 #include "host/render.h"
+#include "host/interaction.h"
+#include "host/navigation.h"
+#include "host/story_driver.h"
 #include "engine/mode.h"
 #include "mcf/mcf.h"
 
 namespace {
-
-bool EventBoxCharacterContact(const mcf::EventBox& box,
-                              float x, float y, float z,
-                              float room_x, float room_z,
-                              float radius) {
-    if (!box.enabled || box.no_touch ||
-        y <= box.lo[1] || y >= box.hi[1])
-        return false;
-    const float lx = x - room_x;
-    const float lz = z - room_z;
-    const float dx = std::max({box.lo[0] - lx, 0.f, lx - box.hi[0]});
-    const float dz = std::max({box.lo[2] - lz, 0.f, lz - box.hi[2]});
-    // Preserve EventBox::IsHit's strict edges: exact tangency is not contact.
-    return dx * dx + dz * dz < radius * radius;
-}
 
 int EquippedDoorKeySlot(const mcf::Inventory& inventory) {
     // AppObjectModel::HitCharacter checks the four item-button fields and
@@ -1060,16 +1048,20 @@ int main(int argc, char** argv) {
             ck("flag clear preserves other bits", b.flags == 0x40, true);
             b.floor_y = true; b.lo[1] = -1; b.hi[1] = 30;
             b.ResolveFloorY(60);
-            ck("floor sentinel moves lower bound", b.lo[1] == 60, true);
+            ck("floor sentinel insets lower bound", b.lo[1] == 59, true);
             ck("floor sentinel translates upper bound", b.hi[1] == 90, true);
-            ck("floor contact is below strict event volume",
-               b.IsHit(15, 60, 35, 0, 0), false);
+            ck("resolved floor is inside the strict event volume",
+               b.IsHit(15, 60, 35, 0, 0), true);
             ck("character centre enters floor event volume",
                b.IsHit(15, 75, 35, 0, 0), true);
+            ck("floor probe uses X centre",
+               b.FloorProbeLocalX() == 15.f, true);
+            ck("floor probe is biased toward high Z",
+               b.FloorProbeLocalZ() == 130.f / 3.f, true);
             ck("character body reaches a box behind its blocked origin",
-               EventBoxCharacterContact(b, -4.9f, 75, 35, 0, 0, 15.f), true);
+               b.CharacterContact(-4.9f, 75, 35, 0, 0, 15.f), true);
             ck("character body near miss remains outside",
-               EventBoxCharacterContact(b, -5.1f, 75, 35, 0, 0, 15.f), false);
+               b.CharacterContact(-5.1f, 75, 35, 0, 0, 15.f), false);
             // A name is one callback and may own multiple physical volumes.
             // Keeping only the last one makes a script's joined doorway lose
             // part of its actual trigger area.
@@ -1176,6 +1168,14 @@ int main(int argc, char** argv) {
                 std::vector<uint8_t> bytes(source.begin(), source.end());
                 return script.Run(name, bytes);
             };
+            bad += mana::host::RunInteractionSelfTest(); checked += 4;
+            bad += mana::host::RunNavigationSelfTest(); checked += 4;
+            mcf::Inventory key_inventory;
+            key_inventory.Add(18); key_inventory.Add(30); key_inventory.Equip(4, 18);
+            mana::host::StoryDriver key_driver(true, key_inventory);
+            ck("later key uses a free button without replacing Keyring",
+               key_driver.EquipAcquiredKey(30) && key_inventory.Equipped(4) == 18 &&
+               key_inventory.Equipped(5) == 30);
             ck("NPC-tagged enemy ids resolve the enemy model namespace",
                mcf::ActorModelName('N', 100) == "E0000_00" &&
                mcf::ActorModelName('N', 173) == "E0073_00");
@@ -2620,12 +2620,14 @@ int main(int argc, char** argv) {
             bool hydra_mountain_climbed = false;
             bool hydra_spring_visited = false;
             std::optional<mcf::EventBox> mapjump_floor_owner;
+            std::optional<std::string> mapjump_arrival_handler;
             float mapjump_floor_owner_y = 0.f;
             bool fallman_talked = false;
             auto loadRoom = [&](const std::string& name) -> bool {
                 const std::string previous_room = room_name;
                 room_name = name;
                 mapjump_floor_owner.reset();
+                mapjump_arrival_handler.reset();
                 if (previous_room == "M0011_00_02" &&
                     name == "M0000_09_06") {
                     post_matock_cave_crossed = true;
@@ -2943,8 +2945,8 @@ int main(int argc, char** argv) {
             if (have_col) {
                 for (auto& bx : world.boxes) {
                     if (!bx.floor_y) continue;
-                    const float x = (bx.lo[0] + bx.hi[0]) * .5f + room_org[0];
-                    const float z = (bx.lo[2] + bx.hi[2]) * .5f + room_org[2];
+                    const float x = bx.FloorProbeLocalX() + room_org[0];
+                    const float z = bx.FloorProbeLocalZ() + room_org[2];
                     float y = 0.f;
                     if (col.GetFloor(x, z, mcf::Collision::kFloorMask, &y))
                         bx.ResolveFloorY(y);
@@ -3178,6 +3180,7 @@ int main(int argc, char** argv) {
             float px = ctr[0], pz = ctr[2], py = 0, pdeg = 0;
             constexpr float kEventBoxProbeHeight = 15.f;
             constexpr float kCharacterCollisionRadius = 30.f;
+            constexpr float kNavStep = 7.5f;
             if (has_spawn) { px = spawn_x + room_org[0]; pz = spawn_z + room_org[2]; }
             // A spawn with no floor under it silently dropped the player to
             // y=0, i.e. under a terrain whose floor is at y=60 -- the player
@@ -3276,45 +3279,15 @@ int main(int argc, char** argv) {
             // this is always a new game's level 1 and its granted equipment.
             mcf::PlayerStats ps;
             sc.player_stats = &ps;
-            int auto_key_shop_phase = 0;
+            mana::host::StoryDriver story_driver(opening_story, inventory);
             sc.select_choice = [&](const std::vector<std::string>& choices) {
-                if (!opening_story || room_name != "M0010_03_02") return -1;
-                if (auto_key_shop_phase == 0 && choices.size() >= 3) {
-                    auto_key_shop_phase = 1;
-                    return 2;  // authored shop main menu: Buy
-                }
-                if (auto_key_shop_phase == 2 && choices.size() == 2) {
-                    auto_key_shop_phase = 3;
-                    return 1;  // confirm the Keyring purchase
-                }
-                if (auto_key_shop_phase == 4 && choices.size() >= 3) {
-                    auto_key_shop_phase = 5;
-                    return 0;  // leave the shop after the purchase
-                }
-                return -1;
+                return story_driver.SelectChoice(room_name, choices);
             };
             sc.shop_choice = [&](const std::vector<int>& stock, int mode) {
-                if (!opening_story || room_name != "M0010_03_02" || mode != 1)
-                    return -1;
-                if (auto_key_shop_phase == 1 &&
-                    std::find(stock.begin(), stock.end(), 18) != stock.end()) {
-                    auto_key_shop_phase = 2;
-                    return 18;
-                }
-                if (auto_key_shop_phase == 3 && inventory.Has(18)) {
-                    if (!inventory.Equip(4, 18)) {
-                        lucent::error("inventory", "headless Keyring equip "
-                                      "failed after authored shop purchase");
-                        run_failed = true;
-                    } else {
-                        lucent::info("inventory", "bought and equipped Keyring "
-                                     "item 18 from Motie's authored shop for "
-                                     "{} GP", mcf::ItemBuyPrice(18));
-                    }
-                    auto_key_shop_phase = 4;
-                    return 0;
-                }
-                return -1;
+                const int selection =
+                    story_driver.SelectShopItem(room_name, stock, mode);
+                if (story_driver.failed()) run_failed = true;
+                return selection;
             };
             lucent::info("player", "level {}  HP {}/{}  MP {}/{}  {} GP  "
                          "power {} stamina {} wisdom {} will {}",
@@ -3992,7 +3965,20 @@ int main(int argc, char** argv) {
                             int(sc.GlobalNumber("sccnt", -1));
                         const bool escorting_heroine =
                             story_sccnt >= 12 && story_sccnt < 14;
-                        if (room_name == "M0001_00_02" ||
+                        if (auto target = story_driver.ToppleTarget(
+                                room_name, world, room_size.w, room_size.h,
+                                mapjump_arrival_handler.value_or(""),
+                                kCharacterCollisionRadius, kNavStep)) {
+                            active_walk_x = target->x;
+                            active_walk_z = target->z;
+                            if (!target->event_box.empty())
+                                for (const auto& box : world.boxes)
+                                    if (box.enabled && !box.no_touch &&
+                                        box.name == target->event_box) {
+                                        active_goal_boxes.push_back(&box);
+                                        break;
+                                    }
+                        } else if (room_name == "M0001_00_02" ||
                             room_name == "M0001_00_01") {
                             active_walk_x = 165.f;
                             active_walk_z = -30.f;
@@ -4660,7 +4646,6 @@ int main(int argc, char** argv) {
                             driver_route_contact_z = active_walk_z;
                             driver_route_through_x = active_walk_x;
                             driver_route_through_z = active_walk_z;
-                            constexpr float kNavStep = 7.5f;
                             const int nav_w = int(std::lround(room_size.w / kNavStep)) + 1;
                             const int nav_h = int(std::lround(room_size.h / kNavStep)) + 1;
                             auto nav_x = [&](int x) { return room_org[0] + x * kNavStep; };
@@ -4675,6 +4660,11 @@ int main(int argc, char** argv) {
                             std::vector<int> prev(height.size(), -1);
                             std::vector<int> dist(height.size(), -1);
                             float nav_query_y = py + 30.f;
+                            if (!headless_lower_goal)
+                                for (const auto* box : active_goal_boxes)
+                                    nav_query_y = std::max(
+                                        nav_query_y,
+                                        room_org[1] + box->hi[1] + 30.f);
                             for (int z = 0; z < nav_h; ++z)
                                 for (int x = 0; x < nav_w; ++x) {
                                     const int sample = z * nav_w + x;
@@ -4779,9 +4769,7 @@ int main(int argc, char** argv) {
                                              height[size_t(here)] <= 30.f) ||
                                         (headless_lower_goal &&
                                          height[size_t(here)] >
-                                             height[size_t(next)] + .01f &&
-                                         height[size_t(here)] -
-                                             height[size_t(next)] <= 30.f);
+                                             height[size_t(next)] + .01f);
                                     bool edge_wall = false;
                                     bool edge_object = false;
                                     // Begin at the actual lattice node. Moving
@@ -4835,11 +4823,11 @@ int main(int argc, char** argv) {
                                             const bool sample_step = floor_found &&
                                                 std::fabs(sample_floor - edge_floor) >
                                                     .01f &&
-                                                std::fabs(sample_floor - edge_floor) <=
-                                                    30.f;
+                                                mana::host::IsRouteHeightTransition(edge_floor,
+                                                    sample_floor, headless_lower_goal);
                                             if (!floor_found ||
-                                                std::fabs(sample_floor - edge_floor) >
-                                                    30.f ||
+                                                !mana::host::IsRouteHeightTransition(edge_floor,
+                                                    sample_floor, headless_lower_goal) ||
                                                 (!sample_step && col.BlockedXZ(
                                                     ax, az, bx, bz, edge_floor,
                                                     30.f,
@@ -4861,12 +4849,13 @@ int main(int argc, char** argv) {
                                                 nullptr))
                                             edge_object = true;
                                     }
-                                    if ((std::fabs(mid_floor -
-                                                   height[size_t(here)]) > 30.f ||
-                                         std::fabs(height[size_t(next)] -
-                                                   mid_floor) > 30.f ||
-                                         std::fabs(height[size_t(next)] -
-                                                   height[size_t(here)]) > 30.f ||
+                                    if ((!mana::host::IsRouteHeightTransition(
+                                             height[size_t(here)], mid_floor,
+                                             headless_lower_goal) ||
+                                         !mana::host::IsRouteHeightTransition(mid_floor,
+                                             height[size_t(next)], headless_lower_goal) ||
+                                         !mana::host::IsRouteHeightTransition(height[size_t(here)],
+                                             height[size_t(next)], headless_lower_goal) ||
                                          edge_wall || edge_object) &&
                                         !event_link.source)
                                         continue;
@@ -4930,8 +4919,8 @@ int main(int argc, char** argv) {
                                 bool in_goal_box = active_goal_boxes.empty();
                                 if (!in_goal_box)
                                     for (const auto* bx : active_goal_boxes)
-                                        if (EventBoxCharacterContact(
-                                                *bx, room_org[0] + cx,
+                                        if (bx->CharacterContact(
+                                                room_org[0] + cx,
                                                 height[size_t(i)] +
                                                     kEventBoxProbeHeight,
                                                 room_org[2] + cz,
@@ -5222,12 +5211,16 @@ int main(int argc, char** argv) {
                             if (goal >= 0 && opening_story)
                                 lucent::info("host", "opening route in {}: start ({},{}) "
                                              "reached {}/{} -> goal ({},{}) contact "
-                                             "({:.1f},{:.1f}), {} waypoint(s)",
+                                             "({:.1f},{:.1f}), {} waypoint(s); "
+                                             "reachable contact-band samples "
+                                             "up/right/down/left={}/{}/{}/{}",
                                              room_name, sx, sz, reached, height.size(),
                                              goal % nav_w, goal / nav_w,
                                              driver_route_contact_x,
                                              driver_route_contact_z,
-                                             driver_route.size());
+                                             driver_route.size(),
+                                             reachable_side[0], reachable_side[1],
+                                             reachable_side[2], reachable_side[3]);
                         }
                         const float waypoint_reach =
                             (mapjump_floor_owner ||
@@ -5351,20 +5344,8 @@ int main(int argc, char** argv) {
                     // player activates it at the same one-chip interaction
                     // reach used below. Inventory refusal leaves it closed;
                     // success invokes the room's `_BOX` completion callback.
-                    constexpr float kTalkReach = 30.f;
-                    mcf::Actor* nearest_box = nullptr;
-                    float nearest_box_d2 = kTalkReach * kTalkReach;
-                    for (auto& a : world.actors_mutable()) {
-                        if (!a.alive || !a.treasure_box || a.treasure_open)
-                            continue;
-                        const float dx = a.pos[0] + room_org[0] - px;
-                        const float dz = a.pos[2] + room_org[2] - pz;
-                        const float d2 = dx * dx + dz * dz;
-                        if (d2 < nearest_box_d2) {
-                            nearest_box_d2 = d2;
-                            nearest_box = &a;
-                        }
-                    }
+                    mcf::Actor* nearest_box = mana::host::FindNearestTreasure(
+                        world, px - room_org[0], pz - room_org[2]);
                     if (nearest_box) {
                         if (!inventory.Add(nearest_box->treasure_item, true)) {
                             lucent::error("inventory", "box item {} refused: bag full or invalid",
@@ -5372,14 +5353,8 @@ int main(int argc, char** argv) {
                         } else {
                             if (opening_story &&
                                 nearest_box->treasure_item == 30) {
-                                if (!inventory.Equip(4, 30)) {
-                                    lucent::error("inventory", "headless Silver Key "
-                                                  "equip failed after acquisition");
+                                if (!story_driver.EquipAcquiredKey(30))
                                     run_failed = true;
-                                } else {
-                                    lucent::info("inventory", "equipped Silver Key "
-                                                 "item 30 in sub-item slot 4");
-                                }
                             }
                             nearest_box->treasure_open = true;
                             // The pre-Bogard return route has completed. A
@@ -5410,16 +5385,12 @@ int main(int argc, char** argv) {
                     // PORT CHOICE: the reach. The engine's own talk trigger is
                     // not reversed, so this uses one chip (30 units), the game's
                     // fundamental spatial unit, rather than an invented number.
-                    const mcf::Actor* best = nullptr;
-                    float best_d = kTalkReach * kTalkReach;
-                    for (const auto& a : world.actors()) {
-                        if (!a.alive || a.kind != 'N' || a.handle == "MainPlayer") continue;
-                        float dx = a.pos[0] + room_org[0] - px;
-                        float dz = a.pos[2] + room_org[2] - pz;
-                        float d2 = dx * dx + dz * dz;
-                        if (d2 < best_d) { best_d = d2; best = &a; }
-                    }
+                    const mcf::Actor* best = mana::host::FindNearestNpc(
+                        world, px - room_org[0], pz - room_org[2]);
                     if (best) {
+                        const float dx = best->pos[0] + room_org[0] - px;
+                        const float dz = best->pos[2] + room_org[2] - pz;
+                        const float best_d = dx * dx + dz * dz;
                         if (sc.StartCoroutine(best->handle))
                         {
                             if (best->handle == "FALLMAN") fallman_talked = true;
@@ -5509,22 +5480,48 @@ int main(int argc, char** argv) {
                     float g;
                     bool touching_mapjump_floor_owner = false;
                     if (mapjump_floor_owner) {
-                        const auto& bx = *mapjump_floor_owner;
                         const float lx = px - room_org[0];
                         const float lz = pz - room_org[2];
-                        touching_mapjump_floor_owner =
-                            lx > bx.lo[0] - kEventBoxProbeHeight &&
-                            lx < bx.hi[0] + kEventBoxProbeHeight &&
-                            lz > bx.lo[2] - kEventBoxProbeHeight &&
-                            lz < bx.hi[2] + kEventBoxProbeHeight;
+                        // Consecutive EvBoxOne tiles with one callback are a
+                        // single authored event region.  Keep the arrival
+                        // latch until the body clears their union, rather than
+                        // re-firing through an adjacent physical tile.
+                        for (const auto& bx : world.boxes)
+                            if (bx.name == mapjump_floor_owner->name &&
+                                lx >= bx.lo[0] - kCharacterCollisionRadius - .01f &&
+                                lx <= bx.hi[0] + kCharacterCollisionRadius + .01f &&
+                                lz >= bx.lo[2] - kCharacterCollisionRadius - .01f &&
+                                lz <= bx.hi[2] + kCharacterCollisionRadius + .01f) {
+                                touching_mapjump_floor_owner = true;
+                                break;
+                            }
+                    }
+                    bool touching_mapjump_arrival = false;
+                    if (mapjump_arrival_handler) {
+                        const float lx = px - room_org[0];
+                        const float lz = pz - room_org[2];
+                        for (const auto& bx : world.boxes)
+                            if (bx.name == *mapjump_arrival_handler &&
+                                lx >= bx.lo[0] - kCharacterCollisionRadius - .01f &&
+                                lx <= bx.hi[0] + kCharacterCollisionRadius + .01f &&
+                                lz >= bx.lo[2] - kCharacterCollisionRadius - .01f &&
+                                lz <= bx.hi[2] + kCharacterCollisionRadius + .01f) {
+                                touching_mapjump_arrival = true;
+                                break;
+                            }
+                        if (!touching_mapjump_arrival) {
+                            lucent::info("world", "cleared mapjump arrival "
+                                         "handler '{}'", *mapjump_arrival_handler);
+                            mapjump_arrival_handler.reset();
+                        }
                     }
                     PlacedObj* hit_object = nullptr;
                     bool move_has_floor = !have_col || col.GetFloorBelow(
                         px, pz, py + 30.f, mcf::Collision::kFloorMask, &g);
                     const bool point_stair_step = have_col && move_has_floor &&
-                        ((g > py + .01f && g - py <= 30.f) ||
-                         (headless_lower_goal && py > g + .01f &&
-                          py - g <= 30.f));
+                        std::fabs(g - py) > .01f &&
+                        mana::host::IsRouteHeightTransition(
+                            py, g, headless_lower_goal);
                     float body_floor = 0.f;
                     const float body_probe_x = px + mx / len *
                                                     kEventBoxProbeHeight;
@@ -5849,8 +5846,7 @@ int main(int argc, char** argv) {
                         blocked_event_probe_z = attempted_z;
                         px = ox;
                         pz = oz;
-                        if (opening_story &&
-                            (!driver_route.empty() || locked_door_side >= 0) &&
+                        if (opening_story && walk_to &&
                             ++driver_blocked_frames == 120) {
                             if (locked_door_side >= 0) {
                                 lucent::error(
@@ -5877,9 +5873,11 @@ int main(int argc, char** argv) {
                                 oz - room_org[2],
                                 attempted_x - room_org[0],
                                 attempted_z - room_org[2],
-                                driver_route.front().x,
-                                driver_route.front().z,
-                                driver_route.front().y - room_org[1],
+                                driver_route.empty() ? attempted_x - room_org[0] : driver_route.front().x,
+                                driver_route.empty() ? attempted_z - room_org[2]
+                                                     : driver_route.front().z,
+                                driver_route.empty() ? py - room_org[1]
+                                                     : driver_route.front().y - room_org[1],
                                 static_blocked, move_has_floor,
                                 move_has_floor ? g - room_org[1] : 0.f,
                                 move_stair_step, object_blocked,
@@ -6284,31 +6282,34 @@ int main(int argc, char** argv) {
                 // above that contact point. Without this distinction every
                 // floor-anchored box rejects the player at its strict lower-Y
                 // boundary.
+                std::set<std::string> entered_event_handlers;
                 for (auto& bx : world.boxes) {
-                    bool in = bx.IsHit(px, py + kEventBoxProbeHeight, pz,
-                                      room_org[0], room_org[2]) ||
+                    // AppCharacterBase tests the character volume, not only
+                    // its centre.  This matters even when movement was not
+                    // blocked: an authored boundary event can end exactly at
+                    // the one-radius room-entry inset (M0000_03_04's
+                    // jump_01 is the shipping discriminator).
+                    bool in = bx.CharacterContact(
+                                  px, py + kEventBoxProbeHeight, pz,
+                                  room_org[0], room_org[2],
+                                  kCharacterCollisionRadius) ||
                               (have_blocked_event_probe &&
-                               EventBoxCharacterContact(
-                                  bx,
+                               bx.CharacterContact(
                                   blocked_event_probe_x,
                                   py + kEventBoxProbeHeight,
                                   blocked_event_probe_z,
                                   room_org[0], room_org[2],
                                   kCharacterCollisionRadius));
                     const bool continuing_mapjump_overlap =
-                        in && mapjump_floor_owner &&
-                        bx.name == mapjump_floor_owner->name &&
-                        bx.flags == mapjump_floor_owner->flags &&
-                        std::equal(std::begin(bx.lo), std::end(bx.lo),
-                                   std::begin(mapjump_floor_owner->lo)) &&
-                        std::equal(std::begin(bx.hi), std::end(bx.hi),
-                                   std::begin(mapjump_floor_owner->hi));
+                        in && mapjump_arrival_handler &&
+                        bx.name == *mapjump_arrival_handler;
                     if (in && !bx.inside) {
                         if (continuing_mapjump_overlap) {
                             lucent::info("world", "continued through mapjump "
                                          "arrival box '{}' without reversing",
                                          bx.name);
-                        } else if (!bx.name.empty()) {
+                        } else if (!bx.name.empty() &&
+                                   entered_event_handlers.insert(bx.name).second) {
                             lucent::info("world", "entered event box '{}'", bx.name);
                             // EvBoxSwitch expands to flags 0x1c. Its callback
                             // reads the engine-supplied switch_result payload;
@@ -6725,6 +6726,8 @@ int main(int argc, char** argv) {
                                 std::numeric_limits<float>::infinity();
                             float best_box_floor = py;
                             mcf::EventBox* best_box = nullptr;
+                            float best_arrival_d2 =
+                                std::numeric_limits<float>::infinity();
                             for (auto& bx : world.boxes) {
                                 if (!bx.enabled || bx.no_touch) continue;
                                 ++touchable_boxes;
@@ -6737,13 +6740,18 @@ int main(int argc, char** argv) {
                                     ? bx.lo[2] - lz
                                     : (lz > bx.hi[2] ? lz - bx.hi[2] : 0.f);
                                 const float d2 = dx * dx + dz * dz;
-                                // Character/event volumes are strict: exact
-                                // tangency is not overlap. Accepting equality
-                                // can assign a MapJump arrival the floor of an
-                                // adjacent box that the body never entered.
-                                if (d2 >= kEventBoxProbeHeight *
-                                              kEventBoxProbeHeight)
-                                    continue;
+                                // MapJump deliberately places some arrivals
+                                // at exact one-radius tangency.  Include that
+                                // boundary in the arrival latch so subsequent
+                                // floating-point movement cannot turn the
+                                // intended continuation into a fresh entry.
+                                if (!bx.name.empty() && bx.CharacterContact(px, py + kEventBoxProbeHeight,
+                                        pz, room_org[0], room_org[2], kCharacterCollisionRadius) &&
+                                    d2 < best_arrival_d2) {
+                                    best_arrival_d2 = d2;
+                                    mapjump_arrival_handler = bx.name;
+                                }
+                                if (d2 >= kEventBoxProbeHeight * kEventBoxProbeHeight) continue;
                                 ++nearby_boxes;
                                 const float cx = room_org[0] +
                                     (bx.lo[0] + bx.hi[0]) * .5f;
@@ -6770,16 +6778,6 @@ int main(int argc, char** argv) {
                                 py = best_box_floor;
                                 mapjump_floor_owner = *best_box;
                                 mapjump_floor_owner_y = best_box_floor;
-                                // The character volume already overlaps this
-                                // arrival box even though the authored centre
-                                // point lies just outside it. Seed the normal
-                                // edge-trigger latch: the initial move onto
-                                // the box-owned ledge is continuation of that
-                                // overlap, not a fresh entry. The event loop
-                                // clears it after the body leaves the volume;
-                                // the headless planner separately excludes a
-                                // later re-entry while pursuing another goal.
-                                best_box->inside = true;
                             }
                             lucent::info(
                                 "world", "mapjump grounding at local "
