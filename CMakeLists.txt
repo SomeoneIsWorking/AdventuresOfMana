@@ -45,13 +45,24 @@ add_library(engine STATIC
 target_include_directories(engine PUBLIC src)
 target_link_libraries(engine PUBLIC lua lucent::lucent SDL3::SDL3 PkgConfig::VORBISFILE)
 
+add_library(render_assets STATIC
+  src/host/render_asset.cpp)
+target_include_directories(render_assets PUBLIC src)
+target_link_libraries(render_assets PUBLIC mcf lucent::lucent)
+
 set(MANA_SHADER_ARTIFACTS
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.vert.spv
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.vert.dxil
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.vert.msl
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.frag.spv
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.frag.dxil
-  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.frag.msl)
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.frag.msl
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.spv
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.dxil
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.msl
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.frag.spv
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.frag.dxil
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.frag.msl)
 set(MANA_SHADER_PACK ${CMAKE_CURRENT_BINARY_DIR}/generated/shader_pack.inc)
 add_custom_command(
   OUTPUT ${MANA_SHADER_PACK}
@@ -62,16 +73,23 @@ add_custom_command(
   VERBATIM)
 
 add_library(host_gpu STATIC
+  src/host/gpu_asset.cpp
+  src/host/gpu_asset_pipeline.cpp
   src/host/gpu_device.cpp
   src/host/gpu_pipeline.cpp
+  src/host/gpu_shader.cpp
   ${MANA_SHADER_PACK})
 target_include_directories(host_gpu PUBLIC src)
 target_include_directories(host_gpu PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_link_libraries(host_gpu PUBLIC SDL3::SDL3 lucent::lucent)
+target_link_libraries(host_gpu PUBLIC render_assets SDL3::SDL3 lucent::lucent)
 
 add_executable(mana_gpu_selftest
   src/tools/gpu_selftest.cpp)
 target_link_libraries(mana_gpu_selftest PRIVATE host_gpu)
+
+add_executable(mana_gpu_asset_selftest
+  src/tools/gpu_asset_selftest.cpp)
+target_link_libraries(mana_gpu_asset_selftest PRIVATE host_gpu)
 
 add_executable(mana
   src/host/interaction.cpp
@@ -79,4 +97,4 @@ add_executable(mana
   src/host/navigation.cpp
   src/host/render.cpp
   src/host/story_driver.cpp)
-target_link_libraries(mana PRIVATE mcf engine host_gpu SDL3::SDL3 PkgConfig::GLESV2)
+target_link_libraries(mana PRIVATE mcf engine render_assets host_gpu SDL3::SDL3 PkgConfig::GLESV2)

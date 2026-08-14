@@ -16,7 +16,7 @@ python3 tools/check_structure.py --selftest || exit 1
 python3 tools/check_structure.py || exit 1
 
 echo "=== build shipping runtime ==="
-cmake --build build --target mana mana_gpu_selftest -j2 || exit 1
+cmake --build build --target mana mana_gpu_selftest mana_gpu_asset_selftest -j2 || exit 1
 mkdir -p scratch/logs
 
 echo "=== SDL3 GPU offscreen device self-test ==="
@@ -44,9 +44,13 @@ shader_regen=scratch/logs/shader-generated
 OUTPUT_DIR="$shader_regen" ./tools/compile_shaders.sh || exit 1
 python3 tools/embed_shader_pack.py --input-dir "$shader_regen" \
   --output scratch/logs/shader-pack.inc || exit 1
-for shader in solid.vert.spv solid.vert.dxil solid.vert.msl \
-              solid.frag.spv solid.frag.dxil solid.frag.msl; do
-  cmp "$shader_regen/$shader" "shaders/generated/$shader" || exit 1
+for program in solid textured; do
+  for stage in vert frag; do
+    for extension in spv dxil msl; do
+      shader="$program.$stage.$extension"
+      cmp "$shader_regen/$shader" "shaders/generated/$shader" || exit 1
+    done
+  done
 done
 shader_pack_negative=scratch/logs/shader-pack-negative.log
 if python3 tools/embed_shader_pack.py --input-dir scratch/logs/DOES_NOT_EXIST \
@@ -54,9 +58,9 @@ if python3 tools/embed_shader_pack.py --input-dir scratch/logs/DOES_NOT_EXIST \
   echo "FATAL: missing shader-pack negative returned success"
   exit 1
 fi
-grep -F "scanned 0 artifacts, expected 6; 6 missing" \
+grep -F "scanned 0 artifacts, expected 12; 12 missing" \
   "$shader_pack_negative" || exit 1
-echo "  6/6 artifacts regenerate exactly; missing-pack negative passed"
+echo "  12/12 artifacts regenerate exactly; missing-pack negative passed"
 
 check_runtime() {
   if [ ! -x "$1" ]; then
@@ -82,6 +86,10 @@ if [ ! -f "$archive" ]; then
   exit 1
 fi
 python3 tools/asset/mpk.py "$archive" --check-dir scratch/dump || exit 1
+
+echo "=== SDL3 GPU shipping-asset pipeline ==="
+./build/mana_gpu_asset_selftest "$archive" || exit 1
+./build/mana_gpu_asset_selftest --negative-control "$archive" || exit 1
 
 fail=0
 mark_failure() {

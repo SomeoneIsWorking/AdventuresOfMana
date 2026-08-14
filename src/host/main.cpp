@@ -2873,7 +2873,7 @@ int main(int argc, char** argv) {
                 // filename is per-model and not canonical (137 files disagree
                 // with eMOTION), so only the numeric prefix is matched.
                 const mcf::Motion* mo = nullptr;
-                if (!cache[nm].model.bones.empty()) {
+                if (!cache[nm].asset.model.bones.empty()) {
                     auto pre = mcf::World::MotionPrefix(nm, a.motion);
                     auto file = ar.FindByPrefix(pre);
                     if (file.empty()) {
@@ -2987,16 +2987,16 @@ int main(int argc, char** argv) {
                     if (!hit && opening_story && inventory.Has(17) &&
                         (object.flags & 0x08))
                         continue;
-                    const float lo_y = object.pos[1] + object.r->lo[1];
-                    const float hi_y = object.pos[1] + object.r->hi[1];
+                    const float lo_y = object.pos[1] + object.r->asset.lo[1];
+                    const float hi_y = object.pos[1] + object.r->asset.hi[1];
                     if (y + 30.f < lo_y || y > hi_y) continue;
-                    const float lo_x = object.pos[0] + object.r->lo[0] -
+                    const float lo_x = object.pos[0] + object.r->asset.lo[0] -
                                        kObjectPlayerRadius;
-                    const float hi_x = object.pos[0] + object.r->hi[0] +
+                    const float hi_x = object.pos[0] + object.r->asset.hi[0] +
                                        kObjectPlayerRadius;
-                    const float lo_z = object.pos[2] + object.r->lo[2] -
+                    const float lo_z = object.pos[2] + object.r->asset.lo[2] -
                                        kObjectPlayerRadius;
-                    const float hi_z = object.pos[2] + object.r->hi[2] +
+                    const float hi_z = object.pos[2] + object.r->asset.hi[2] +
                                        kObjectPlayerRadius;
                     float t0 = 0.f, t1 = 1.f;
                     auto clip = [&](float p, float q) {
@@ -3023,8 +3023,8 @@ int main(int argc, char** argv) {
             };
             float ctr[3], radius = 0;
             for (int k = 0; k < 3; ++k) {
-                ctr[k] = (stage.lo[k] + stage.hi[k]) * .5f;
-                radius = std::max(radius, stage.hi[k] - stage.lo[k]);
+                ctr[k] = (stage.asset.lo[k] + stage.asset.hi[k]) * .5f;
+                radius = std::max(radius, stage.asset.hi[k] - stage.asset.lo[k]);
             }
             Mat4 vp;   // rebuilt each frame from the camera slots
 
@@ -3047,16 +3047,16 @@ int main(int argc, char** argv) {
                 glUniform1i(glGetUniformLocation(pr, "texture0"), 0);
                 if (r.skinned()) {
                     std::vector<float> j;
-                    mcf::BuildJointPalette(r.model, mo, anim_t, &j);
+                    mcf::BuildJointPalette(r.asset.model, mo, anim_t, &j);
                     glUniform4fv(glGetUniformLocation(pr, "vJoint"), 80 * 3, j.data());
                 }
                 glActiveTexture(GL_TEXTURE0);
                 glBindBuffer(GL_ARRAY_BUFFER, r.vbo);
                 glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, r.ibo);
-                GLsizei st = GLsizei(r.model.vertex_stride);
-                const auto* pa = r.model.Find(mcf::VertexUsage::kPosition);
-                const auto* ca = r.model.Find(mcf::VertexUsage::kColor);
-                const auto* ta = r.model.Find(mcf::VertexUsage::kTexcoord0);
+                GLsizei st = GLsizei(r.asset.model.vertex_stride);
+                const auto* pa = r.asset.model.Find(mcf::VertexUsage::kPosition);
+                const auto* ca = r.asset.model.Find(mcf::VertexUsage::kColor);
+                const auto* ta = r.asset.model.Find(mcf::VertexUsage::kTexcoord0);
                 glEnableVertexAttribArray(0);
                 glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, st, (void*)(uintptr_t)pa->offset);
                 if (ca) { glEnableVertexAttribArray(1);
@@ -3064,8 +3064,8 @@ int main(int argc, char** argv) {
                 if (ta) { glEnableVertexAttribArray(2);
                     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, st, (void*)(uintptr_t)ta->offset); }
                 if (r.skinned()) {
-                    const auto* wa = r.model.Find(mcf::VertexUsage::kWeight);
-                    const auto* ia = r.model.Find(mcf::VertexUsage::kIncidence);
+                    const auto* wa = r.asset.model.Find(mcf::VertexUsage::kWeight);
+                    const auto* ia = r.asset.model.Find(mcf::VertexUsage::kIncidence);
                     glEnableVertexAttribArray(3);
                     glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, st, (void*)(uintptr_t)wa->offset);
                     glEnableVertexAttribArray(4);
@@ -3074,15 +3074,15 @@ int main(int argc, char** argv) {
                     glDisableVertexAttribArray(3);
                     glDisableVertexAttribArray(4);
                 }
-                GLenum it = r.model.index_size == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
+                GLenum it = r.asset.model.index_size == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
                 // Two passes: opaque ranges first, then the blended ones, so a
                 // shadow plane composites over the ground it lies on instead of
                 // depth-fighting it. Blended geometry still tests depth but does
                 // not write it, which is the standard ordering-independent
                 // treatment for flat decals like these.
                 auto blended = [&](size_t i) {
-                    uint32_t mi = r.model.draws[i].material;
-                    return mi < r.model.materials.size() && r.model.materials[mi].blend;
+                    uint32_t mi = r.asset.model.draws[i].material;
+                    return mi < r.asset.model.materials.size() && r.asset.model.materials[mi].blend;
                 };
                 for (int pass = 0; pass < 2; ++pass) {
                     if (pass == 1) {
@@ -3090,11 +3090,11 @@ int main(int argc, char** argv) {
                         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                         glDepthMask(GL_FALSE);
                     }
-                    for (size_t i = 0; i < r.model.draws.size(); ++i) {
+                    for (size_t i = 0; i < r.asset.model.draws.size(); ++i) {
                         if (blended(i) != (pass == 1)) continue;
                         glBindTexture(GL_TEXTURE_2D, r.draw_tex[i]);
-                        glDrawElements(GL_TRIANGLES, GLsizei(r.model.draws[i].index_count), it,
-                                       (void*)(uintptr_t)r.model.draws[i].byte_offset);
+                        glDrawElements(GL_TRIANGLES, GLsizei(r.asset.model.draws[i].index_count), it,
+                                       (void*)(uintptr_t)r.asset.model.draws[i].byte_offset);
                     }
                     if (pass == 1) { glDepthMask(GL_TRUE); glDisable(GL_BLEND); }
                 }
@@ -3148,7 +3148,7 @@ int main(int argc, char** argv) {
                     lucent::info("world", "loaded late actor {} model {}", a.handle, nm);
                     it = cache.emplace(nm, std::move(late)).first;
                 }
-                if (it->second.model.bones.empty()) return nullptr;
+                if (it->second.asset.model.bones.empty()) return nullptr;
                 auto prefix = mcf::World::MotionPrefix(nm, a.motion);
                 auto file = ar.FindByPrefix(prefix);
                 if (file.empty()) {
@@ -6356,14 +6356,14 @@ int main(int argc, char** argv) {
                             if (!av.valid || av.bone.empty()) continue;
                             ++cs.swing_frames;
                             float ap[3]{0.f, 0.f, 0.f};
-                            if (!mcf::BoneLocalPos(ait->second.model, nullptr, t,
+                            if (!mcf::BoneLocalPos(ait->second.asset.model, nullptr, t,
                                                    av.bone, ap)) {
                                 ++cs.atk_no_bone;
                                 // SiModelBase::GetBoneIDByName @ 0x35b414
                                 // returns ID 0 after an exact-strcmp miss.
-                                if (!ait->second.model.bones.empty())
-                                    mcf::BoneLocalPos(ait->second.model, nullptr, t,
-                                        ait->second.model.bones.front().name, ap);
+                                if (!ait->second.asset.model.bones.empty())
+                                    mcf::BoneLocalPos(ait->second.asset.model, nullptr, t,
+                                        ait->second.asset.model.bones.front().name, ap);
                             }
                             for (int k = 0; k < 3; ++k)
                                 ap[k] += acts[aidx].pos[k] + room_org[k] + av.offset[k];
@@ -6379,7 +6379,7 @@ int main(int argc, char** argv) {
                                 for (const auto& [di, dv] : acts[didx].damage) {
                                     if (!dv.valid || dv.bone.empty()) continue;
                                     float dp[3];
-                                    if (!mcf::BoneLocalPos(dit->second.model, nullptr, t,
+                                    if (!mcf::BoneLocalPos(dit->second.asset.model, nullptr, t,
                                                            dv.bone, dp))
                                         { ++cs.def_no_bone; continue; }
                                     for (int k = 0; k < 3; ++k)

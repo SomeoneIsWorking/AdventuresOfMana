@@ -2,69 +2,20 @@
 
 #include <array>
 #include <cstring>
-#include <format>
 #include <stdexcept>
 
 #include <lucent/log.h>
 
 #include "host/gpu_device.h"
-#include "shader_pack.inc"
+#include "host/gpu_shader.h"
 
 namespace mana::gpu {
-namespace {
-
-struct ShaderCode {
-  const unsigned char *data;
-  std::size_t size;
-  SDL_GPUShaderFormat format;
-  const char *entrypoint;
-};
-
-ShaderCode SelectShader(SDL_GPUShaderFormat supported, bool vertex) {
-  using namespace embedded;
-  if (supported & SDL_GPU_SHADERFORMAT_SPIRV)
-    return vertex ? ShaderCode{solid_vert_spv, sizeof(solid_vert_spv),
-                               SDL_GPU_SHADERFORMAT_SPIRV, "main"}
-                  : ShaderCode{solid_frag_spv, sizeof(solid_frag_spv),
-                               SDL_GPU_SHADERFORMAT_SPIRV, "main"};
-  if (supported & SDL_GPU_SHADERFORMAT_DXIL)
-    return vertex ? ShaderCode{solid_vert_dxil, sizeof(solid_vert_dxil),
-                               SDL_GPU_SHADERFORMAT_DXIL, "main"}
-                  : ShaderCode{solid_frag_dxil, sizeof(solid_frag_dxil),
-                               SDL_GPU_SHADERFORMAT_DXIL, "main"};
-  if (supported & SDL_GPU_SHADERFORMAT_MSL)
-    return vertex ? ShaderCode{solid_vert_msl, sizeof(solid_vert_msl),
-                               SDL_GPU_SHADERFORMAT_MSL, "main0"}
-                  : ShaderCode{solid_frag_msl, sizeof(solid_frag_msl),
-                               SDL_GPU_SHADERFORMAT_MSL, "main0"};
-  throw std::runtime_error(
-      std::format("shader pack has no artifact for formats 0x{:x}", supported));
-}
-
-SDL_GPUShader *CreateShader(Device &device, bool vertex) {
-  const ShaderCode code = SelectShader(device.shader_formats(), vertex);
-  const SDL_GPUShaderCreateInfo info{
-      .code_size = code.size,
-      .code = code.data,
-      .entrypoint = code.entrypoint,
-      .format = code.format,
-      .stage =
-          vertex ? SDL_GPU_SHADERSTAGE_VERTEX : SDL_GPU_SHADERSTAGE_FRAGMENT,
-  };
-  SDL_GPUShader *shader = SDL_CreateGPUShader(device.native_handle(), &info);
-  if (!shader)
-    throw std::runtime_error(
-        std::format("SDL_CreateGPUShader: {}", SDL_GetError()));
-  return shader;
-}
-
-} // namespace
-
 SolidPipeline::SolidPipeline(Device &device) : device_(device) {
-  SDL_GPUShader *vertex = CreateShader(device_, true);
+  SDL_GPUShader *vertex =
+      CreateShader(device_, "solid", SDL_GPU_SHADERSTAGE_VERTEX);
   SDL_GPUShader *fragment = nullptr;
   try {
-    fragment = CreateShader(device_, false);
+    fragment = CreateShader(device_, "solid", SDL_GPU_SHADERSTAGE_FRAGMENT);
     const SDL_GPUColorTargetDescription color_target{
         .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
     };

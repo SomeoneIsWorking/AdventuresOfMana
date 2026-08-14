@@ -13,27 +13,29 @@ if [ ! -x "$shadercross" ]; then
 fi
 
 mkdir -p "$output_dir"
-for stage in vert frag; do
-  case "$stage" in
-    vert) shader_stage=vertex ;;
-    frag) shader_stage=fragment ;;
-  esac
-  source="shaders/src/solid.$stage.hlsl"
-  for format in SPIRV DXIL MSL; do
-    case "$format" in
-      SPIRV) extension=spv ;;
-      DXIL) extension=dxil ;;
-      MSL) extension=msl ;;
+for program in solid textured; do
+  for stage in vert frag; do
+    case "$stage" in
+      vert) shader_stage=vertex ;;
+      frag) shader_stage=fragment ;;
     esac
-    LD_LIBRARY_PATH="$shadercross_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-      "$shadercross" "$source" --source HLSL --dest "$format" \
-      --stage "$shader_stage" --entrypoint main \
-      --output "$output_dir/solid.$stage.$extension"
-    if [ "$format" = MSL ]; then
-      python3 tools/normalize_shader_text.py \
-        "$output_dir/solid.$stage.$extension"
-    fi
+    source="shaders/src/$program.$stage.hlsl"
+    for format in SPIRV DXIL MSL; do
+      case "$format" in
+        SPIRV) extension=spv ;;
+        DXIL) extension=dxil ;;
+        MSL) extension=msl ;;
+      esac
+      LD_LIBRARY_PATH="$shadercross_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        "$shadercross" "$source" --source HLSL --dest "$format" \
+        --stage "$shader_stage" --entrypoint main \
+        --output "$output_dir/$program.$stage.$extension"
+      if [ "$format" = MSL ]; then
+        python3 tools/normalize_shader_text.py \
+          "$output_dir/$program.$stage.$extension"
+      fi
+    done
   done
 done
 
-echo "generated 6 shader artifacts from 2 HLSL sources"
+echo "generated 12 shader artifacts from 4 HLSL sources"

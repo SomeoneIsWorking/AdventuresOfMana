@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "host/render_asset.h"
 #include "mcf/mcf.h"
 
 namespace mcf {
@@ -13,15 +14,13 @@ namespace mcf {
 class Archive;
 
 struct Renderable {
-    Model model;
-    std::vector<TextureSet> owned;
+    RenderAsset asset;
     GLuint vbo = 0, ibo = 0;
     GLuint white = 0;                 // 1x1 fallback; see LoadRenderable
     std::vector<GLuint> textures;     // parallel to the model's texture list
     std::vector<GLuint> draw_tex;     // resolved per draw range
-    float lo[3]{}, hi[3]{};
 
-    bool skinned() const { return model.Find(VertexUsage::kWeight) != nullptr; }
+    bool skinned() const { return asset.skinned(); }
 };
 
 // Loads `sk1/<name>.smdl` plus whichever texture path that model uses -- an
