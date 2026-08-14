@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-14
 tags: renderer,sdl3,gpu,tooling
 depends: src/host/gpu_device.cpp#Device::ClearAndReadback, src/host/gpu_device.cpp#RunDeviceSelfTest, src/tools/gpu_selftest.cpp#main, tools/verify.sh
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 11:19:52
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Commits adedb5d and addb897; full ./tools/verify.sh passed in scratch/logs/verif
 ## What would falsify it
 
 if either exact-color run fails, the wrong-color control succeeds or reports fewer than 12 mismatches, an SDL window exists, audio initializes, subsystem ownership leaks, or the mandatory full gate omits this test
+
+## Re-confirmed 2026-08-14
+
+Tracked baseline established after commit 8bc169f; full ./tools/verify.sh passed in scratch/logs/verify-sdl3-gpu-negative.log on 2026-08-14, including exact two-color readback, zero windows/audio, required 12/12 wrong-color rejection, and ALL PARSERS PASSED.
