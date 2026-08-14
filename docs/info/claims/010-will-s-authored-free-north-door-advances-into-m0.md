@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: gameplay,doors,progression
 depends: src/engine/script.cpp#SetDoor, src/engine/world.cpp#SetDoor, src/host/main.cpp#RoomExitReq, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 10:18:30
+verified_at: 2026-08-14 10:31:39
 ---
 
 ## Claim
@@ -92,3 +92,7 @@ Full offscreen/dummy-audio fixed-step gate tools/verify.sh passed on 2026-08-14;
 ## Re-confirmed 2026-08-14
 
 Commit af6e3c5 passed the complete offscreen/dummy-audio fixed-step tools/verify.sh gate on 2026-08-14; gameplay and static/corpus evidence is recorded under scratch/logs/.
+
+## Re-confirmed 2026-08-14
+
+Commit fe20918 passed the complete fixed-step uncapped offscreen/dummy-audio tools/verify.sh gate through Hydra's authored sccnt=16 defeat transition on 2026-08-14; evidence is scratch/logs/verify-hydra-defeat.log.

@@ -6,7 +6,7 @@ created: 2026-08-14
 tags:
 depends: src/host/story_driver.cpp, src/host/interaction.cpp, src/host/navigation.cpp, src/host/main.cpp, src/engine/event_box.cpp, src/engine/script.cpp, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 10:18:31
+verified_at: 2026-08-14 10:31:40
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Commit af6e3c5 passed the complete offscreen/dummy-audio fixed-step tools/verify
 ## Re-confirmed 2026-08-14
 
 Commit af6e3c5 passed the complete offscreen/dummy-audio fixed-step tools/verify.sh gate on 2026-08-14; gameplay and static/corpus evidence is recorded under scratch/logs/.
+
+## Re-confirmed 2026-08-14
+
+Commit fe20918 passed the complete fixed-step uncapped offscreen/dummy-audio tools/verify.sh gate through Hydra's authored sccnt=16 defeat transition on 2026-08-14; evidence is scratch/logs/verify-hydra-defeat.log.
