@@ -38,13 +38,23 @@ fi
 grep -F "PIPELINE SELFTEST FAIL: scanned 48 pixels, 48 mismatched" \
   "$gpu_pipeline_negative_log" || exit 1
 echo "  pipeline wrong-color negative passed (48/48 pixels rejected)"
+gpu_overlay_negative_log=scratch/logs/gpu-overlay-negative.log
+if ./build/mana_gpu_selftest --overlay-negative-control \
+    >"$gpu_overlay_negative_log" 2>&1; then
+  echo "FATAL: SDL3 GPU overlay negative control returned success"
+  exit 1
+fi
+grep -F "OVERLAY SELFTEST FAIL: scanned 12 pixels, 12 mismatched" \
+  "$gpu_overlay_negative_log" || exit 1
+echo "  zero-coverage overlay negative passed (12/12 pixels rejected)"
 
 echo "=== portable shader pack ==="
 shader_regen=scratch/logs/shader-generated
 OUTPUT_DIR="$shader_regen" ./tools/compile_shaders.sh || exit 1
 python3 tools/embed_shader_pack.py --input-dir "$shader_regen" \
   --output scratch/logs/shader-pack.inc || exit 1
-for source_name in solid.vert solid.frag textured.vert textured.frag skinned.vert; do
+for source_name in solid.vert solid.frag overlay.vert overlay.frag \
+    textured.vert textured.frag skinned.vert; do
   for extension in spv dxil msl; do
     shader="$source_name.$extension"
     cmp "$shader_regen/$shader" "shaders/generated/$shader" || exit 1
@@ -56,9 +66,9 @@ if python3 tools/embed_shader_pack.py --input-dir scratch/logs/DOES_NOT_EXIST \
   echo "FATAL: missing shader-pack negative returned success"
   exit 1
 fi
-grep -F "scanned 0 artifacts, expected 15; 15 missing" \
+grep -F "scanned 0 artifacts, expected 21; 21 missing" \
   "$shader_pack_negative" || exit 1
-echo "  15/15 artifacts regenerate exactly; missing-pack negative passed"
+echo "  21/21 artifacts regenerate exactly; missing-pack negative passed"
 
 check_runtime() {
   if [ ! -x "$1" ]; then
@@ -113,9 +123,9 @@ echo "=== running snapshot SDL3 GPU consumer ==="
 scene_pair_prefix=scratch/screenshots/live-snapshot
 scene_pair_log=scratch/logs/live-snapshot.log
 ./build/mana --room M0001_00_00 --scene-pair "$scene_pair_prefix" \
-  --warmup 30 >"$scene_pair_log" 2>&1 || exit 1
+  --fade-test --no-hud --warmup 30 >"$scene_pair_log" 2>&1 || exit 1
 grep -F "video driver: offscreen" "$scene_pair_log" || exit 1
-grep -F "live snapshot pair: 3 instances (2 skinned), 3 cached assets" \
+grep -F "live snapshot pair: 3 instances (2 skinned), 3 cached assets, fade coverage 0.500" \
   "$scene_pair_log" || exit 1
 grep -F "audio decoded 0 sounds / 0 frames" "$scene_pair_log" || exit 1
 for scene_pair_image in "$scene_pair_prefix-gles.png" \
@@ -125,7 +135,7 @@ for scene_pair_image in "$scene_pair_prefix-gles.png" \
     exit 1
   fi
 done
-echo "  same-frame GLES/SDL3 captures wrote bytes offscreen with 0 audio frames"
+echo "  same-frame scene/fade captures wrote bytes offscreen with 0 audio frames"
 
 fail=0
 mark_failure() {

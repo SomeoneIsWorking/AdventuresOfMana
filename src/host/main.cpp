@@ -31,6 +31,7 @@
 #include "host/render.h"
 #include "host/image_write.h"
 #include "host/render_camera.h"
+#include "host/render_overlay.h"
 #include "host/render_snapshot.h"
 #include "host/scene_pair_capture.h"
 #include "host/interaction.h"
@@ -6849,13 +6850,6 @@ int main(int argc, char** argv) {
                             instance.position.data(), instance.motion,
                             instance.yaw);
                 }
-                if (!scene_pair.empty() && frames >= warmup) {
-                    std::vector<uint8_t> gl_pixels(size_t(W) * H * 4);
-                    glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE,
-                                 gl_pixels.data());
-                    scene_pair_capture->Write(render_snapshot, W, H, gl_pixels);
-                    running = false;
-                }
                 // Message window. Drawn before the fade so a transition covers
                 // it, and only when a script has actually set a line.
                 // A message the font cannot draw renders as an empty panel,
@@ -7234,6 +7228,12 @@ int main(int argc, char** argv) {
                     glDrawArrays(GL_TRIANGLES, 0, 3);
                     glDisable(GL_BLEND);
                     glEnable(GL_DEPTH_TEST);
+                }
+                if (!scene_pair.empty() && frames >= warmup) {
+                    scene_pair_capture->WriteFromGles(render_snapshot, W, H,
+                        mana::FadeOverlay::FromEngineColor(
+                            world.fade.colour, world.fade.Coverage()));
+                    running = false;
                 }
 
                 // Capture BEFORE presenting: SDL_GL_SwapWindow may discard the

@@ -48,6 +48,7 @@ target_link_libraries(engine PUBLIC lua lucent::lucent SDL3::SDL3 PkgConfig::VOR
 add_library(render_assets STATIC
   src/host/render_asset.cpp
   src/host/render_camera.cpp
+  src/host/render_overlay.cpp
   src/host/render_pose.cpp
   src/host/render_snapshot.cpp)
 target_include_directories(render_assets PUBLIC src)
@@ -65,6 +66,12 @@ set(MANA_SHADER_ARTIFACTS
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.frag.spv
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.frag.dxil
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.frag.msl
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/overlay.vert.spv
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/overlay.vert.dxil
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/overlay.vert.msl
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/overlay.frag.spv
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/overlay.frag.dxil
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/overlay.frag.msl
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.spv
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.dxil
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.msl
@@ -87,6 +94,7 @@ add_library(host_gpu STATIC
   src/host/gpu_asset.cpp
   src/host/gpu_asset_pipeline.cpp
   src/host/gpu_device.cpp
+  src/host/gpu_overlay.cpp
   src/host/gpu_pipeline.cpp
   src/host/gpu_scene.cpp
   src/host/gpu_snapshot_renderer.cpp

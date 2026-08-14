@@ -13,7 +13,8 @@ if [ ! -x "$shadercross" ]; then
 fi
 
 mkdir -p "$output_dir"
-for source_name in solid.vert solid.frag textured.vert textured.frag skinned.vert; do
+for source_name in solid.vert solid.frag overlay.vert overlay.frag \
+    textured.vert textured.frag skinned.vert; do
   program=${source_name%.*}
   stage=${source_name#*.}
   case "$stage" in
@@ -37,4 +38,4 @@ for source_name in solid.vert solid.frag textured.vert textured.frag skinned.ver
   done
 done
 
-echo "generated 15 shader artifacts from 5 HLSL sources"
+echo "generated 21 shader artifacts from 7 HLSL sources"
