@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: hydra,navigation,collision
 depends: src/host/main.cpp, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 12:17:16
+verified_at: 2026-08-14 12:28:28
 ---
 
 ## Claim
@@ -64,3 +64,7 @@ Reverified after commit bff6051 by the complete mandatory ./tools/verify.sh run 
 ## Re-confirmed 2026-08-14
 
 Reverified after commit 7a2b1ed by the complete tools/verify.sh gate in scratch/logs/verify-sdl3-gpu-skinning-final.log: all focused positives and negatives passed, the unseeded story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, audio decoded 0 frames, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commit 9dea2fe by the complete tools/verify.sh gate in scratch/logs/verify-sdl3-gpu-scene-final.log: all focused positives and negatives passed, the SDL3 GPU shipping scene wrote its checked capture, the unseeded story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, audio decoded 0 frames, and ALL PARSERS PASSED.

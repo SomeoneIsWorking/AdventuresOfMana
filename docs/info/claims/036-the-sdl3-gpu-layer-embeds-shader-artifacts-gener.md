@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,sdl3,gpu,shaders,tooling
 depends: src/host/gpu_shader.cpp#CreateShader, src/host/gpu_pipeline.cpp#SolidPipeline::DrawAndReadback, tools/compile_shaders.sh, tools/embed_shader_pack.py, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 12:17:17
+verified_at: 2026-08-14 12:28:28
 ---
 
 ## Claim
@@ -32,3 +32,7 @@ Commit bff6051; full ./tools/verify.sh passed in scratch/logs/verify-sdl3-gpu-as
 ## Re-confirmed 2026-08-14
 
 Reverified after commit 7a2b1ed by the complete tools/verify.sh gate in scratch/logs/verify-sdl3-gpu-skinning-final.log: all focused positives and negatives passed, the unseeded story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, audio decoded 0 frames, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commit 9dea2fe by the complete tools/verify.sh gate in scratch/logs/verify-sdl3-gpu-scene-final.log: all focused positives and negatives passed, the SDL3 GPU shipping scene wrote its checked capture, the unseeded story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, audio decoded 0 frames, and ALL PARSERS PASSED.

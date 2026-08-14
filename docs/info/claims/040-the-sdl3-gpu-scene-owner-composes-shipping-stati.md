@@ -1,0 +1,26 @@
+---
+id: C040
+kind: claim
+status: holds
+created: 2026-08-14
+tags: renderer,sdl3,scene
+depends: src/host/gpu_scene.cpp#SceneRenderer::DrawAndReadback, src/host/gpu_asset_pipeline.cpp#AssetPipeline::DrawPass, src/tools/gpu_asset_selftest.cpp#RunAssetPipelineSelfTest, src/host/image_write.cpp#WritePng, tools/verify.sh
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 12:28:28
+---
+
+## Claim
+
+The SDL3 GPU scene owner composes shipping static and skinned assets under one camera and depth target with scene-wide opaque-before-blended ordering.
+
+## Evidence
+
+Commit 9dea2fe: M0001_00_00 plus C0000_00 changes 88/76800 pixels from room-only, the off-frustum actor changes 0, and 748/6912 pixels discriminate scene-wide material ordering from per-asset ordering; full verify passes and writes a checked PNG.
+
+## What would falsify it
+
+Any change to scene submission order, material-pass routing, camera transforms, depth target ownership, shipping room/actor composition, PNG capture verification, or the centered/off-frustum/order discriminators; or a running-world snapshot that cannot be represented by SceneDraw.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commit 9dea2fe by the complete tools/verify.sh gate in scratch/logs/verify-sdl3-gpu-scene-final.log: all focused positives and negatives passed, the SDL3 GPU shipping scene wrote its checked capture, the unseeded story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, audio decoded 0 frames, and ALL PARSERS PASSED.

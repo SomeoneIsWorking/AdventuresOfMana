@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,sdl3,skinning
 depends: src/host/render_pose.cpp#BuildJointPalette, src/host/gpu_asset_pipeline.cpp#AssetPipeline::Draw, shaders/src/skinned.vert.hlsl#main, src/tools/gpu_asset_selftest.cpp#RunAssetPipelineSelfTest, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 12:17:17
+verified_at: 2026-08-14 12:28:28
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ Any change to pose construction, skinned vertex attributes, shader packing/formu
 ## Re-confirmed 2026-08-14
 
 Reverified after commit 7a2b1ed by the complete tools/verify.sh gate in scratch/logs/verify-sdl3-gpu-skinning-final.log: all focused positives and negatives passed, the unseeded story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, audio decoded 0 frames, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commit 9dea2fe by the complete tools/verify.sh gate in scratch/logs/verify-sdl3-gpu-scene-final.log: all focused positives and negatives passed, the SDL3 GPU shipping scene wrote its checked capture, the unseeded story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, audio decoded 0 frames, and ALL PARSERS PASSED.
