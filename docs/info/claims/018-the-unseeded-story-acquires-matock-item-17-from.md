@@ -3,10 +3,10 @@ id: C018
 kind: claim
 status: holds
 created: 2026-08-14
-tags:progression,inventory,tooling
+tags: progression,inventory,tooling
 depends: src/engine/script.cpp, src/host/main.cpp, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 02:39:18
+verified_at: 2026-08-14 03:24:07
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ Any mandatory run fails to enter M0010_00_00, fails to fire _BOX/acquire item 17
 ## Re-confirmed 2026-08-14
 
 Full ./tools/verify.sh passed on 2026-08-14 after the windowless render bypass, OpenDoor, inventory bridge, and Matock chest changes; all gameplay, self-test, corpus, frontier, and generated-artifact gates passed.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the post-Matock route-planner fix; all continuous fixed-step offscreen gates, focused self-tests, negative discriminators, exact asset corpus checks, the 993-room census, and the new 6279-frame silent route to M0000_10_06 passed.

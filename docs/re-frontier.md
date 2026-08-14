@@ -79,9 +79,9 @@ this file retain the derivations and corrections behind these entries.
 ### progression.wendel — Reach Wendel and advance the main quest
 - status: todo
 - deps: progression.bogard-with-heroine
-- evidence: The mandatory unseeded, uncapped, silent, renderless-offscreen run opens Bogard's authored north door, enters `M0010_00_00`, opens the binary-derived `_BOX`, executes its room callback, and acquires Matock item 17 in the shared inventory.
+- evidence: The mandatory unseeded, fixed-step uncapped, silent, renderless-offscreen run opens Bogard's authored north door, acquires Matock item 17 through the binary-derived `_BOX`, returns over the measured lower overworld component, and reaches `M0000_10_06` in 6279 frames. The planner refuses the two `M0000_09_06` cave boxes from the west arrival because their y=90 volumes are outside the arrival floor's measured 149-sample connected component.
 - where: `src/host/main.cpp`, `tools/verify.sh`
-- gap: The chest return reaches the north component of Bogard's main room, but the south exit is outside the planner's measured reachable component; diagnose the real collision/topology owner before driving the cave route.
+- gap: Trace the authored route from the isolated lower strip at `M0000_10_06` to the elevated `M0000_09_06` cave entrances; the bridge callbacks are Chocobot-only and are not a valid shortcut for the current party.
 - notes:
 
 ## Gameplay systems

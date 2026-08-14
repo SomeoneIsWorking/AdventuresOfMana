@@ -6,7 +6,7 @@ created: 2026-08-14
 tags:
 depends: src/host/main.cpp#main, src/mcf/assets.cpp#Collision::GetFloorBelow, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 02:39:18
+verified_at: 2026-08-14 03:24:07
 ---
 
 ## Claim
@@ -40,3 +40,7 @@ Final full ./tools/verify.sh passed on 2026-08-14 with the repository-owned RE-f
 ## Re-confirmed 2026-08-14
 
 Full ./tools/verify.sh passed on 2026-08-14 after the windowless render bypass, OpenDoor, inventory bridge, and Matock chest changes; all gameplay, self-test, corpus, frontier, and generated-artifact gates passed.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the post-Matock route-planner fix; all continuous fixed-step offscreen gates, focused self-tests, negative discriminators, exact asset corpus checks, the 993-room census, and the new 6279-frame silent route to M0000_10_06 passed.

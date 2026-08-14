@@ -319,6 +319,21 @@ echo "=== combat self-test ==="
   grep -F "video driver: offscreen" "$matock_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$matock_log" || fail=1
 
+  # Keep driving the same unseeded state after acquiring the Matock. The
+  # post-chest route must use the lower connected component rather than
+  # accepting either elevated cave entrance as a nearest-point success.
+  echo "=== continuous post-Matock lower route ==="
+  post_matock_log=scratch/logs/post-matock-story.log
+  ./build/mana --opening-story --continue-story --stop-room M0000_10_06 \
+    >"$post_matock_log" 2>&1 || fail=1
+  grep -F "opened box and acquired item 17" "$post_matock_log" || fail=1
+  grep -F "room exit 1 -> M0000_09_06" "$post_matock_log" || fail=1
+  grep -F "opening route in M0000_09_06:" "$post_matock_log" || fail=1
+  grep -F "room exit 1 -> M0000_10_06" "$post_matock_log" || fail=1
+  grep -F "reached requested stop room M0000_10_06" "$post_matock_log" || fail=1
+  grep -F "video driver: offscreen" "$post_matock_log" || fail=1
+  grep -F "audio decoded 0 sounds / 0 frames" "$post_matock_log" || fail=1
+
   echo "=== camera command self-test ==="
   ./build/mana --camera-selftest 2>&1 | grep -E "SELFTEST:|FAIL" || fail=1
   ./build/mana --camera-selftest >/dev/null 2>&1 || fail=1

@@ -434,13 +434,24 @@ int main(int argc, char** argv) {
             auto cs = std::format("sk1/{}.scol", probe);
             if (!ar.Has(cs)) throw mcf::Error(std::format("no {}", cs));
             auto col = mcf::ParseScol(ar.Read(cs));
-            float cx = (col.aabb_lo[0] + col.aabb_hi[0]) * .5f;
-            float cz = (col.aabb_lo[2] + col.aabb_hi[2]) * .5f;
+            float cx = has_spawn ? col.aabb_lo[0] + spawn_x
+                                 : (col.aabb_lo[0] + col.aabb_hi[0]) * .5f;
+            float cz = has_spawn ? col.aabb_lo[2] + spawn_z
+                                 : (col.aabb_lo[2] + col.aabb_hi[2]) * .5f;
             float cy = 0;
-            col.GetFloor(cx, cz, mcf::Collision::kFloorMask, &cy);
+            const bool have_probe_floor =
+                col.GetFloor(cx, cz, mcf::Collision::kFloorMask, &cy);
             lucent::info("probe", "{}: AABB ({:.0f},{:.0f})..({:.0f},{:.0f}), "
-                         "centre floor y={:.1f}", probe, col.aabb_lo[0], col.aabb_lo[2],
-                         col.aabb_hi[0], col.aabb_hi[2], cy);
+                         "{} ({:.1f},{:.1f}) floor={} y={:.1f}", probe,
+                         col.aabb_lo[0], col.aabb_lo[2], col.aabb_hi[0],
+                         col.aabb_hi[2], has_spawn ? "spawn" : "centre",
+                         cx - col.aabb_lo[0], cz - col.aabb_lo[2],
+                         have_probe_floor, cy);
+            if (!have_probe_floor) {
+                lucent::error("probe", "scanned one requested origin, found no floor; "
+                              "no directional segment was tested");
+                return 1;
+            }
             const char* names[8] = {"+X", "+X+Z", "+Z", "-X+Z", "-X", "-X-Z", "-Z", "+X-Z"};
             for (int d = 0; d < 8; ++d) {
                 float ang = float(d) * 3.14159265f / 4.f;
@@ -2324,6 +2335,12 @@ int main(int argc, char** argv) {
             std::string room_name = render_room;
             bool bogard_house_visited = false;
             bool bogard_return_reached_vine_summit = false;
+            bool post_matock_east_lane = false;
+            float post_matock_lane_x =
+                std::numeric_limits<float>::quiet_NaN();
+            float post_matock_lower_z =
+                std::numeric_limits<float>::quiet_NaN();
+            bool fallman_talked = false;
             auto loadRoom = [&](const std::string& name) -> bool {
                 room_name = name;
                 if (name == "M0010_00_01") bogard_house_visited = true;
@@ -3508,6 +3525,7 @@ int main(int argc, char** argv) {
                 if (walk_to && player_input_enabled) {
                     float active_walk_x = walk_x, active_walk_z = walk_z;
                     std::vector<const mcf::EventBox*> active_event_walls;
+                    std::vector<const mcf::EventBox*> active_goal_boxes;
                     if (opening_story) {
                         const int story_sccnt =
                             int(sc.GlobalNumber("sccnt", -1));
@@ -3586,6 +3604,7 @@ int main(int argc, char** argv) {
                             for (const auto& bx : world.boxes)
                                 if (bx.enabled && !bx.no_touch &&
                                     bx.name == "in_01") {
+                                    active_goal_boxes.push_back(&bx);
                                     active_walk_x = (bx.lo[0] + bx.hi[0]) * .5f;
                                     active_walk_z = (bx.lo[2] + bx.hi[2]) * .5f;
                                     break;
@@ -3594,13 +3613,15 @@ int main(int argc, char** argv) {
                             const bool greeted_bogard =
                                 sc.GlobalNumber("tmp0") >= 1.0;
                             const char* wanted =
-                                greeted_bogard && !escorting_heroine &&
+                                (greeted_bogard || story_sccnt >= 14) &&
+                                !escorting_heroine &&
                                 (story_sccnt != 14 || inventory.Has(17))
                                     ? "out_01" : nullptr;
                             if (wanted) {
                                 for (const auto& bx : world.boxes)
                                     if (bx.enabled && !bx.no_touch &&
                                         bx.name == wanted) {
+                                        active_goal_boxes.push_back(&bx);
                                         active_walk_x =
                                             (bx.lo[0] + bx.hi[0]) * .5f;
                                         active_walk_z =
@@ -3627,6 +3648,26 @@ int main(int argc, char** argv) {
                         } else if (room_name == "M0000_06_05") {
                             active_walk_x = room_size.w + 30.f;
                             active_walk_z = 105.f;
+                        } else if (room_name == "M0000_08_06" &&
+                                   story_sccnt == 14 && inventory.Has(17)) {
+                            const float lz = pz - room_org[2];
+                            if (std::isnan(post_matock_lane_x))
+                                post_matock_lane_x = px - room_org[0];
+                            if (std::fabs(lz - 142.5f) <= 1.f)
+                                post_matock_east_lane = true;
+                            active_walk_x = post_matock_east_lane
+                                ? room_size.w + 30.f : post_matock_lane_x;
+                            active_walk_z = 142.5f;
+                        } else if (room_name == "M0000_09_06" &&
+                                   story_sccnt == 14 && inventory.Has(17)) {
+                            // The west arrival is the isolated lower strip;
+                            // both cave boxes are authored at y=90 and are
+                            // therefore not valid objectives from here. Keep
+                            // following the connected overworld strip east.
+                            if (std::isnan(post_matock_lower_z))
+                                post_matock_lower_z = pz - room_org[2];
+                            active_walk_x = room_size.w + 30.f;
+                            active_walk_z = post_matock_lower_z;
                         } else if (room_name == "M0000_07_05") {
                             active_walk_x = 150.f;
                             active_walk_z = room_size.h + 30.f;
@@ -3701,11 +3742,18 @@ int main(int argc, char** argv) {
                         // The 7.5-unit lattice is the room ground-attribute
                         // resolution and preserves doorways that lie between
                         // the coarser AI chip centres.
+                        const bool post_matock_exact_route =
+                            room_name == "M0000_08_06" &&
+                            int(sc.GlobalNumber("sccnt", -1)) == 14 &&
+                            inventory.Has(17);
                         const bool route_changed =
                             driver_route_room != room_name ||
                             driver_route_goal_x != active_walk_x ||
                             driver_route_goal_z != active_walk_z ||
-                            driver_route_floor != py;
+                            (post_matock_exact_route
+                                ? (!std::isfinite(driver_route_floor) ||
+                                   std::fabs(driver_route_floor - py) > .1f)
+                                : driver_route_floor != py);
                         if (have_col && route_changed) {
                             driver_route_room = room_name;
                             driver_route_goal_x = active_walk_x;
@@ -3878,6 +3926,20 @@ int main(int argc, char** argv) {
                                 if (!in_wall_goal) continue;
                                 const float dx = cx - active_walk_x;
                                 const float dz = cz - active_walk_z;
+                                bool in_goal_box = active_goal_boxes.empty();
+                                if (!in_goal_box)
+                                    for (const auto* bx : active_goal_boxes)
+                                        if (cx >= bx->lo[0] && cx <= bx->hi[0] &&
+                                            cz >= bx->lo[2] && cz <= bx->hi[2]) {
+                                            in_goal_box = true;
+                                            break;
+                                        }
+                                if (!in_goal_box) continue;
+                                // A room-local point objective is an
+                                // interaction/contact target, not permission
+                                // to accept the nearest connected component.
+                                // One chip is the same measured reach used by
+                                // NPC and chest interaction below.
                                 // For a staircase choose the reachable volume
                                 // that advances toward the eventual room goal.
                                 // M0000_07_05 has east and west vine branches;
@@ -3911,17 +3973,44 @@ int main(int argc, char** argv) {
                                 int prior = start;
                                 float route_x = px - room_org[0];
                                 float route_z = pz - room_org[2];
+                                // BFS begins at the lattice node attached by
+                                // the separately validated live-to-grid
+                                // segment. Preserve that segment in the
+                                // emitted route: jumping directly from the
+                                // off-grid live point to the next node can
+                                // cut across a wall even though both BFS
+                                // edges were individually clear.
+                                const float attach_x = float(start % nav_w) * kNavStep;
+                                const float attach_z = float(start / nav_w) * kNavStep;
+                                if (post_matock_exact_route &&
+                                    (std::fabs(route_x - attach_x) > .01f ||
+                                     std::fabs(route_z - attach_z) > .01f))
+                                    driver_route.emplace_back(attach_x, attach_z);
                                 for (auto it = reverse_path.rbegin();
                                      it != reverse_path.rend(); ++it) {
                                     const int node = *it;
-                                    if (node % nav_w != prior % nav_w)
+                                    if (post_matock_exact_route) {
                                         route_x = float(node % nav_w) * kNavStep;
-                                    if (node / nav_w != prior / nav_w)
                                         route_z = float(node / nav_w) * kNavStep;
+                                    } else {
+                                        if (node % nav_w != prior % nav_w)
+                                            route_x = float(node % nav_w) * kNavStep;
+                                        if (node / nav_w != prior / nav_w)
+                                            route_z = float(node / nav_w) * kNavStep;
+                                    }
                                     driver_route.emplace_back(route_x, route_z);
                                     prior = node;
                                 }
                             }
+                            if (goal >= 0 && opening_story)
+                                lucent::info("host", "opening route in {}: start ({},{}) "
+                                             "reached {}/{} -> goal ({},{}) contact "
+                                             "({:.1f},{:.1f}), {} waypoint(s)",
+                                             room_name, sx, sz, reached, height.size(),
+                                             goal % nav_w, goal / nav_w,
+                                             driver_route_contact_x,
+                                             driver_route_contact_z,
+                                             driver_route.size());
                         }
                         while (!driver_route.empty()) {
                             const float dx = driver_route.front().first -
@@ -4020,13 +4109,26 @@ int main(int argc, char** argv) {
                                           nearest_box->treasure_item);
                         } else {
                             nearest_box->treasure_open = true;
+                            // The pre-Bogard return route has completed. A
+                            // post-chest traversal of the same multi-level
+                            // cell starts from its lower component and must
+                            // seek the upward half before it can descend the
+                            // opposite branch.
+                            bogard_return_reached_vine_summit = false;
+                            post_matock_east_lane = false;
+                            post_matock_lane_x =
+                                std::numeric_limits<float>::quiet_NaN();
+                            post_matock_lower_z =
+                                std::numeric_limits<float>::quiet_NaN();
                             lucent::info("inventory", "opened box and acquired item {}",
                                          nearest_box->treasure_item);
                             if (sc.HasFunction("_BOX") && !sc.StartCoroutine("_BOX"))
                                 lucent::error("lua", "_BOX coroutine: {}", sc.last_error());
                         }
                     } else if (!(opening_story && room_name == "M0010_00_01" &&
-                                 int(sc.GlobalNumber("sccnt", -1)) >= 14)) {
+                                 int(sc.GlobalNumber("sccnt", -1)) >= 14) &&
+                               !(opening_story && room_name == "M0001_00_02" &&
+                                 fallman_talked)) {
                     // Talking. A room script spawns an NPC with a handle and
                     // defines a global of the SAME NAME as its conversation:
                     //   npc_rand("BATTLEMAN", eNPC.BATTLEMAN, 6)
@@ -4050,8 +4152,11 @@ int main(int argc, char** argv) {
                     }
                     if (best) {
                         if (sc.StartCoroutine(best->handle))
+                        {
+                            if (best->handle == "FALLMAN") fallman_talked = true;
                             lucent::info("world", "talking to '{}' ({:.0f} units away)",
                                          best->handle, std::sqrt(best_d));
+                        }
                         else
                             lucent::debug("world", "'{}' has no conversation: {}",
                                           best->handle, sc.last_error());
