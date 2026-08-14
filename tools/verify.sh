@@ -58,7 +58,8 @@ OUTPUT_DIR="$shader_regen" ./tools/compile_shaders.sh || exit 1
 python3 tools/embed_shader_pack.py --input-dir "$shader_regen" \
   --output scratch/logs/shader-pack.inc || exit 1
 for source_name in solid.vert solid.frag overlay.vert overlay.frag \
-    textured.vert textured.frag skinned.vert ui.vert ui.frag; do
+    textured.vert textured.frag skinned.vert ui.vert ui.frag \
+    sprite.vert sprite.frag; do
   for extension in spv dxil msl; do
     shader="$source_name.$extension"
     cmp "$shader_regen/$shader" "shaders/generated/$shader" || exit 1
@@ -70,9 +71,9 @@ if python3 tools/embed_shader_pack.py --input-dir scratch/logs/DOES_NOT_EXIST \
   echo "FATAL: missing shader-pack negative returned success"
   exit 1
 fi
-grep -F "scanned 0 artifacts, expected 27; 27 missing" \
+grep -F "scanned 0 artifacts, expected 33; 33 missing" \
   "$shader_pack_negative" || exit 1
-echo "  27/27 artifacts regenerate exactly; missing-pack negative passed"
+echo "  33/33 artifacts regenerate exactly; missing-pack negative passed"
 
 check_runtime() {
   if [ ! -x "$1" ]; then
@@ -115,6 +116,20 @@ fi
 grep -F "UI SELFTEST FAIL: atlas negative substituted solid glyph quads" \
   "$ui_negative_log" || exit 1
 echo "  shipping font capture wrote bytes; solid-atlas negative passed"
+
+echo "=== running boot/title UI consumer ==="
+title_capture=scratch/screenshots/gles-title.png
+title_log=scratch/logs/gles-title.log
+./build/mana --boot --title-phase menu --shot-mode ModeTitle --shot-delay 2 \
+  --screenshot "$title_capture" --no-audio >"$title_log" 2>&1 || exit 1
+grep -F "video driver: offscreen" "$title_log" || exit 1
+grep -F "wrote $title_capture during ModeTitle" "$title_log" || exit 1
+grep -F "audio decoded 0 sounds / 0 frames" "$title_log" || exit 1
+if [ ! -s "$title_capture" ]; then
+  echo "FATAL: running title capture wrote no bytes to $title_capture"
+  exit 1
+fi
+echo "  shared title layout rendered through the running offscreen path with 0 audio frames"
 
 echo "=== SDL3 GPU shipping-asset pipeline ==="
 mkdir -p scratch/screenshots

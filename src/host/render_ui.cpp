@@ -44,7 +44,8 @@ public:
   }
 
   void Text(const std::vector<std::vector<std::uint32_t>> &lines, float x,
-            float y, float scale, float line_height) {
+            float y, float scale, float line_height,
+            std::array<float, 4> color = kText) {
     const float atlas_width = float(font_.width());
     const float atlas_height = float(font_.height());
     for (const auto &line : lines) {
@@ -72,16 +73,17 @@ public:
       }
       y += line_height;
     }
-    Flush(kText, true);
+    Flush(color, true);
   }
 
   void Text(const std::vector<std::string> &lines, float x, float y,
-            float scale, float line_height) {
+            float scale, float line_height,
+            std::array<float, 4> color = kText) {
     std::vector<std::vector<std::uint32_t>> codepoints;
     codepoints.reserve(lines.size());
     for (const auto &line : lines)
       codepoints.push_back(mcf::Utf8Codepoints(line));
-    Text(codepoints, x, y, scale, line_height);
+    Text(codepoints, x, y, scale, line_height, color);
   }
 
   std::vector<std::vector<std::uint32_t>> Wrap(const std::string &text,
@@ -237,6 +239,21 @@ UiFrame BuildGameUi(const mcf::Font &font, std::uint32_t width,
   BuildHud(builder, font, content);
   BuildLevelUp(builder, font, width, height, content);
   BuildMessage(builder, font, width, height, content.message);
+  return builder.Finish();
+}
+
+UiFrame BuildTextUi(const mcf::Font &font, std::uint32_t width,
+                    std::uint32_t height,
+                    const std::vector<UiText> &commands) {
+  UiBuilder builder(font, width, height);
+  for (const auto &command : commands) {
+    const float x = command.centered
+                        ? command.x - builder.Measure(command.text,
+                                                      command.scale) * .5f
+                        : command.x;
+    builder.Text(std::vector<std::string>{command.text}, x, command.y,
+                 command.scale, 0.f, command.color);
+  }
   return builder.Finish();
 }
 

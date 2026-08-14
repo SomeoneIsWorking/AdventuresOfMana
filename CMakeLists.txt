@@ -54,9 +54,14 @@ add_library(render_assets STATIC
   src/host/render_overlay.cpp
   src/host/render_pose.cpp
   src/host/render_snapshot.cpp
+  src/host/render_sprite.cpp
   src/host/render_ui.cpp)
 target_include_directories(render_assets PUBLIC src)
 target_link_libraries(render_assets PUBLIC mcf lucent::lucent)
+
+add_library(title_ui STATIC src/host/title_ui.cpp)
+target_include_directories(title_ui PUBLIC src)
+target_link_libraries(title_ui PUBLIC engine render_assets)
 
 add_library(host_image STATIC
   src/host/image_compare.cpp
@@ -82,6 +87,12 @@ set(MANA_SHADER_ARTIFACTS
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/ui.frag.spv
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/ui.frag.dxil
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/ui.frag.msl
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/sprite.vert.spv
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/sprite.vert.dxil
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/sprite.vert.msl
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/sprite.frag.spv
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/sprite.frag.dxil
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/sprite.frag.msl
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.spv
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.dxil
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.msl
@@ -109,6 +120,7 @@ add_library(host_gpu STATIC
   src/host/gpu_scene.cpp
   src/host/gpu_snapshot_renderer.cpp
   src/host/gpu_shader.cpp
+  src/host/gpu_sprite.cpp
   src/host/gpu_ui.cpp
   src/host/gpu_upload.cpp
   ${MANA_SHADER_PACK})
@@ -131,7 +143,7 @@ target_link_libraries(mana_gpu_asset_selftest PRIVATE host_gpu host_image)
 
 add_executable(mana_gpu_ui_selftest
   src/tools/gpu_ui_selftest.cpp)
-target_link_libraries(mana_gpu_ui_selftest PRIVATE host_gpu host_image)
+target_link_libraries(mana_gpu_ui_selftest PRIVATE host_gpu host_image title_ui)
 
 add_executable(mana
   src/host/gles_ui_renderer.cpp
@@ -141,4 +153,4 @@ add_executable(mana
   src/host/render.cpp
   src/host/scene_pair_capture.cpp
   src/host/story_driver.cpp)
-target_link_libraries(mana PRIVATE mcf engine render_assets host_gpu host_image SDL3::SDL3 PkgConfig::GLESV2)
+target_link_libraries(mana PRIVATE mcf engine render_assets title_ui host_gpu host_image SDL3::SDL3 PkgConfig::GLESV2)

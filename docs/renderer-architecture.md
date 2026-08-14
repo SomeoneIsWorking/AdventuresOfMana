@@ -25,6 +25,7 @@ longer issue GL calls.
 | scene renderer | room, static actor, skinned actor, depth, blend, and draw submission | **live offscreen for a composed shipping room and skinned actor, including running-world snapshots** |
 | UI content + layout | format shipping strings/live player values once, decode UTF-8, wrap messages, and emit backend-independent panel/glyph batches | **live and shared by GLES and SDL3 GPU for the running HUD, level-up screen, and messages** |
 | GPU UI renderer | shipping R8 font atlas upload, portable blended pipeline, and shared UI-batch submission | **live offscreen in SDL3 GPU and the running paired capture** |
+| boot/title renderer | shipping logo PNG decode, aspect-fit sprite geometry, and attract/menu/crawl/name text layout | **backend-independent and rendered by both GLES and SDL3 GPU offscreen; interactive presentation still uses GLES** |
 | fade overlay | freeze authored fade colour/coverage and composite it after scene/UI | **live offscreen in SDL3 GPU and the running paired capture** |
 | presentation | window/swapchain ownership, resize, present mode, and interactive pacing | missing |
 
@@ -69,7 +70,7 @@ equal-ambient control in 3,675, proving the result contains directional surface
 response rather than global dimming. The skinned path differs from its
 equal-ambient control in 2,750 pixels. Pose
 evaluation lives in `host/render_pose`, not either backend. The verifier
-regenerates all 27 backend artifacts from nine HLSL sources and byte-compares
+regenerates all 33 backend artifacts from eleven HLSL sources and byte-compares
 them with the tracked pack.
 
 `host/gpu_scene` is the scene-wide submission owner. It accepts explicit camera
@@ -124,8 +125,17 @@ an invalid batch, and substitutes solid glyph quads as an atlas negative. It
 also decodes a multibyte copyright sign as one codepoint and lays out the real
 Japanese `SYS_GAMEOVER_MSG` with zero missing glyphs. Line pitch comes from the
 loaded font's scaled line height; the retired 22-pixel constant overlapped the
-34-pixel shipping glyph cells. Boot/title sprites and presentation remain on
-GLES until their separate owners are ported.
+34-pixel shipping glyph cells.
+
+`host/title_ui` owns the title attract/menu, opening crawl, and name-entry text
+commands; `host/render_sprite` owns decoded RGBA pixels and aspect-fit geometry.
+The running GLES title and `host/gpu_sprite` consume those shared results. The
+mandatory windowless title capture proves the live mode chain reaches and draws
+ModeTitle with zero audio frames. The SDL3 capture independently observes
+34,625 sprite pixels and 10,253 text pixels against omission controls. The
+remaining title dependency on GLES is presentation itself: the interactive
+window is still created with `SDL_WINDOW_OPENGL` and submits the shared frame
+through the transitional GLES consumers.
 
 SDL's official Shadercross build is a regeneration tool, not a runtime
 dependency. On Linux, `tools/bootstrap_shadercross_linux.sh` downloads and
@@ -139,7 +149,7 @@ other official builds.
    retaining CPU `Model` and `TextureSet` data independently of the backend.~~
 2. ~~Feed the running `RenderSnapshot` into the tested SDL3 GPU scene owner,
    then compare its offscreen capture against GLES at the same frame.~~
-3. Route the resulting scene into the game loop, then port ~~running UI~~, ~~fade~~, and
+3. Route the resulting scene into the game loop, then port ~~running UI~~, ~~boot/title UI~~, ~~fade~~, and
    capture as separate passes. Delete each
    GLES owner when its SDL3 GPU replacement passes its discriminator; do not
    maintain two permanent renderers.

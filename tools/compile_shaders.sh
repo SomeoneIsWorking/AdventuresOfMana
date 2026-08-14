@@ -14,7 +14,8 @@ fi
 
 mkdir -p "$output_dir"
 for source_name in solid.vert solid.frag overlay.vert overlay.frag \
-    textured.vert textured.frag skinned.vert ui.vert ui.frag; do
+    textured.vert textured.frag skinned.vert ui.vert ui.frag \
+    sprite.vert sprite.frag; do
   program=${source_name%.*}
   stage=${source_name#*.}
   case "$stage" in
@@ -38,4 +39,4 @@ for source_name in solid.vert solid.frag overlay.vert overlay.frag \
   done
 done
 
-echo "generated 27 shader artifacts from 9 HLSL sources"
+echo "generated 33 shader artifacts from 11 HLSL sources"

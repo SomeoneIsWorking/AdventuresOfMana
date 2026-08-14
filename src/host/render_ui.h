@@ -23,6 +23,15 @@ struct UiBatch {
   bool textured = false;
 };
 
+struct UiText {
+  std::string text;
+  float x = 0.f;
+  float y = 0.f;
+  float scale = 1.f;
+  bool centered = false;
+  std::array<float, 4> color{1.f, 1.f, 1.f, 1.f};
+};
+
 // Backend-independent UI command stream. Coordinates are converted to clip
 // space here so every graphics backend consumes identical geometry and order.
 struct UiFrame {
@@ -48,5 +57,8 @@ struct GameUiContent {
 
 UiFrame BuildGameUi(const mcf::Font &font, std::uint32_t width,
                     std::uint32_t height, const GameUiContent &content);
+UiFrame BuildTextUi(const mcf::Font &font, std::uint32_t width,
+                    std::uint32_t height,
+                    const std::vector<UiText> &commands);
 
 } // namespace mana

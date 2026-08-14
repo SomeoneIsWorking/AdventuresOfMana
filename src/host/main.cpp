@@ -35,11 +35,13 @@
 #include "host/render_camera.h"
 #include "host/render_overlay.h"
 #include "host/render_snapshot.h"
+#include "host/render_sprite.h"
 #include "host/render_ui.h"
 #include "host/scene_pair_capture.h"
 #include "host/interaction.h"
 #include "host/navigation.h"
 #include "host/story_driver.h"
+#include "host/title_ui.h"
 #include "engine/mode.h"
 #include "mcf/mcf.h"
 
@@ -2374,7 +2376,7 @@ int main(int argc, char** argv) {
             GLuint progSprite = LinkProgram(kVText, kFSprite);
             GLuint spriteVbo = 0;
             glGenBuffers(1, &spriteVbo);
-            struct Sprite { GLuint tex = 0; int w = 0, h = 0; };
+            struct Sprite { GLuint tex = 0; mana::SpriteImage image; };
             auto loadSprite = [&](const char* name) -> Sprite {
                 Sprite sp;
                 if (!ar.Has(name)) {
@@ -2382,22 +2384,24 @@ int main(int argc, char** argv) {
                                  "will be blank", name);
                     return sp;
                 }
-                int w = 0, h = 0; std::vector<uint8_t> rgba;
-                if (!mcf::DecodePng(ar.Read(name), &w, &h, &rgba)) {
+                try {
+                    sp.image = mana::DecodeSprite(ar.Read(name));
+                } catch (const std::exception&) {
                     lucent::warn("boot", "{} did not decode", name);
                     return sp;
                 }
                 glGenTextures(1, &sp.tex);
                 glBindTexture(GL_TEXTURE_2D, sp.tex);
                 glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA,
-                             GL_UNSIGNED_BYTE, rgba.data());
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, GLsizei(sp.image.width),
+                             GLsizei(sp.image.height), 0, GL_RGBA,
+                             GL_UNSIGNED_BYTE, sp.image.rgba.data());
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-                sp.w = w; sp.h = h;
-                lucent::info("boot", "{}: {}x{}", name, w, h);
+                lucent::info("boot", "{}: {}x{}", name, sp.image.width,
+                             sp.image.height);
                 return sp;
             };
             Sprite sprMaker, sprTitle;
@@ -2414,12 +2418,8 @@ int main(int argc, char** argv) {
                 int vw = 0, vh = 0;
                 SDL_GetWindowSizeInPixels(win, &vw, &vh);
                 if (vw <= 0 || vh <= 0) { vw = W; vh = H; }
-                float sa = float(sp.w) / float(sp.h), va = float(vw) / float(vh);
-                float ex = sa > va ? 1.f : sa / va;
-                float ey = sa > va ? va / sa : 1.f;
-                const float q[] = {
-                    -ex,-ey, 0,1,   ex,-ey, 1,1,   ex, ey, 1,0,
-                    -ex,-ey, 0,1,   ex, ey, 1,0,  -ex, ey, 0,0};
+                const auto vertices = mana::BuildAspectFitSprite(
+                    sp.image, std::uint32_t(vw), std::uint32_t(vh));
                 glUseProgram(progSprite);
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -2429,88 +2429,15 @@ int main(int argc, char** argv) {
                 glUniform1i(glGetUniformLocation(progSprite, "tex"), 0);
                 glUniform4f(glGetUniformLocation(progSprite, "tint"), 1, 1, 1, 1);
                 glBindBuffer(GL_ARRAY_BUFFER, spriteVbo);
-                glBufferData(GL_ARRAY_BUFFER, sizeof q, q, GL_STREAM_DRAW);
+                glBufferData(GL_ARRAY_BUFFER,
+                             GLsizeiptr(vertices.size() * sizeof(mana::UiVertex)),
+                             vertices.data(), GL_STREAM_DRAW);
                 glEnableVertexAttribArray(0);
                 glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, nullptr);
                 glEnableVertexAttribArray(1);
                 glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16,
                                       (const void*)(sizeof(float) * 2));
                 glDrawArrays(GL_TRIANGLES, 0, 6);
-            };
-
-            // Screen-space text, in the game's own font. The HUD, the message
-            // window and the level-up panel each build their quads inline
-            // because they also draw boxes and bars; this is the plain-text
-            // path the title screen needs, factored so the title does not
-            // become a fourth copy of the same glyph loop.
-            //
-            // x is the LEFT edge unless `centre`, in which case it is the
-            // centre. Returns the advance width, so a caller can lay out
-            // without measuring twice.
-            auto drawUiText = [&](const std::string& s, float x, float y,
-                                  float scale, bool centre,
-                                  float r, float g, float b, float a) -> float {
-                float wpx = 0.f;
-                for (uint32_t ch : mcf::Utf8Codepoints(s))
-                    if (const mcf::Glyph* gl = font.Find(ch))
-                        wpx += float(gl->Advance()) * scale;
-                if (s.empty() || !font.height()) return wpx;
-                float tx = centre ? x - wpx * 0.5f : x;
-                const float aw = float(font.width()), ah = float(font.height());
-                std::vector<float> verts;
-                auto sx = [&](float px) { return px / float(W) * 2.f - 1.f; };
-                auto sy = [&](float py) { return 1.f - py / float(H) * 2.f; };
-                for (uint32_t ch : mcf::Utf8Codepoints(s)) {
-                    const mcf::Glyph* gl = font.Find(ch);
-                    if (!gl) {
-                        // A dropped byte is a hole in the text, so say so once
-                        // per byte value rather than rendering a shorter string
-                        // and looking correct. The atlas is ASCII 32..126, so
-                        // anything above that (the copyright sign in
-                        // SYS_TITLE_COPYRIGHT_1, and all CJK) has no glyph --
-                        // the original draws those with the Android system
-                        // font, which is not in the archive.
-                        static std::set<unsigned char> warned;
-                        if (warned.insert(ch).second)
-                            lucent::warn("text", "no glyph for byte 0x{:02x}; the "
-                                         "atlas is ASCII 32..126", ch);
-                        continue;
-                    }
-                    if (gl->w && gl->h) {
-                        float gx = tx + float(gl->left) * scale;
-                        float gy = y + float(gl->top) * scale;
-                        float x1 = gx + float(gl->w) * scale;
-                        float y1 = gy + float(gl->h) * scale;
-                        float u0 = float(gl->x) / aw, v0 = float(gl->y) / ah;
-                        float u1 = float(gl->x + gl->w) / aw;
-                        float v1 = float(gl->y + gl->h) / ah;
-                        float q[6][4] = {{sx(gx), sy(gy), u0, v0}, {sx(x1), sy(gy), u1, v0},
-                                         {sx(x1), sy(y1), u1, v1}, {sx(gx), sy(gy), u0, v0},
-                                         {sx(x1), sy(y1), u1, v1}, {sx(gx), sy(y1), u0, v1}};
-                        for (auto& v : q) verts.insert(verts.end(), v, v + 4);
-                    }
-                    tx += float(gl->Advance()) * scale;
-                }
-                if (verts.empty()) return wpx;
-                glUseProgram(progText);
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                glDisable(GL_DEPTH_TEST);
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, fontTex);
-                glUniform1i(glGetUniformLocation(progText, "tex"), 0);
-                glUniform4f(glGetUniformLocation(progText, "tint"), r, g, b, a);
-                glUniform1f(glGetUniformLocation(progText, "useTex"), 1.f);
-                glBindBuffer(GL_ARRAY_BUFFER, textVbo);
-                glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(verts.size() * 4),
-                             verts.data(), GL_STREAM_DRAW);
-                glEnableVertexAttribArray(0);
-                glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, nullptr);
-                glEnableVertexAttribArray(1);
-                glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, (void*)(uintptr_t)8);
-                glDrawArrays(GL_TRIANGLES, 0, GLsizei(verts.size() / 4));
-                glDisableVertexAttribArray(1);
-                return wpx;
             };
 
             GLuint white = 0;
@@ -3718,106 +3645,27 @@ int main(int argc, char** argv) {
                             // screens, not overlays on the logo.
                             if ((!naming || naming_done) &&
                                 (!crawling || crawl_done)) drawSprite(sprTitle);
-                            // Every word here is the game's own, resolved
-                            // through the shipping string table.
-                            auto say = [&](const char* id) {
-                                // Echo the id when it is missing, so a wrong id
-                                // shows on screen instead of drawing nothing.
-                                const std::string* s = strings.Find(id);
-                                return s ? *s : std::string(id);
-                            };
-                            const float cx = float(W) * 0.5f;
-                            const float kScale = 2.f;                // layout, as the HUD uses
-                            const float kGlyph = kScale * font_scale;
-                            const float sc = kGlyph * 1.4f;
-                            // The copyright belongs to the title screen
-                            // proper, not to the crawl or the name screen.
-                            if ((!crawling || crawl_done) && (!naming || naming_done))
-                                drawUiText(say(mcf::TitleMenu::kCopyrightId),
-                                           cx, float(H) - 22.f * kScale, kGlyph,
-                                           true, 1.f, 1.f, 1.f, 0.75f);
-                            if (crawling && !crawl_done) {
-                                // App space is 544 tall; scale to the window so
-                                // the engine's own offsets stay meaningful.
-                                const float k = float(H) / 544.f;
-                                for (size_t i = 0; i < crawl_lines.size(); ++i) {
-                                    float ay = crawl.scroll +
-                                               mcf::OpeningCrawl::kFirstY +
-                                               mcf::OpeningCrawl::kLineStep * float(i);
-                                    float a = mcf::OpeningCrawl::Alpha(ay);
-                                    if (a <= 0.f) continue;
-                                    float y = ay * k;
-                                    // Shadow then body, as Render does (0x40
-                                    // then 0xf0).
-                                    drawUiText(crawl_lines[i], cx + 2.f, y + 2.f,
-                                               sc, true, 0.25f, 0.25f, 0.25f, a);
-                                    drawUiText(crawl_lines[i], cx, y, sc, true,
-                                               0.94f, 0.94f, 0.94f, a);
-                                }
-                                drawUiText(say(mcf::OpeningCrawl::kSkipId) +
-                                               "  [Shift]",
-                                           cx, float(H) - 40.f,
-                                           kGlyph, true, 1, 1, 1, 0.7f);
-                            } else if (naming && !naming_done) {
-                                // Every word here is the game's own.
-                                drawUiText(say("SYS_NAMEENTRY_INFO_1"),
-                                           cx, float(H) * 0.30f, kGlyph, true,
-                                           1, 1, 1, 1);
-                                drawUiText(say("SYS_NAMEENTRY_INFO_2"),
-                                           cx, float(H) * 0.35f, kGlyph, true,
-                                           1, 1, 1, 0.8f);
-                                const char* lbl[2] = {
-                                    "SYS_NAMEENTRY_HERO_NAME_TITLE",
-                                    "SYS_NAMEENTRY_GIRL_NAME_TITLE"};
-                                float y = float(H) * 0.50f;
-                                for (int f = 0; f < 2; ++f) {
-                                    bool sel = f == name_field;
-                                    drawUiText(say(lbl[f]) + ":",
-                                               cx - 120.f * kScale, y, sc, false,
-                                               1, 1, sel ? 0.55f : 1.f, 1);
-                                    // A caret on the field being typed, so an
-                                    // empty field still shows where input goes.
-                                    std::string shown = names[f];
-                                    if (sel && (modes.frames / 20) % 2) shown += "_";
-                                    drawUiText(shown, cx + 10.f * kScale, y, sc,
-                                               false, 1, 1, 1, 1);
-                                    y += 26.f * kScale;
-                                }
-                                if (const char* eid =
-                                        mcf::NameEntry::ErrorId(name_err))
-                                    drawUiText(say(eid), cx, float(H) * 0.68f,
-                                               kGlyph, true, 1.f, 0.45f, 0.4f, 1.f);
-                                drawUiText(say("SYS_NAMEENTRY_BUTTON_DECIDE") +
-                                               "  [Enter]   Tab: switch",
-                                           cx, float(H) * 0.78f, kGlyph, true,
-                                           1, 1, 1, 0.7f);
-                            } else if (title.phase == mcf::TitleMenu::Phase::kAttract) {
-                                // The engine fades this prompt (LerpL over
-                                // 1000ms @ 0x3084c8); the port pulses it on the
-                                // same 1s period rather than inventing a rate.
-                                float t = float(modes.frames % 60) / 60.f;
-                                float a = 0.35f + 0.65f * std::fabs(1.f - 2.f * t);
-                                drawUiText(say(mcf::TitleMenu::kStartId),
-                                           cx, float(H) * 0.74f, sc, true, 1, 1, 1, a);
-                            } else {
-                                float y = float(H) * 0.64f;
-                                for (int i = 0; i < mcf::TitleMenu::kItemCount; ++i) {
-                                    bool on = titleEnabled(i);
-                                    bool sel = i == title.cursor;
-                                    // Unavailable items are still SHOWN -- the
-                                    // engine lists them -- but dimmed, so the
-                                    // menu does not lie about what it has.
-                                    float v = on ? 1.f : 0.4f;
-                                    if (sel && on) v = 1.f;
-                                    drawUiText(say(mcf::TitleMenu::kItemId[i]),
-                                               cx, y, sc, true,
-                                               v, v, sel ? 0.55f * v : v, on ? 1.f : 0.7f);
-                                    if (sel)
-                                        drawUiText(">", cx - 90.f * kScale, y, sc, false,
-                                                   1.f, 0.85f, 0.35f, 1.f);
-                                    y += 20.f * kScale;
-                                }
-                            }
+                            mana::TitleUiState title_ui;
+                            title_ui.frames = modes.frames;
+                            title_ui.cursor = title.cursor;
+                            title_ui.name_field = name_field;
+                            title_ui.name_error = name_err;
+                            title_ui.crawl_scroll = crawl.scroll;
+                            title_ui.names = {names[0], names[1]};
+                            title_ui.crawl_lines = crawl_lines;
+                            if (crawling && !crawl_done)
+                                title_ui.screen = mana::TitleUiScreen::kCrawl;
+                            else if (naming && !naming_done)
+                                title_ui.screen = mana::TitleUiScreen::kNames;
+                            else if (title.phase ==
+                                     mcf::TitleMenu::Phase::kAttract)
+                                title_ui.screen = mana::TitleUiScreen::kAttract;
+                            else
+                                title_ui.screen = mana::TitleUiScreen::kMenu;
+                            const auto title_frame = mana::BuildTitleUi(
+                                font, strings, W, H, title_ui);
+                            mana::DrawUiGles(title_frame, progText, fontTex,
+                                             textVbo);
                         }
                         // --shot-mode NAME captures this screen and exits, so
                         // "the logo draws" can be checked on real pixels rather

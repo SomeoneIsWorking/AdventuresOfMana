@@ -86,6 +86,24 @@ ShaderCode SelectUi(SDL_GPUShaderFormat format, bool vertex) {
                              "main0"};
 }
 
+ShaderCode SelectSprite(SDL_GPUShaderFormat format, bool vertex) {
+  using namespace embedded;
+  if (format == SDL_GPU_SHADERFORMAT_SPIRV)
+    return vertex ? ShaderCode{sprite_vert_spv, sizeof(sprite_vert_spv), format,
+                               "main"}
+                  : ShaderCode{sprite_frag_spv, sizeof(sprite_frag_spv), format,
+                               "main"};
+  if (format == SDL_GPU_SHADERFORMAT_DXIL)
+    return vertex ? ShaderCode{sprite_vert_dxil, sizeof(sprite_vert_dxil), format,
+                               "main"}
+                  : ShaderCode{sprite_frag_dxil, sizeof(sprite_frag_dxil), format,
+                               "main"};
+  return vertex ? ShaderCode{sprite_vert_msl, sizeof(sprite_vert_msl), format,
+                             "main0"}
+                : ShaderCode{sprite_frag_msl, sizeof(sprite_frag_msl), format,
+                             "main0"};
+}
+
 ShaderCode SelectSkinned(SDL_GPUShaderFormat format) {
   using namespace embedded;
   if (format == SDL_GPU_SHADERFORMAT_SPIRV)
@@ -120,6 +138,8 @@ SDL_GPUShader *CreateShader(Device &device, std::string_view program,
     code = SelectOverlay(format, vertex);
   else if (program == "ui")
     code = SelectUi(format, vertex);
+  else if (program == "sprite")
+    code = SelectSprite(format, vertex);
   else if (program == "textured")
     code = SelectTextured(format, vertex);
   else if (program == "skinned" && vertex)

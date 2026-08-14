@@ -9,10 +9,13 @@
 #include <lucent/log.h>
 
 #include "host/gpu_device.h"
+#include "host/gpu_sprite.h"
 #include "host/gpu_ui.h"
 #include "host/image_compare.h"
 #include "host/image_write.h"
 #include "host/render_ui.h"
+#include "host/render_sprite.h"
+#include "host/title_ui.h"
 #include "mcf/mcf.h"
 
 namespace {
@@ -37,6 +40,14 @@ int Run(const char *archive_path, const char *capture_path,
     lucent::error("gpu-ui",
                   "UI SELFTEST FAIL: {} was present but did not parse",
                   font_path);
+    return 1;
+  }
+  mcf::StringTable strings;
+  if (!archive.Has("sk1/str_en.bin") ||
+      !strings.Load(archive.Read("sk1/str_en.bin"))) {
+    lucent::error("gpu-ui",
+                  "UI SELFTEST FAIL: shipping English strings are missing or "
+                  "malformed");
     return 1;
   }
 
@@ -67,6 +78,28 @@ int Run(const char *archive_path, const char *capture_path,
   }
   mana::GameUiContent message{.message = "Arena Guard:\nFight!"};
   const auto message_frame = mana::BuildGameUi(font, width, height, message);
+  const auto title_text = mana::BuildTextUi(
+      font, width, height,
+      {{.text = "New Game",
+        .x = float(width) * .5f,
+        .y = 48.f,
+        .scale = 1.f,
+        .centered = true,
+        .color = {1.f, .8f, .3f, 1.f}}});
+  mana::TitleUiState title_state{.screen = mana::TitleUiScreen::kMenu,
+                                 .cursor = 0};
+  constexpr std::uint32_t title_width = 720;
+  constexpr std::uint32_t title_height = 720;
+  const auto shipping_title =
+      mana::BuildTitleUi(font, strings, title_width, title_height, title_state);
+  constexpr std::string_view title_path = "sk1/titlelogo_en_color.png";
+  if (!archive.Has(title_path)) {
+    lucent::error("gpu-ui",
+                  "UI SELFTEST FAIL: scanned archive for {}, matched 0",
+                  title_path);
+    return 1;
+  }
+  const auto title_image = mana::DecodeSprite(archive.Read(title_path));
   constexpr std::string_view ja_font_path = "sk1/font_ja.bin";
   constexpr std::string_view ja_strings_path = "sk1/str_ja.bin";
   if (!archive.Has(ja_font_path) || !archive.Has(ja_strings_path)) {
@@ -98,7 +131,12 @@ int Run(const char *archive_path, const char *capture_path,
       level_frame.glyph_quads == 0 || level_frame.missing_glyphs != 0 ||
       message_frame.solid_quads != 2 || message_frame.glyph_quads == 0 ||
       message_frame.missing_glyphs != 0 || !ja_game_over ||
-      ja_frame.glyph_quads == 0 || ja_frame.missing_glyphs != 0) {
+      ja_frame.glyph_quads == 0 || ja_frame.missing_glyphs != 0 ||
+      title_text.glyph_quads == 0 || title_text.batches.size() != 1 ||
+      title_text.batches.front().color !=
+          std::array<float, 4>{1.f, .8f, .3f, 1.f} ||
+      shipping_title.glyph_quads == 0 ||
+      shipping_title.missing_glyphs != 0) {
     lucent::error(
         "gpu-ui",
         "UI SELFTEST FAIL: layout scanned HUD {}/{}/{}, level {}/{}/{}, "
@@ -118,6 +156,8 @@ int Run(const char *archive_path, const char *capture_path,
 
   mana::gpu::Device device;
   mana::gpu::UiRenderer renderer(device, font);
+  mana::gpu::SpriteRenderer sprite(device, title_image, title_width,
+                                   title_height);
   const mana::UiFrame empty;
   const auto clear_pixels = renderer.DrawAndReadback(width, height, empty);
   auto atlas_control = message_frame;
@@ -129,6 +169,24 @@ int Run(const char *archive_path, const char *capture_path,
       renderer.DrawAndReadback(width, height, atlas_control);
   const auto changed_from_clear = Changed(clear_pixels, expected_pixels);
   const auto atlas_differences = Changed(expected_pixels, control_pixels);
+  renderer.Prepare(shipping_title);
+  const auto title_clear = device.RenderAndReadback(
+      title_width, title_height, SDL_FColor{.1f, .11f, .14f, 1.f}, {}, true);
+  const auto sprite_only = device.RenderAndReadback(
+      title_width, title_height, SDL_FColor{.1f, .11f, .14f, 1.f},
+      [&](SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass) {
+        sprite.Draw(command, pass);
+      },
+      true);
+  const auto title_pixels = device.RenderAndReadback(
+      title_width, title_height, SDL_FColor{.1f, .11f, .14f, 1.f},
+      [&](SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass) {
+        sprite.Draw(command, pass);
+        renderer.Draw(command, pass);
+      },
+      true);
+  const auto title_text_differences = Changed(sprite_only, title_pixels);
+  const auto title_sprite_differences = Changed(title_clear, sprite_only);
   if (atlas_negative) {
     lucent::error(
         "gpu-ui",
@@ -150,29 +208,35 @@ int Run(const char *archive_path, const char *capture_path,
     invalid_batch_failed =
         invalid_batch_message == "UI batch references invalid triangle vertices";
   }
-  if (!changed_from_clear || !atlas_differences || !invalid_batch_failed) {
+  if (!changed_from_clear || !atlas_differences || !title_text_differences ||
+      !title_sprite_differences || !invalid_batch_failed) {
     lucent::error(
         "gpu-ui",
         "UI SELFTEST FAIL: render scanned {} pixels; {} changed from clear, "
-        "{} differ from solid-atlas control, invalid batch rejected={} ({}); "
-        "expected all nonzero/true",
+        "{} differ from solid-atlas control, title has {} sprite and {} text "
+        "pixels, invalid batch rejected={} ({}); expected all "
+        "nonzero/true",
         width * height, changed_from_clear, atlas_differences,
-        invalid_batch_failed, invalid_batch_message);
+        title_sprite_differences, title_text_differences, invalid_batch_failed,
+        invalid_batch_message);
     return 1;
   }
   if (capture_path)
-    mana::WritePng(capture_path, width, height, expected_pixels);
+    mana::WritePng(capture_path, title_width, title_height, title_pixels);
   lucent::info(
       "gpu-ui",
       "UI SELFTEST: font has {} glyphs; layout scanned HUD {}/{}, level "
       "{}/{}, message {}/{} solid/glyph quads with 0 missing; render scanned "
       "{} pixels, {} changed from clear and {} differ from solid-atlas "
-      "control; Japanese game-over produced {} glyph quads with 0 missing; "
+      "control; title has {} sprite and {} text pixels; Japanese game-over "
+      "produced {} glyph quads with 0 missing; "
       "invalid batch rejected{}",
       font.glyphs(), hud_frame.solid_quads, hud_frame.glyph_quads,
       level_frame.solid_quads, level_frame.glyph_quads,
       message_frame.solid_quads, message_frame.glyph_quads, width * height,
-      changed_from_clear, atlas_differences, ja_frame.glyph_quads,
+      changed_from_clear, atlas_differences, title_sprite_differences,
+      title_text_differences,
+      ja_frame.glyph_quads,
       capture_path ? "; capture written" : "");
   return 0;
 }
