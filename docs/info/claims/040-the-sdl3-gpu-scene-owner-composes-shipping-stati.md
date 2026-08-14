@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,sdl3,scene
 depends: src/host/gpu_scene.cpp#SceneRenderer::DrawAndReadback, src/host/gpu_asset_pipeline.cpp#AssetPipeline::DrawPass, src/tools/gpu_asset_selftest.cpp#RunAssetPipelineSelfTest, src/host/image_write.cpp#WritePng, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 14:42:04
+verified_at: 2026-08-14 15:27:35
 ---
 
 ## Claim
@@ -52,3 +52,7 @@ Reverified at implementation commit 51cc938 by complete tools/verify.sh in scrat
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full tools/verify.sh passed on the exact source tree committed as 088030a: structure gate 81 files/0 violations, 33/33 shader artifacts reproduced exactly, SDL3 GPU title omission controls measured sprite and text contributions, running ModeTitle completed offscreen with zero decoded audio frames, uncapped story verification reached sccnt=20, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+2026-08-14 full tools/verify.sh passed on commit aa37a2f after the SDL3 GPU runtime cutover: 83 source files/0 structure violations, 33/33 portable shaders, focused renderer positives and negative controls, live title and scene/UI/fade captures with 0 SDL windows and 0 audio frames, unchanged-Lua continuous story through sccnt=20, 993-room census, exact 9886-member corpus, and ALL PARSERS PASSED.

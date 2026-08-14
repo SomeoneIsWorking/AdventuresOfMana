@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,presentation
 depends: src/host/gpu_frame_renderer.cpp#FrameRenderer, src/host/gpu_runtime_renderer.cpp#RuntimeRenderer, src/host/main.cpp#main
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 15:26:00
+verified_at: 2026-08-14 15:27:35
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Capture or presentation wires scene/UI/fade independently, the live pair orderin
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full verifier passed after RuntimeRenderer became the shipping game/title consumer: focused UI/fade controls and the live 30-frame scene/UI/fade capture used FrameRenderer with 0 SDL windows and 0 audio frames; the continuous story reached sccnt=20.
+
+## Re-confirmed 2026-08-14
+
+2026-08-14 full tools/verify.sh passed on commit aa37a2f after the SDL3 GPU runtime cutover: 83 source files/0 structure violations, 33/33 portable shaders, focused renderer positives and negative controls, live title and scene/UI/fade captures with 0 SDL windows and 0 audio frames, unchanged-Lua continuous story through sccnt=20, 993-room census, exact 9886-member corpus, and ALL PARSERS PASSED.

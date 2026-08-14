@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: ai,bosses,scripting
 depends: src/engine/world.h#UsesHostEnemyAI, src/engine/script.cpp#AddBoss, src/host/main.cpp#ai_selftest
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 15:04:23
+verified_at: 2026-08-14 15:27:33
 ---
 
 ## Claim
@@ -180,3 +180,7 @@ Reverified at implementation commit 3bee232 by complete tools/verify.sh in scrat
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full tools/verify.sh passed on the exact shared-frame-compositor tree: 87 source files/0 structure violations, 33/33 shaders, live offscreen GLES/SDL3 scene UI fade pair with zero audio, uncapped story through sccnt=20, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+2026-08-14 full tools/verify.sh passed on commit aa37a2f after the SDL3 GPU runtime cutover: 83 source files/0 structure violations, 33/33 portable shaders, focused renderer positives and negative controls, live title and scene/UI/fade captures with 0 SDL windows and 0 audio frames, unchanged-Lua continuous story through sccnt=20, 993-room census, exact 9886-member corpus, and ALL PARSERS PASSED.
