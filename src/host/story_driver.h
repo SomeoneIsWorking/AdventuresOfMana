@@ -27,7 +27,7 @@ public:
     int SelectChoice(std::string_view room, const std::vector<std::string>& choices);
     int SelectShopItem(std::string_view room, const std::vector<int>& stock, int mode);
     bool EquipAcquiredKey(int item_id);
-    std::optional<StoryTarget> ToppleTarget(
+    std::optional<StoryTarget> Target(
         std::string_view room, const mcf::World& world,
         float room_width, float room_height,
         std::string_view arrival_handler, float body_radius,
@@ -41,5 +41,7 @@ private:
     int key_shop_phase_ = 0;
     bool failed_ = false;
 };
+
+int RunStoryDriverSelfTest();
 
 }  // namespace mana::host

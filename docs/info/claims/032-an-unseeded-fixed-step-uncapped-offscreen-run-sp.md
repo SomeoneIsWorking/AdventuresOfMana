@@ -1,0 +1,20 @@
+---
+id: C032
+kind: claim
+status: holds
+created: 2026-08-14
+tags:
+depends: src/host/story_driver.cpp, src/host/navigation.cpp, src/host/main.cpp, src/engine/script.cpp, tools/verify.sh
+---
+
+## Claim
+
+An unseeded fixed-step uncapped offscreen run spends Keyring uses at both Hydra KEY doors, presses both hidden-stair switches, reaches and defeats Hydra through the live boss script, and settles at sccnt=16 with zero decoded audio frames.
+
+## Evidence
+
+tools/verify.sh passed in scratch/logs/verify-hydra-defeat.log; it records sw_01/sw_02/down_1, the M0013_08_04 crossing with no per-waypoint rebuild, Hydra model load and kill, the victory message, sccnt=16, offscreen video, and 0 sounds / 0 frames.
+
+## What would falsify it
+
+A continuous unseeded shipping run fails to settle at sccnt=16, bypasses either authored switch or EnemyDead, regains per-waypoint M0013_08_04 route rebuilds, creates a desktop window, or decodes any audio frame.

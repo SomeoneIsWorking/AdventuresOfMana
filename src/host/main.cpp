@@ -1169,13 +1169,8 @@ int main(int argc, char** argv) {
                 return script.Run(name, bytes);
             };
             bad += mana::host::RunInteractionSelfTest(); checked += 4;
-            bad += mana::host::RunNavigationSelfTest(); checked += 4;
-            mcf::Inventory key_inventory;
-            key_inventory.Add(18); key_inventory.Add(30); key_inventory.Equip(4, 18);
-            mana::host::StoryDriver key_driver(true, key_inventory);
-            ck("later key uses a free button without replacing Keyring",
-               key_driver.EquipAcquiredKey(30) && key_inventory.Equipped(4) == 18 &&
-               key_inventory.Equipped(5) == 30);
+            bad += mana::host::RunNavigationSelfTest(); checked += 6;
+            bad += mana::host::RunStoryDriverSelfTest(); checked += 4;
             ck("NPC-tagged enemy ids resolve the enemy model namespace",
                mcf::ActorModelName('N', 100) == "E0000_00" &&
                mcf::ActorModelName('N', 173) == "E0073_00");
@@ -3965,7 +3960,7 @@ int main(int argc, char** argv) {
                             int(sc.GlobalNumber("sccnt", -1));
                         const bool escorting_heroine =
                             story_sccnt >= 12 && story_sccnt < 14;
-                        if (auto target = story_driver.ToppleTarget(
+                        if (auto target = story_driver.Target(
                                 room_name, world, room_size.w, room_size.h,
                                 mapjump_arrival_handler.value_or(""),
                                 kCharacterCollisionRadius, kNavStep)) {
@@ -5249,8 +5244,9 @@ int main(int argc, char** argv) {
                             // cell on a slope. They are different connected
                             // components only at the shipping 30-unit step
                             // boundary, not at an arbitrary 5-unit tolerance.
-                            if (!player_on_wall &&
-                                std::fabs(driver_route.front().y - py) >= 30.f) {
+                            if (mana::host::ShouldRebuildForFloorMismatch(
+                                    driver_route.front().y, py, player_on_wall,
+                                    mapjump_floor_owner.has_value())) {
                                 lucent::info(
                                     "host", "opening route in {} reached "
                                     "waypoint ({:.1f},{:.1f}) on floor {:.1f}, "

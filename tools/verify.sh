@@ -382,7 +382,7 @@ echo "=== combat self-test ==="
   # diagonal routing, and breakable-object item consumption.
   echo "=== continuous route through the Hydra recovery spring ==="
   silver_key_log=scratch/logs/silver-key-story.log
-  ./build/mana --opening-story --continue-story --stop-room M0013_09_00 \
+  ./build/mana --opening-story --continue-story --stop-sccnt 16 \
     >"$silver_key_log" 2>&1 || mark_failure
   grep -F "entered event box 'out_1'" "$silver_key_log" || mark_failure
   grep -F "mapjump -> M0000_10_09 at (165,0,135) arrow 2" \
@@ -443,9 +443,10 @@ echo "=== combat self-test ==="
   grep -F "audio decoded 0 sounds / 0 frames" "$silver_key_log" || mark_failure
 
   # The semantic stop above continues that same unseeded state back out of the
-  # recovery branch, down the authored wall plane, and into the Hydra boss
-  # cluster. Reuse its log: a second full-story run only duplicated evidence.
-  echo "=== continuous Hydra mountain descent into the boss cluster ==="
+  # recovery branch, down the authored wall plane, through the two-switch
+  # hidden stair, and through Hydra's real EnemyDead transition. Reuse its log:
+  # a second full-story run would only duplicate evidence.
+  echo "=== continuous Hydra mountain descent and boss defeat ==="
   boss_cluster_log="$silver_key_log"
   grep -F "completed the authored Hydra recovery spring" \
     "$boss_cluster_log" || mark_failure
@@ -455,7 +456,24 @@ echo "=== combat self-test ==="
   grep -F "room exit 3 -> M0013_05_05" "$boss_cluster_log" || mark_failure
   grep -F "mapjump -> M0013_09_00 at (255,0,75) arrow 2" \
     "$boss_cluster_log" || mark_failure
-  grep -F "reached requested stop room M0013_09_00" \
+  grep -F "used equipped key item 18 from slot 4 to open room side 1" \
+    "$boss_cluster_log" || mark_failure
+  grep -F "room exit 1 -> M0013_09_01" "$boss_cluster_log" || mark_failure
+  grep -F "entered event box 'sw_01'" "$boss_cluster_log" || mark_failure
+  grep -F "entered event box 'sw_02'" "$boss_cluster_log" || mark_failure
+  grep -F "entered event box 'down_1'" "$boss_cluster_log" || mark_failure
+  grep -F "mapjump -> M0013_08_04 at (75,0,45) arrow 2" \
+    "$boss_cluster_log" || mark_failure
+  if grep -F "opening route in M0013_08_04 reached waypoint" \
+      "$boss_cluster_log" >/dev/null; then
+    mark_failure
+  fi
+  grep -F "room exit 1 -> M0013_09_04" "$boss_cluster_log" || mark_failure
+  grep -F "loaded late actor _BOSS model B0001_00" \
+    "$boss_cluster_log" || mark_failure
+  grep -F "MainPlayer killed _BOSS" "$boss_cluster_log" || mark_failure
+  grep -F 'message: "\nYou slay the Hydra!"' "$boss_cluster_log" || mark_failure
+  grep -F "reached settled scenario state sccnt=16" \
     "$boss_cluster_log" || mark_failure
   grep -F "video driver: offscreen" "$boss_cluster_log" || mark_failure
   grep -F "audio decoded 0 sounds / 0 frames" "$boss_cluster_log" || mark_failure

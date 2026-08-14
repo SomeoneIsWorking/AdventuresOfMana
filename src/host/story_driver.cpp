@@ -1,6 +1,8 @@
 #include "host/story_driver.h"
 
 #include <algorithm>
+#include <initializer_list>
+#include <utility>
 
 #include <lucent/log.h>
 
@@ -74,7 +76,7 @@ bool StoryDriver::EquipAcquiredKey(int item_id) {
     return false;
 }
 
-std::optional<StoryTarget> StoryDriver::ToppleTarget(
+std::optional<StoryTarget> StoryDriver::Target(
     std::string_view room, const mcf::World& world,
     float room_width, float room_height,
     std::string_view arrival_handler, float body_radius,
@@ -114,7 +116,65 @@ std::optional<StoryTarget> StoryDriver::ToppleTarget(
             if (actor.alive && actor.handle == "NPC_01")
                 return StoryTarget{actor.pos[0], actor.pos[2] + 20.f};
     }
+    if (room == "M0013_09_01") {
+        // Both authored pressure switches must be pressed before SetUpGim
+        // creates down_1. Each switch disables itself after its pressed edge,
+        // making box state the progression state rather than a host counter.
+        for (std::string_view name : {"sw_01", "sw_02", "down_1"})
+            if (auto target = eventTarget(name)) return target;
+    }
+    if (room == "M0013_08_04")
+        return StoryTarget{room_width + 30.f, room_height * .5f};
     return std::nullopt;
+}
+
+int RunStoryDriverSelfTest() {
+    int bad = 0;
+    auto check = [&](std::string_view what, bool condition) {
+        if (!condition) {
+            ++bad;
+            lucent::error("story", "SELFTEST FAIL: {}", what);
+        }
+    };
+
+    mcf::Inventory inventory;
+    inventory.Add(18);
+    inventory.Add(30);
+    inventory.Equip(4, 18);
+    StoryDriver driver(true, inventory);
+    check("later key uses a free button without replacing Keyring",
+          driver.EquipAcquiredKey(30) && inventory.Equipped(4) == 18 &&
+              inventory.Equipped(5) == 30);
+
+    mcf::World world;
+    for (const auto& [name, z] :
+         std::initializer_list<std::pair<const char*, float>>{
+             {"sw_01", 180.f}, {"sw_02", 30.f}}) {
+        mcf::EventBox box;
+        box.name = name;
+        box.lo[0] = 150.f;
+        box.hi[0] = 180.f;
+        box.lo[2] = z;
+        box.hi[2] = z + 30.f;
+        world.boxes.push_back(std::move(box));
+    }
+    auto target = driver.Target("M0013_09_01", world, 330.f, 270.f, "",
+                                30.f, 7.5f);
+    check("Hydra hidden stair targets the first live authored switch",
+          target && target->event_box == "sw_01");
+    world.boxes[0].enabled = false;
+    target = driver.Target("M0013_09_01", world, 330.f, 270.f, "", 30.f,
+                           7.5f);
+    check("Hydra hidden stair advances to the remaining authored switch",
+          target && target->event_box == "sw_02");
+    target = driver.Target("M0013_08_04", world, 330.f, 270.f, "", 30.f,
+                           7.5f);
+    check("Hydra stair landing continues through its open east edge",
+          target && target->x == 360.f && target->z == 135.f &&
+              target->event_box.empty());
+
+    lucent::info("story", "SELFTEST: 4 cases, {} failures", bad);
+    return bad;
 }
 
 }  // namespace mana::host
