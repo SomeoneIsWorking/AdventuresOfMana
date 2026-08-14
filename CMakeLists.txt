@@ -44,10 +44,19 @@ add_library(engine STATIC
 target_include_directories(engine PUBLIC src)
 target_link_libraries(engine PUBLIC lua lucent::lucent SDL3::SDL3 PkgConfig::VORBISFILE)
 
+add_library(host_gpu STATIC
+  src/host/gpu_device.cpp)
+target_include_directories(host_gpu PUBLIC src)
+target_link_libraries(host_gpu PUBLIC SDL3::SDL3 lucent::lucent)
+
+add_executable(mana_gpu_selftest
+  src/tools/gpu_selftest.cpp)
+target_link_libraries(mana_gpu_selftest PRIVATE host_gpu)
+
 add_executable(mana
   src/host/interaction.cpp
   src/host/main.cpp
   src/host/navigation.cpp
   src/host/render.cpp
   src/host/story_driver.cpp)
-target_link_libraries(mana PRIVATE mcf engine SDL3::SDL3 PkgConfig::GLESV2)
+target_link_libraries(mana PRIVATE mcf engine host_gpu SDL3::SDL3 PkgConfig::GLESV2)

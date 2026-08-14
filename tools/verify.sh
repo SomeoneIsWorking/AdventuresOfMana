@@ -16,7 +16,10 @@ python3 tools/check_structure.py --selftest || exit 1
 python3 tools/check_structure.py || exit 1
 
 echo "=== build shipping runtime ==="
-cmake --build build --target mana -j2 || exit 1
+cmake --build build --target mana mana_gpu_selftest -j2 || exit 1
+
+echo "=== SDL3 GPU offscreen device self-test ==="
+./build/mana_gpu_selftest || exit 1
 
 check_runtime() {
   if [ ! -x "$1" ]; then
