@@ -88,7 +88,8 @@ add_executable(mana_gpu_selftest
 target_link_libraries(mana_gpu_selftest PRIVATE host_gpu)
 
 add_executable(mana_gpu_asset_selftest
-  src/tools/gpu_asset_selftest.cpp)
+  src/tools/gpu_asset_selftest.cpp
+  src/tools/gpu_asset_selftest_main.cpp)
 target_link_libraries(mana_gpu_asset_selftest PRIVATE host_gpu)
 
 add_executable(mana

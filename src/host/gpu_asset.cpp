@@ -1,5 +1,6 @@
 #include "host/gpu_asset.h"
 
+#include <algorithm>
 #include <cstring>
 #include <format>
 #include <limits>
@@ -195,6 +196,11 @@ Asset::Asset(Device &device, const mcf::RenderAsset &source) : device_(device) {
   draw_textures_ = source.draw_textures;
   layout_ = source.model.layout;
   draws_ = source.model.draws;
+  draw_blended_.reserve(draws_.size());
+  for (const auto &draw : draws_) {
+    draw_blended_.push_back(draw.material < source.model.materials.size() &&
+                            source.model.materials[draw.material].blend);
+  }
   index_type_ = source.model.index_size == 2 ? SDL_GPU_INDEXELEMENTSIZE_16BIT
                                              : SDL_GPU_INDEXELEMENTSIZE_32BIT;
   vertex_stride_ = source.model.vertex_stride;
@@ -223,6 +229,14 @@ SDL_GPUTexture *Asset::TextureForDraw(std::size_t draw,
       textures_[*draw_textures_[draw]])
     return textures_[*draw_textures_[draw]];
   return white_;
+}
+
+bool Asset::DrawBlended(std::size_t draw) const {
+  return draw < draw_blended_.size() && draw_blended_[draw];
+}
+
+std::size_t Asset::blended_draw_count() const {
+  return std::count(draw_blended_.begin(), draw_blended_.end(), true);
 }
 
 } // namespace mana::gpu

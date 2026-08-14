@@ -11,9 +11,15 @@ namespace mana::gpu {
 class Asset;
 class Device;
 
+struct PipelineFeatures {
+  bool depth_test = true;
+  bool material_blending = true;
+};
+
 class AssetPipeline {
 public:
-  AssetPipeline(Device &device, const Asset &asset);
+  AssetPipeline(Device &device, const Asset &asset,
+                PipelineFeatures features = {});
   ~AssetPipeline();
 
   AssetPipeline(const AssetPipeline &) = delete;
@@ -23,16 +29,19 @@ public:
                                             std::uint32_t height,
                                             bool draw = true,
                                             bool textures = true);
+  std::vector<std::uint8_t>
+  DrawAndReadback(std::uint32_t width, std::uint32_t height,
+                  const std::array<float, 16> &transform, bool textures = true);
+  void Draw(SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass,
+            const std::array<float, 16> &transform, bool textures = true);
+  std::array<float, 16> TopDownTransform() const;
 
 private:
-  std::array<float, 16> FitTopDown() const;
-
   Device &device_;
   const Asset &asset_;
-  SDL_GPUGraphicsPipeline *pipeline_ = nullptr;
+  PipelineFeatures features_;
+  SDL_GPUGraphicsPipeline *opaque_pipeline_ = nullptr;
+  SDL_GPUGraphicsPipeline *blend_pipeline_ = nullptr;
 };
-
-int RunAssetPipelineSelfTest(const char *archive_path,
-                             bool negative_control = false);
 
 } // namespace mana::gpu

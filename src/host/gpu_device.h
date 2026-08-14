@@ -21,13 +21,15 @@ public:
 
   const char *driver() const;
   SDL_GPUShaderFormat shader_formats() const;
+  SDL_GPUTextureFormat depth_format() const;
   SDL_GPUDevice *native_handle() const { return device_; }
   std::vector<std::uint8_t>
   ClearAndReadback(std::uint32_t width, std::uint32_t height, SDL_FColor color);
   std::vector<std::uint8_t> RenderAndReadback(
       std::uint32_t width, std::uint32_t height, SDL_FColor clear_color,
       const std::function<void(SDL_GPUCommandBuffer *, SDL_GPURenderPass *)>
-          &draw);
+          &draw,
+      bool depth = false);
 
 private:
   SDL_GPUDevice *device_ = nullptr;

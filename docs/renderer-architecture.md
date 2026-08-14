@@ -21,7 +21,7 @@ longer issue GL calls.
 | shader pack | compile HLSL to tracked SPIR-V, DXIL, and MSL, embed all formats, and select the active backend without runtime source guessing | **live and tested** |
 | backend-independent assets | parse models, retain texture storage, resolve material textures, and compute bounds without a graphics API | **live and shared by GLES and SDL3 GPU** |
 | GPU assets | texture, vertex-buffer, index-buffer, sampler, and lifetime ownership | **live and tested for static assets** |
-| scene renderer | room, static actor, skinned actor, depth, blend, and draw submission | static textured draw is live offscreen; depth, blend, skinning, and shipping-scene integration remain missing |
+| scene renderer | room, static actor, skinned actor, depth, blend, and draw submission | static textured draw, explicit camera transform, depth, and material blend ordering are live offscreen; skinning and shipping-scene integration remain missing |
 | UI renderer | font atlas, sprites, message windows, HUD, and fade | missing |
 | presentation | window/swapchain ownership, resize, present mode, and interactive pacing | missing |
 
@@ -40,9 +40,12 @@ then draws a full-target triangle and proves all 48
 pixels changed from the black clear; its own wrong-color negative rejects all
 48. The textured asset pipeline uploads the shipping `M0001_00_00` room's
 vertex/index buffers and seven textures, submits all 12 draw ranges, and scans
-6,912 readback pixels. The positive changes 3,868 pixels with 202 distinct red
+6,912 readback pixels. The positive changes 3,868 pixels with 194 distinct red
 values, and all 3,868 differ from a forced-white texture render; the paired
-no-draw class changes 0. The verifier regenerates all 12
+no-draw class changes 0. A layered near/far draw changes 0 pixels with depth
+enabled and 3,868 with depth disabled. A second shipping room contributes two
+water draw ranges, and 128 pixels differ from the opaque-material control. The
+verifier regenerates all 12
 backend artifacts from four HLSL sources and byte-compares them with the
 tracked pack.
 

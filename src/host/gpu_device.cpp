@@ -21,6 +21,7 @@ namespace {
 struct ReadbackResources {
   SDL_GPUDevice *device = nullptr;
   SDL_GPUTexture *texture = nullptr;
+  SDL_GPUTexture *depth = nullptr;
   SDL_GPUTransferBuffer *transfer = nullptr;
 
   ~ReadbackResources() {
@@ -28,6 +29,8 @@ struct ReadbackResources {
       SDL_ReleaseGPUTransferBuffer(device, transfer);
     if (texture)
       SDL_ReleaseGPUTexture(device, texture);
+    if (depth)
+      SDL_ReleaseGPUTexture(device, depth);
   }
 };
 
@@ -70,6 +73,18 @@ SDL_GPUShaderFormat Device::shader_formats() const {
   return SDL_GetGPUShaderFormats(device_);
 }
 
+SDL_GPUTextureFormat Device::depth_format() const {
+  constexpr std::array formats{SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
+                               SDL_GPU_TEXTUREFORMAT_D24_UNORM,
+                               SDL_GPU_TEXTUREFORMAT_D16_UNORM};
+  for (SDL_GPUTextureFormat format : formats) {
+    if (SDL_GPUTextureSupportsFormat(device_, format, SDL_GPU_TEXTURETYPE_2D,
+                                     SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET))
+      return format;
+  }
+  throw std::runtime_error("SDL3 GPU device has no supported depth format");
+}
+
 std::vector<std::uint8_t> Device::ClearAndReadback(std::uint32_t width,
                                                    std::uint32_t height,
                                                    SDL_FColor color) {
@@ -79,7 +94,8 @@ std::vector<std::uint8_t> Device::ClearAndReadback(std::uint32_t width,
 std::vector<std::uint8_t> Device::RenderAndReadback(
     std::uint32_t width, std::uint32_t height, SDL_FColor clear_color,
     const std::function<void(SDL_GPUCommandBuffer *, SDL_GPURenderPass *)>
-        &draw) {
+        &draw,
+    bool depth) {
   if (width == 0 || height == 0)
     throw std::invalid_argument("GPU readback dimensions must be nonzero");
   const std::uint64_t byte_count = std::uint64_t(width) * height * 4;
@@ -103,6 +119,31 @@ std::vector<std::uint8_t> Device::RenderAndReadback(
   if (!resources.texture)
     Fail("SDL_CreateGPUTexture");
 
+  SDL_GPUDepthStencilTargetInfo depth_target{};
+  if (depth) {
+    const SDL_GPUTextureCreateInfo depth_info{
+        .type = SDL_GPU_TEXTURETYPE_2D,
+        .format = depth_format(),
+        .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
+        .width = width,
+        .height = height,
+        .layer_count_or_depth = 1,
+        .num_levels = 1,
+        .sample_count = SDL_GPU_SAMPLECOUNT_1,
+    };
+    resources.depth = SDL_CreateGPUTexture(device_, &depth_info);
+    if (!resources.depth)
+      Fail("SDL_CreateGPUTexture(depth)");
+    depth_target = {
+        .texture = resources.depth,
+        .clear_depth = 1.f,
+        .load_op = SDL_GPU_LOADOP_CLEAR,
+        .store_op = SDL_GPU_STOREOP_DONT_CARE,
+        .stencil_load_op = SDL_GPU_LOADOP_DONT_CARE,
+        .stencil_store_op = SDL_GPU_STOREOP_DONT_CARE,
+    };
+  }
+
   const SDL_GPUTransferBufferCreateInfo transfer_info{
       .usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD,
       .size = bytes,
@@ -120,8 +161,8 @@ std::vector<std::uint8_t> Device::RenderAndReadback(
       .load_op = SDL_GPU_LOADOP_CLEAR,
       .store_op = SDL_GPU_STOREOP_STORE,
   };
-  SDL_GPURenderPass *render =
-      SDL_BeginGPURenderPass(command, &target, 1, nullptr);
+  SDL_GPURenderPass *render = SDL_BeginGPURenderPass(
+      command, &target, 1, depth ? &depth_target : nullptr);
   if (!render) {
     SDL_CancelGPUCommandBuffer(command);
     Fail("SDL_BeginGPURenderPass");

@@ -31,6 +31,8 @@ public:
   std::uint32_t vertex_stride() const { return vertex_stride_; }
   const std::vector<mcf::VertexAttribute> &layout() const { return layout_; }
   const std::vector<mcf::DrawRange> &draws() const { return draws_; }
+  bool DrawBlended(std::size_t draw) const;
+  std::size_t blended_draw_count() const;
   const float *lo() const { return lo_; }
   const float *hi() const { return hi_; }
 
@@ -44,6 +46,7 @@ private:
   std::vector<std::optional<std::uint32_t>> draw_textures_;
   std::vector<mcf::VertexAttribute> layout_;
   std::vector<mcf::DrawRange> draws_;
+  std::vector<bool> draw_blended_;
   SDL_GPUIndexElementSize index_type_ = SDL_GPU_INDEXELEMENTSIZE_16BIT;
   std::uint32_t vertex_stride_ = 0;
   float lo_[3]{}, hi_[3]{};
