@@ -147,6 +147,7 @@ add_executable(mana_gpu_ui_selftest
 target_link_libraries(mana_gpu_ui_selftest PRIVATE host_gpu host_image title_ui)
 
 add_executable(mana
+  src/host/gles_asset.cpp
   src/host/gles_ui_renderer.cpp
   src/host/interaction.cpp
   src/host/main.cpp

@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,presentation
 depends: src/host/gpu_presentation.cpp#Presentation::Present, src/tools/gpu_selftest.cpp#main
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 14:51:46
+verified_at: 2026-08-14 15:01:15
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ A backend rejects the RGBA-to-swapchain blit, resize target recreation fails, cl
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full tools/verify.sh passed on the exact presentation source tree: structure gate scanned 83 files with 0 violations; normal SDL3 GPU test created 0 windows and initialized 0 audio while passing 4 presentation-policy cases; explicit offscreen --presentation-smoke claimed a 64x48 swapchain and submitted one RGBA-to-swapchain frame.
+
+## Re-confirmed 2026-08-14
+
+2026-08-14 full tools/verify.sh passed after the GLES ownership extraction; the normal SDL3 GPU test still created 0 windows and initialized 0 audio while passing all 4 presentation-policy cases.

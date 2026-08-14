@@ -18,9 +18,10 @@ copying the function would create two subtly divergent asset loaders.
 
 `RenderAsset` now owns model parsing, the `TextureSet` storage that keeps pixel
 spans valid, flattened logical texture references, per-draw material resolution,
-and bounds. The legacy GLES uploader and new SDL3 GPU `Asset` both consume that
-one result. SDL3 GPU resource lifetime and draw submission remain separate
-owners.
+and bounds. The dedicated `host/gles_asset` owner and SDL3 GPU `Asset` both
+consume that one result. GLES handles no longer live in `host/render`, whose
+remaining actor-model policy is backend-independent. SDL3 GPU resource lifetime
+and draw submission remain separate owners.
 
 The offscreen shipping-asset test loads `M0001_00_00`, uploads all seven logical
 textures plus vertex/index buffers, submits 12 draw ranges, and scans 6,912

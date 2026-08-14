@@ -70,45 +70,4 @@ int RunActorModelSelfTest() {
     return bad;
 }
 
-static GLuint UploadTexture(const Texture& t) {
-    GLuint id = 0;
-    glGenTextures(1, &id);
-    glBindTexture(GL_TEXTURE_2D, id);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, GLsizei(t.width), GLsizei(t.height), 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, t.pixels.data());
-    glGenerateMipmap(GL_TEXTURE_2D);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    return id;
-}
-
-bool LoadRenderable(const Archive& ar, const std::string& name, GLuint white,
-                    Renderable* out) {
-    if (!LoadRenderAsset(ar, name, &out->asset)) return false;
-    out->white = white;
-
-    for (uint32_t i = 0; i < out->asset.textures.size(); ++i) {
-        const Texture* texture = out->asset.TextureAt(i);
-        out->textures.push_back(texture ? UploadTexture(*texture) : white);
-    }
-
-    glGenBuffers(1, &out->vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, out->vbo);
-    auto vs = out->asset.model.vertices();
-    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(vs.size()), vs.data(), GL_STATIC_DRAW);
-    glGenBuffers(1, &out->ibo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, out->ibo);
-    auto is = out->asset.model.indices();
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(is.size()), is.data(), GL_STATIC_DRAW);
-
-    out->draw_tex.assign(out->asset.model.draws.size(), white);
-    for (size_t i = 0; i < out->asset.draw_textures.size(); ++i) {
-        if (out->asset.draw_textures[i])
-            out->draw_tex[i] = out->textures[*out->asset.draw_textures[i]];
-    }
-    return true;
-}
-
 }  // namespace mcf

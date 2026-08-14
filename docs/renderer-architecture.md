@@ -151,9 +151,10 @@ swapchain policy, and resize-dependent render targets. Existing scene, UI,
 sprite, and overlay pipelines keep their verified RGBA8 contract; presentation
 performs the final format-converting blit to BGRA or another SDL-selected
 swapchain format. The attempted runtime cutover exposed the actual next
-dependency: `mcf::Renderable` still combines a backend-independent
-`RenderAsset` with GLES buffer and texture handles in the running world's cache.
-That cache must be split before the interactive window changes backend; a
+dependency: the running world's cache is still typed as the transitional
+`mana::gles::Asset`, even though that GLES upload owner is now mechanically
+separate from backend-independent `RenderAsset` and actor-model policy. The
+world cache must switch to `RenderAsset` before the interactive window changes backend; a
 second hidden GLES window or duplicated asset parser is explicitly not an
 acceptable bridge.
 
@@ -177,10 +178,11 @@ other official builds.
    texture-backed, windowless, unpaced, and silent.~~ **DONE:** the owner and
    explicit smoke path exist; deterministic readback remains the mandatory
    gate.
-5. Split `mcf::Renderable` into backend-independent world assets and the
-   transitional GLES upload cache, then wire the live frame compositor to
-   `host/gpu_presentation`. Remove the GLES owner only after the paired capture
-   has supplied its final differential evidence.
+5. ~~Extract the transitional GLES upload type from the backend-independent
+   render module.~~ **DONE:** `host/gles_asset` is the only owner of its GL
+   handles. Next switch the world cache to plain `RenderAsset`, wire the live
+   frame compositor to `host/gpu_presentation`, and remove the GLES owner after
+   the paired capture supplies its final differential evidence.
 
 ## Lighting and image quality
 

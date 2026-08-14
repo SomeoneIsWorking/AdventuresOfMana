@@ -1,0 +1,26 @@
+---
+id: C049
+kind: claim
+status: holds
+created: 2026-08-14
+tags: renderer,structure
+depends: src/host/gles_asset.cpp#Asset::Release, src/host/main.cpp#main
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 15:01:37
+---
+
+## Claim
+
+The transitional GLES asset uploader is isolated from backend-independent render policy and owns release of its textures and buffers before the running GL context is destroyed.
+
+## Evidence
+
+2026-08-14 full tools/verify.sh passed after moving uploads from host/render into move-only host/gles_asset: the same-frame GLES/SDL3 scene, UI, and fade pair remained live; the uncapped zero-audio story reached sccnt=20; structure scanned 85 files with 0 violations; ALL PARSERS PASSED.
+
+## What would falsify it
+
+A GLES handle reappears in host/render, an Asset copy becomes possible, a resource is released after its GL context, or the running scene/story verifier changes output or fails.
+
+## Re-confirmed 2026-08-14
+
+2026-08-14 full tools/verify.sh passed on the exact GLES ownership source tree: 85 source files/0 structure violations, same-frame GLES/SDL3 scene UI fade pair, uncapped zero-audio story through sccnt=20, and ALL PARSERS PASSED.

@@ -1,8 +1,3 @@
-// Desktop host: opens sk1.mpk, uploads a model + its texture, and draws it with
-// the game's OWN GLES2 shaders (lifted verbatim from libmcfandroid.so .rodata).
-//
-// --screenshot renders a single frame and writes a PNG, so correctness can be
-// checked without a display. That is the acceptance test for this stage.
 #include <set>
 #include <SDL3/SDL.h>
 #include <GLES2/gl2.h>
@@ -30,10 +25,12 @@
 #include "engine/world.h"
 #include "host/render.h"
 #include "host/game_ui_content.h"
+#include "host/gles_asset.h"
 #include "host/gles_ui_renderer.h"
 #include "host/image_write.h"
 #include "host/render_camera.h"
 #include "host/render_overlay.h"
+#include "host/render_pose.h"
 #include "host/render_snapshot.h"
 #include "host/render_sprite.h"
 #include "host/render_ui.h"
@@ -2449,7 +2446,7 @@ int main(int argc, char** argv) {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
             // Room-scoped state, rebuilt by loadRoom on every transition.
-            mcf::Renderable stage;
+            mana::gles::Asset stage;
             mcf::Collision col;
             bool have_col = false;
             mcf::GroundAttributes ground;
@@ -2465,10 +2462,10 @@ int main(int argc, char** argv) {
             std::vector<float>   chip_height;   // ModeGame + 0x9bb0's counterpart
             std::vector<int32_t> chip_dist;
             bool chip_fill_logged = false;
-            struct Placed { const mcf::Renderable* r; float pos[3]; const mcf::Motion* mo; };
+            struct Placed { const mana::gles::Asset* r; float pos[3]; const mcf::Motion* mo; };
             std::vector<Placed> placed;
             struct PlacedObj {
-                const mcf::Renderable* r;
+                const mana::gles::Asset* r;
                 float pos[3];
                 int32_t id = 0;
                 uint32_t flags = 0;
@@ -2476,7 +2473,7 @@ int main(int argc, char** argv) {
                 bool alive = true;
             };
             std::vector<PlacedObj> objects;
-            std::map<std::string, mcf::Renderable> cache;   // survives transitions
+            std::map<std::string, mana::gles::Asset> cache; // survives transitions
             std::set<std::string> missing_actor_models;
             std::set<std::string> missing_actor_motions;
             std::set<std::string> reported_script_moves;
@@ -2580,8 +2577,8 @@ int main(int argc, char** argv) {
                 if (name == "M0010_00_01") bogard_house_visited = true;
                 if (bogard_house_visited && name == "M0000_07_04")
                     bogard_return_reached_vine_summit = true;
-                stage = mcf::Renderable{};
-                if (!mcf::LoadRenderable(ar, room_name, white, &stage)) {
+                stage = mana::gles::Asset{};
+                if (!mana::gles::LoadAsset(ar, room_name, white, &stage)) {
                     lucent::error("world", "no model for room {}", room_name);
                     return false;
                 }
@@ -2786,8 +2783,8 @@ int main(int argc, char** argv) {
                 auto nm = mcf::ActorModelName(a.kind, a.type_id);
                 if (nm.empty()) continue;   // eNPC.TRANS: invisible by design
                 if (!cache.count(nm)) {
-                    mcf::Renderable r;
-                    if (!mcf::LoadRenderable(ar, nm, white, &r)) {
+                    mana::gles::Asset r;
+                    if (!mana::gles::LoadAsset(ar, nm, white, &r)) {
                         lucent::warn("world", "actor {} (kind {} id {}) has no model {}",
                                      a.handle, a.kind, a.type_id, nm);
                         continue;
@@ -2817,7 +2814,7 @@ int main(int argc, char** argv) {
                 // filename is per-model and not canonical (137 files disagree
                 // with eMOTION), so only the numeric prefix is matched.
                 const mcf::Motion* mo = nullptr;
-                if (!cache[nm].asset.model.bones.empty()) {
+                if (!cache[nm].source.model.bones.empty()) {
                     auto pre = mcf::World::MotionPrefix(nm, a.motion);
                     auto file = ar.FindByPrefix(pre);
                     if (file.empty()) {
@@ -2846,8 +2843,8 @@ int main(int argc, char** argv) {
                     const char* nm = mcf::MapObjectModel(o.id);
                     if (!nm) { ++missing_id; continue; }
                     if (!cache.count(nm)) {
-                        mcf::Renderable r;
-                        if (!mcf::LoadRenderable(ar, nm, white, &r)) {
+                        mana::gles::Asset r;
+                        if (!mana::gles::LoadAsset(ar, nm, white, &r)) {
                             ++missing_model;
                             continue;
                         }
@@ -2931,16 +2928,16 @@ int main(int argc, char** argv) {
                     if (!hit && opening_story && inventory.Has(17) &&
                         (object.flags & 0x08))
                         continue;
-                    const float lo_y = object.pos[1] + object.r->asset.lo[1];
-                    const float hi_y = object.pos[1] + object.r->asset.hi[1];
+                    const float lo_y = object.pos[1] + object.r->source.lo[1];
+                    const float hi_y = object.pos[1] + object.r->source.hi[1];
                     if (y + 30.f < lo_y || y > hi_y) continue;
-                    const float lo_x = object.pos[0] + object.r->asset.lo[0] -
+                    const float lo_x = object.pos[0] + object.r->source.lo[0] -
                                        kObjectPlayerRadius;
-                    const float hi_x = object.pos[0] + object.r->asset.hi[0] +
+                    const float hi_x = object.pos[0] + object.r->source.hi[0] +
                                        kObjectPlayerRadius;
-                    const float lo_z = object.pos[2] + object.r->asset.lo[2] -
+                    const float lo_z = object.pos[2] + object.r->source.lo[2] -
                                        kObjectPlayerRadius;
-                    const float hi_z = object.pos[2] + object.r->asset.hi[2] +
+                    const float hi_z = object.pos[2] + object.r->source.hi[2] +
                                        kObjectPlayerRadius;
                     float t0 = 0.f, t1 = 1.f;
                     auto clip = [&](float p, float q) {
@@ -2967,8 +2964,8 @@ int main(int argc, char** argv) {
             };
             float ctr[3], radius = 0;
             for (int k = 0; k < 3; ++k) {
-                ctr[k] = (stage.asset.lo[k] + stage.asset.hi[k]) * .5f;
-                radius = std::max(radius, stage.asset.hi[k] - stage.asset.lo[k]);
+                ctr[k] = (stage.source.lo[k] + stage.source.hi[k]) * .5f;
+                radius = std::max(radius, stage.source.hi[k] - stage.source.lo[k]);
             }
             Mat4 vp;   // rebuilt each frame from the camera slots
 
@@ -2977,7 +2974,7 @@ int main(int argc, char** argv) {
             glViewport(0, 0, W, H);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            auto drawOne = [&](const mcf::Renderable& r, const float t[3],
+            auto drawOne = [&](const mana::gles::Asset& r, const float t[3],
                                const mcf::Motion* mo, float yaw = 0.f) {
                 GLuint pr = r.skinned() ? progSkin : progFlat;
                 glUseProgram(pr);
@@ -2990,16 +2987,16 @@ int main(int argc, char** argv) {
                 glUniform1i(glGetUniformLocation(pr, "texture0"), 0);
                 if (r.skinned()) {
                     std::vector<float> j;
-                    mcf::BuildJointPalette(r.asset.model, mo, anim_t, &j);
+                    mcf::BuildJointPalette(r.source.model, mo, anim_t, &j);
                     glUniform4fv(glGetUniformLocation(pr, "vJoint"), 80 * 3, j.data());
                 }
                 glActiveTexture(GL_TEXTURE0);
-                glBindBuffer(GL_ARRAY_BUFFER, r.vbo);
-                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, r.ibo);
-                GLsizei st = GLsizei(r.asset.model.vertex_stride);
-                const auto* pa = r.asset.model.Find(mcf::VertexUsage::kPosition);
-                const auto* ca = r.asset.model.Find(mcf::VertexUsage::kColor);
-                const auto* ta = r.asset.model.Find(mcf::VertexUsage::kTexcoord0);
+                glBindBuffer(GL_ARRAY_BUFFER, r.vertices);
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, r.indices);
+                GLsizei st = GLsizei(r.source.model.vertex_stride);
+                const auto* pa = r.source.model.Find(mcf::VertexUsage::kPosition);
+                const auto* ca = r.source.model.Find(mcf::VertexUsage::kColor);
+                const auto* ta = r.source.model.Find(mcf::VertexUsage::kTexcoord0);
                 glEnableVertexAttribArray(0);
                 glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, st, (void*)(uintptr_t)pa->offset);
                 if (ca) { glEnableVertexAttribArray(1);
@@ -3007,8 +3004,8 @@ int main(int argc, char** argv) {
                 if (ta) { glEnableVertexAttribArray(2);
                     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, st, (void*)(uintptr_t)ta->offset); }
                 if (r.skinned()) {
-                    const auto* wa = r.asset.model.Find(mcf::VertexUsage::kWeight);
-                    const auto* ia = r.asset.model.Find(mcf::VertexUsage::kIncidence);
+                    const auto* wa = r.source.model.Find(mcf::VertexUsage::kWeight);
+                    const auto* ia = r.source.model.Find(mcf::VertexUsage::kIncidence);
                     glEnableVertexAttribArray(3);
                     glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, st, (void*)(uintptr_t)wa->offset);
                     glEnableVertexAttribArray(4);
@@ -3017,15 +3014,15 @@ int main(int argc, char** argv) {
                     glDisableVertexAttribArray(3);
                     glDisableVertexAttribArray(4);
                 }
-                GLenum it = r.asset.model.index_size == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
+                GLenum it = r.source.model.index_size == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
                 // Two passes: opaque ranges first, then the blended ones, so a
                 // shadow plane composites over the ground it lies on instead of
                 // depth-fighting it. Blended geometry still tests depth but does
                 // not write it, which is the standard ordering-independent
                 // treatment for flat decals like these.
                 auto blended = [&](size_t i) {
-                    uint32_t mi = r.asset.model.draws[i].material;
-                    return mi < r.asset.model.materials.size() && r.asset.model.materials[mi].blend;
+                    uint32_t mi = r.source.model.draws[i].material;
+                    return mi < r.source.model.materials.size() && r.source.model.materials[mi].blend;
                 };
                 for (int pass = 0; pass < 2; ++pass) {
                     if (pass == 1) {
@@ -3033,11 +3030,11 @@ int main(int argc, char** argv) {
                         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                         glDepthMask(GL_FALSE);
                     }
-                    for (size_t i = 0; i < r.asset.model.draws.size(); ++i) {
+                    for (size_t i = 0; i < r.source.model.draws.size(); ++i) {
                         if (blended(i) != (pass == 1)) continue;
-                        glBindTexture(GL_TEXTURE_2D, r.draw_tex[i]);
-                        glDrawElements(GL_TRIANGLES, GLsizei(r.asset.model.draws[i].index_count), it,
-                                       (void*)(uintptr_t)r.asset.model.draws[i].byte_offset);
+                        glBindTexture(GL_TEXTURE_2D, r.draw_textures[i]);
+                        glDrawElements(GL_TRIANGLES, GLsizei(r.source.model.draws[i].index_count), it,
+                                       (void*)(uintptr_t)r.source.model.draws[i].byte_offset);
                     }
                     if (pass == 1) { glDepthMask(GL_TRUE); glDisable(GL_BLEND); }
                 }
@@ -3049,9 +3046,9 @@ int main(int argc, char** argv) {
             // resolves an attacker's model through that map, so loading it only
             // into `hero` made the player invisible to its own hit test.
             bool have_hero = cache.count("C0000_00") ||
-                             mcf::LoadRenderable(ar, "C0000_00", white, &cache["C0000_00"]);
+                             mana::gles::LoadAsset(ar, "C0000_00", white, &cache["C0000_00"]);
             if (!have_hero) cache.erase("C0000_00");
-            mcf::Renderable& hero = cache["C0000_00"];
+            mana::gles::Asset& hero = cache["C0000_00"];
             std::map<int, mcf::Motion> hero_motions;
             auto heroMotion = [&](int id) -> const mcf::Motion* {
                 auto it = hero_motions.find(id);
@@ -3080,8 +3077,8 @@ int main(int argc, char** argv) {
                 if (nm.empty()) return nullptr; // eNPC.TRANS is intentionally invisible
                 auto it = cache.find(nm);
                 if (it == cache.end()) {
-                    mcf::Renderable late;
-                    if (!mcf::LoadRenderable(ar, nm, white, &late)) {
+                    mana::gles::Asset late;
+                    if (!mana::gles::LoadAsset(ar, nm, white, &late)) {
                         if (missing_actor_models.insert(nm).second)
                             lucent::warn("world", "late actor {} (kind {} id {}) "
                                          "has no model {}", a.handle, a.kind,
@@ -3091,7 +3088,7 @@ int main(int argc, char** argv) {
                     lucent::info("world", "loaded late actor {} model {}", a.handle, nm);
                     it = cache.emplace(nm, std::move(late)).first;
                 }
-                if (it->second.asset.model.bones.empty()) return nullptr;
+                if (it->second.source.model.bones.empty()) return nullptr;
                 auto prefix = mcf::World::MotionPrefix(nm, a.motion);
                 auto file = ar.FindByPrefix(prefix);
                 if (file.empty()) {
@@ -6195,14 +6192,14 @@ int main(int argc, char** argv) {
                             if (!av.valid || av.bone.empty()) continue;
                             ++cs.swing_frames;
                             float ap[3]{0.f, 0.f, 0.f};
-                            if (!mcf::BoneLocalPos(ait->second.asset.model, nullptr, t,
+                            if (!mcf::BoneLocalPos(ait->second.source.model, nullptr, t,
                                                    av.bone, ap)) {
                                 ++cs.atk_no_bone;
                                 // SiModelBase::GetBoneIDByName @ 0x35b414
                                 // returns ID 0 after an exact-strcmp miss.
-                                if (!ait->second.asset.model.bones.empty())
-                                    mcf::BoneLocalPos(ait->second.asset.model, nullptr, t,
-                                        ait->second.asset.model.bones.front().name, ap);
+                                if (!ait->second.source.model.bones.empty())
+                                    mcf::BoneLocalPos(ait->second.source.model, nullptr, t,
+                                        ait->second.source.model.bones.front().name, ap);
                             }
                             for (int k = 0; k < 3; ++k)
                                 ap[k] += acts[aidx].pos[k] + room_org[k] + av.offset[k];
@@ -6218,7 +6215,7 @@ int main(int argc, char** argv) {
                                 for (const auto& [di, dv] : acts[didx].damage) {
                                     if (!dv.valid || dv.bone.empty()) continue;
                                     float dp[3];
-                                    if (!mcf::BoneLocalPos(dit->second.asset.model, nullptr, t,
+                                    if (!mcf::BoneLocalPos(dit->second.source.model, nullptr, t,
                                                            dv.bone, dp))
                                         { ++cs.def_no_bone; continue; }
                                     for (int k = 0; k < 3; ++k)
@@ -6662,16 +6659,16 @@ int main(int argc, char** argv) {
                 glViewport(0, 0, W, H);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
                 mana::RenderSnapshot render_snapshot(camera_frame);
-                std::map<const mcf::RenderAsset*, const mcf::Renderable*>
+                std::map<const mcf::RenderAsset*, const mana::gles::Asset*>
                     snapshot_sources;
-                auto add_snapshot = [&](const mcf::Renderable& renderable,
+                auto add_snapshot = [&](const mana::gles::Asset& renderable,
                                         std::array<float, 3> position,
                                         float yaw = 0.f,
                                         const mcf::Motion* motion = nullptr,
                                         float motion_time = 0.f) {
-                    render_snapshot.Add(renderable.asset, position, yaw, motion,
+                    render_snapshot.Add(renderable.source, position, yaw, motion,
                                         motion_time);
-                    snapshot_sources[&renderable.asset] = &renderable;
+                    snapshot_sources[&renderable.source] = &renderable;
                 };
                 add_snapshot(stage, {0.f, 0.f, 0.f});
                 for (const auto& o : objects)
@@ -6835,6 +6832,8 @@ int main(int argc, char** argv) {
             // alive. These objects are declared with the running-world state,
             // whose lexical scope otherwise extends past SDL_Quit below.
             scene_pair_capture.reset();
+            cache.clear();
+            stage = {};
             SDL_GL_DestroyContext(ctx);
             SDL_DestroyWindow(win);
             SDL_Quit();
