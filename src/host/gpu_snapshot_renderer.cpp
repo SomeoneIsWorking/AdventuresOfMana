@@ -91,7 +91,8 @@ void SnapshotRenderer::Draw(const RenderSnapshot &snapshot,
     }
     draws.push_back({.pipeline = cached.pipeline.get(),
                      .transform = transform,
-                     .joints = joints});
+                     .joints = joints,
+                     .light = DirectionalLight{}.ForModelYaw(instance.yaw)});
   }
   scene_->Draw(command, pass, draws);
 }

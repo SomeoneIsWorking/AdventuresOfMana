@@ -29,6 +29,7 @@ public:
                                  bool use_material_texture = true) const;
   SDL_GPUIndexElementSize index_type() const { return index_type_; }
   std::uint32_t vertex_stride() const { return vertex_stride_; }
+  std::uint32_t normal_offset() const { return normal_offset_; }
   const std::vector<mcf::VertexAttribute> &layout() const { return layout_; }
   const std::vector<mcf::DrawRange> &draws() const { return draws_; }
   bool DrawBlended(std::size_t draw) const;
@@ -50,6 +51,7 @@ private:
   std::vector<bool> draw_blended_;
   SDL_GPUIndexElementSize index_type_ = SDL_GPU_INDEXELEMENTSIZE_16BIT;
   std::uint32_t vertex_stride_ = 0;
+  std::uint32_t normal_offset_ = 0;
   bool skinned_ = false;
   float lo_[3]{}, hi_[3]{};
 };

@@ -7,6 +7,8 @@ struct type_Skinning
 {
     float4x4 model_view_projection;
     float4 joints[240];
+    float4 light_direction_ambient;
+    float4 light_color_diffuse;
 };
 
 struct main0_out
@@ -23,17 +25,35 @@ struct main0_in
     float2 in_var_TEXCOORD2 [[attribute(2)]];
     float4 in_var_TEXCOORD3 [[attribute(3)]];
     uint4 in_var_TEXCOORD4 [[attribute(4)]];
+    float3 in_var_TEXCOORD5 [[attribute(5)]];
 };
 
 vertex main0_out main0(main0_in in [[stage_in]], constant type_Skinning& Skinning [[buffer(0)]])
 {
     main0_out out = {};
-    float4 _51 = float4(in.in_var_TEXCOORD0, 1.0);
-    uint _54 = in.in_var_TEXCOORD4.x * 3u;
-    uint _72 = in.in_var_TEXCOORD4.y * 3u;
-    float3 _88 = (float3(dot(_51, Skinning.joints[_54]), dot(_51, Skinning.joints[_54 + 1u]), dot(_51, Skinning.joints[_54 + 2u])) * in.in_var_TEXCOORD3.x).xyz + (float3(dot(_51, Skinning.joints[_72]), dot(_51, Skinning.joints[_72 + 1u]), dot(_51, Skinning.joints[_72 + 2u])) * (1.0 - in.in_var_TEXCOORD3.x));
-    out.gl_Position = Skinning.model_view_projection * float4(_88.x, _88.y, _88.z, float4(0.0, 0.0, 0.0, 1.0).w);
-    out.out_var_TEXCOORD0 = in.in_var_TEXCOORD1;
+    float4 _58 = float4(in.in_var_TEXCOORD0, 1.0);
+    uint _61 = in.in_var_TEXCOORD4.x * 3u;
+    uint _65 = _61 + 1u;
+    uint _69 = _61 + 2u;
+    uint _79 = in.in_var_TEXCOORD4.y * 3u;
+    uint _83 = _79 + 1u;
+    uint _87 = _79 + 2u;
+    float _92 = 1.0 - in.in_var_TEXCOORD3.x;
+    float3 _95 = (float3(dot(_58, Skinning.joints[_61]), dot(_58, Skinning.joints[_65]), dot(_58, Skinning.joints[_69])) * in.in_var_TEXCOORD3.x).xyz + (float3(dot(_58, Skinning.joints[_79]), dot(_58, Skinning.joints[_83]), dot(_58, Skinning.joints[_87])) * _92);
+    float4 _103 = float4(in.in_var_TEXCOORD5, 0.0);
+    float3 _114 = (float3(dot(_103, Skinning.joints[_61]), dot(_103, Skinning.joints[_65]), dot(_103, Skinning.joints[_69])) * in.in_var_TEXCOORD3.x) + (float3(dot(_103, Skinning.joints[_79]), dot(_103, Skinning.joints[_83]), dot(_103, Skinning.joints[_87])) * _92);
+    float _115 = length(_114);
+    float _128;
+    if (_115 > 0.0)
+    {
+        _128 = precise::max(dot(_114 / float3(_115), fast::normalize(Skinning.light_direction_ambient.xyz)), 0.0);
+    }
+    else
+    {
+        _128 = 0.0;
+    }
+    out.gl_Position = Skinning.model_view_projection * float4(_95.x, _95.y, _95.z, float4(0.0, 0.0, 0.0, 1.0).w);
+    out.out_var_TEXCOORD0 = float4(in.in_var_TEXCOORD1.xyz * (Skinning.light_direction_ambient.www + ((Skinning.light_color_diffuse.xyz * Skinning.light_color_diffuse.w) * _128)), in.in_var_TEXCOORD1.w);
     out.out_var_TEXCOORD1 = in.in_var_TEXCOORD2;
     return out;
 }

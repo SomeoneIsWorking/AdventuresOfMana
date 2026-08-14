@@ -27,6 +27,7 @@ bool LoadRenderAsset(const Archive &archive, const std::string &name,
   RenderAsset asset;
   asset.name = name;
   asset.model = ParseSmdl(archive.Read(model_path));
+  asset.normals = GenerateNormals(asset.model);
 
   const std::string stex_path = std::format("sk1/{}.stex", name);
   const std::string info_path = std::format("sk1/{}.stexinfo", name);

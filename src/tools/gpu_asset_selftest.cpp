@@ -59,7 +59,8 @@ DrawDepthLayers(Device &device, AssetPipeline &pipeline, std::uint32_t width,
 } // namespace
 
 int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
-                             const char *capture_path) {
+                             const char *capture_path,
+                             const char *vanilla_capture_path) {
   mcf::Archive archive(archive_path);
   mcf::RenderAsset source;
   constexpr std::string_view name = "M0001_00_00";
@@ -113,6 +114,10 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
   }
 
   std::uint32_t depth_control_differences = 0;
+  std::uint32_t lighting_differences = 0;
+  std::uint32_t directional_differences = 0;
+  std::uint32_t upward_vertices = 0;
+  std::uint32_t downward_vertices = 0;
   if (!negative_control) {
     if (asset.blended_draw_count() != 0) {
       lucent::error(
@@ -123,6 +128,43 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
       return 1;
     }
     const auto base = pipeline.TopDownTransform();
+    const auto vanilla_pixels = pipeline.DrawAndReadback(
+        width, height, base, true, {}, DirectionalLight::Vanilla());
+    const auto lit_pixels = pipeline.DrawAndReadback(width, height, base, true);
+    const auto ambient_pixels = pipeline.DrawAndReadback(
+        width, height, base, true, {}, DirectionalLight::AmbientOnly(.55f));
+    lighting_differences = PixelDifference(vanilla_pixels, lit_pixels);
+    directional_differences = PixelDifference(ambient_pixels, lit_pixels);
+    const DirectionalLight enhanced_light;
+    std::uint32_t directional_vertices = 0;
+    for (std::size_t vertex = 0; vertex < source.normals.values.size() / 3;
+         ++vertex) {
+      const float *normal = source.normals.values.data() + vertex * 3;
+      const float dot = normal[0] * enhanced_light.direction_to_light[0] +
+                        normal[1] * enhanced_light.direction_to_light[1] +
+                        normal[2] * enhanced_light.direction_to_light[2];
+      if (dot > 0.f)
+        ++directional_vertices;
+      if (normal[1] > .9f)
+        ++upward_vertices;
+      if (normal[1] < -.9f)
+        ++downward_vertices;
+    }
+    if (source.normals.triangles == 0 || directional_vertices == 0 ||
+        lighting_differences == 0 || directional_differences == 0) {
+      lucent::error(
+          "gpu",
+          "ASSET SELFTEST FAIL: lighting discriminator scanned {} pixels, "
+          "{} triangles, {} degenerate, {} vertices without normals in {}; "
+          "{} vertices face the key light; enhanced differs from vanilla in "
+          "{} and from equal-ambient control in {}; expected nonzero "
+          "triangles, facing vertices, and both pixel differences",
+          width * height, source.normals.triangles,
+          source.normals.degenerate_triangles,
+          source.normals.vertices_without_normal, name, directional_vertices,
+          lighting_differences, directional_differences);
+      return 1;
+    }
     auto near_transform = base;
     near_transform[14] -= .05f;
     const auto near_pixels =
@@ -153,6 +195,17 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
       "forced-white; depth control differs in {}",
       name, asset.draws().size(), width * height, changed, distinct_red,
       texture_changed, depth_control_differences);
+  if (!negative_control)
+    lucent::info(
+        "gpu",
+        "ASSET SELFTEST: generated normals from {} triangles in {}; {} "
+        "degenerate and {} vertices without orientation; enhanced shading "
+        "has {} upward and {} downward vertices, differs from vanilla in {} "
+        "and from equal-ambient control in {} of {} pixels",
+        source.normals.triangles, name, source.normals.degenerate_triangles,
+        source.normals.vertices_without_normal, upward_vertices,
+        downward_vertices, lighting_differences, directional_differences,
+        width * height);
 
   if (!negative_control) {
     constexpr std::string_view blend_name = "M0000_00_03";
@@ -212,8 +265,8 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
           "gpu",
           "ASSET SELFTEST FAIL: scanned {} vertices in {}; expected shipping "
           "skinning attributes, source={} GPU={}",
-          skinned_source.model.vertex_count,
-          skinned_name, skinned_source.skinned(), skinned_asset.skinned());
+          skinned_source.model.vertex_count, skinned_name,
+          skinned_source.skinned(), skinned_asset.skinned());
       return 1;
     }
     std::vector<float> bind_joints;
@@ -222,6 +275,16 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
     const auto transform = skinned_pipeline.TopDownTransform();
     const auto bind_pixels = skinned_pipeline.DrawAndReadback(
         width, height, transform, true, bind_joints);
+    const auto vanilla_bind_pixels = skinned_pipeline.DrawAndReadback(
+        width, height, transform, true, bind_joints,
+        DirectionalLight::Vanilla());
+    const auto ambient_bind_pixels = skinned_pipeline.DrawAndReadback(
+        width, height, transform, true, bind_joints,
+        DirectionalLight::AmbientOnly(.55f));
+    const std::uint32_t skinned_lighting_differences =
+        PixelDifference(bind_pixels, vanilla_bind_pixels);
+    const std::uint32_t skinned_directional_differences =
+        PixelDifference(bind_pixels, ambient_bind_pixels);
     auto shifted_joints = bind_joints;
     const float shift = (skinned_source.hi[0] - skinned_source.lo[0]) * .2f;
     for (std::size_t bone = 0; bone < 80; ++bone)
@@ -242,26 +305,29 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
           "skinned asset requires 960 joint floats, received 0";
     }
     if (skinned_changed == 0 || shifted_differences == 0 ||
-        !missing_palette_failed) {
+        skinned_lighting_differences == 0 ||
+        skinned_directional_differences == 0 || !missing_palette_failed) {
       lucent::error(
           "gpu",
           "ASSET SELFTEST FAIL: skinning scanned {} pixels and {} vertices in "
           "{}; {} changed from clear, {} differ after shifting all 80 joints; "
+          "{} differ from vanilla and {} from equal-ambient lighting; "
           "missing-palette discriminator={} ({})",
-          width * height,
-          skinned_source.model.vertex_count,
-          skinned_name, skinned_changed, shifted_differences,
-          missing_palette_failed, missing_palette_message);
+          width * height, skinned_source.model.vertex_count, skinned_name,
+          skinned_changed, shifted_differences, skinned_lighting_differences,
+          skinned_directional_differences, missing_palette_failed,
+          missing_palette_message);
       return 1;
     }
     lucent::info(
         "gpu",
         "ASSET SELFTEST: skinning scanned {} pixels and {} vertices in {}; {} "
-        "changed from clear, {} differ after shifting all 80 joints; missing "
+        "changed from clear, {} differ after shifting all 80 joints, {} "
+        "differ from vanilla and {} from equal-ambient lighting; missing "
         "960-float palette rejected",
-        width * height,
-        skinned_source.model.vertex_count,
-        skinned_name, skinned_changed, shifted_differences);
+        width * height, skinned_source.model.vertex_count, skinned_name,
+        skinned_changed, shifted_differences, skinned_lighting_differences,
+        skinned_directional_differences);
 
     SceneRenderer scene(device);
     constexpr std::uint32_t scene_width = 320;
@@ -329,6 +395,14 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
         SceneDraw{.pipeline = &skinned_pipeline,
                   .transform = actor_transform,
                   .joints = bind_joints}};
+    const std::array vanilla_combined_draws{
+        SceneDraw{.pipeline = &pipeline,
+                  .transform = room_transform,
+                  .light = DirectionalLight::Vanilla()},
+        SceneDraw{.pipeline = &skinned_pipeline,
+                  .transform = actor_transform,
+                  .joints = bind_joints,
+                  .light = DirectionalLight::Vanilla()}};
     const auto outside_transform = MultiplyTransform(
         room_transform,
         TranslationTransform(actor_x + (source.hi[0] - source.lo[0]) * 2.f,
@@ -339,18 +413,20 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
                   .transform = outside_transform,
                   .joints = bind_joints}};
     constexpr SDL_FColor live_scene_clear{.1f, .11f, .14f, 1.f};
-    const auto room_pixels =
-        scene.DrawAndReadback(scene_width, scene_height, room_draws,
-                              live_scene_clear);
-    const auto combined_pixels =
-        scene.DrawAndReadback(scene_width, scene_height, combined_draws,
-                              live_scene_clear);
+    const auto room_pixels = scene.DrawAndReadback(
+        scene_width, scene_height, room_draws, live_scene_clear);
+    const auto combined_pixels = scene.DrawAndReadback(
+        scene_width, scene_height, combined_draws, live_scene_clear);
+    const auto vanilla_combined_pixels = scene.DrawAndReadback(
+        scene_width, scene_height, vanilla_combined_draws, live_scene_clear);
+    const std::uint32_t scene_lighting_differences =
+        PixelDifference(combined_pixels, vanilla_combined_pixels);
     RenderSnapshot snapshot(snapshot_camera);
     snapshot.Add(source, {0.f, 0.f, 0.f});
     snapshot.Add(skinned_source, {actor_x, actor_y, actor_z});
     SnapshotRenderer snapshot_renderer(device);
-    const auto snapshot_pixels = snapshot_renderer.DrawAndReadback(
-        snapshot, scene_width, scene_height);
+    const auto snapshot_pixels =
+        snapshot_renderer.DrawAndReadback(snapshot, scene_width, scene_height);
     const std::uint32_t snapshot_differences =
         PixelDifference(combined_pixels, snapshot_pixels);
     const auto external_pass_pixels = device.RenderAndReadback(
@@ -367,9 +443,14 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
       lucent::info("gpu", "ASSET SELFTEST: wrote scene capture {}",
                    capture_path);
     }
-    const auto outside_pixels =
-        scene.DrawAndReadback(scene_width, scene_height, outside_draws,
-                              live_scene_clear);
+    if (vanilla_capture_path) {
+      mana::WritePng(vanilla_capture_path, scene_width, scene_height,
+                     vanilla_combined_pixels);
+      lucent::info("gpu", "ASSET SELFTEST: wrote vanilla scene capture {}",
+                   vanilla_capture_path);
+    }
+    const auto outside_pixels = scene.DrawAndReadback(
+        scene_width, scene_height, outside_draws, live_scene_clear);
     const std::uint32_t actor_differences =
         PixelDifference(room_pixels, combined_pixels);
     const std::uint32_t outside_differences =
@@ -398,7 +479,7 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
           missing_target_message == "scene draw has no command buffer";
     }
     if (actor_differences == 0 || outside_differences != 0 ||
-        snapshot_differences != 0 ||
+        scene_lighting_differences == 0 || snapshot_differences != 0 ||
         external_pass_differences != 0 ||
         snapshot_renderer.cached_asset_count() != 2 || !unnamed_asset_failed ||
         !missing_target_failed) {
@@ -406,28 +487,30 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control,
           "gpu",
           "ASSET SELFTEST FAIL: scene scanned {} pixels, {} room draws and {} "
           "actor draws; centered actor changed {}, offscreen actor changed {}; "
-          "snapshot differs in {}, external pass differs in {}, cache holds {} "
+          "enhanced differs from vanilla in {}, snapshot differs in {}, "
+          "external pass differs in {}, cache holds {} "
           "assets, unnamed-asset negative={} ({}), missing-target negative={} "
           "({}); expected nonzero, zero, zero, zero, 2, true, true",
           scene_width * scene_height, asset.draws().size(),
-          skinned_asset.draws().size(),
-          actor_differences, outside_differences, snapshot_differences,
-          external_pass_differences,
-          snapshot_renderer.cached_asset_count(), unnamed_asset_failed,
-          unnamed_asset_message, missing_target_failed, missing_target_message);
+          skinned_asset.draws().size(), actor_differences, outside_differences,
+          scene_lighting_differences, snapshot_differences,
+          external_pass_differences, snapshot_renderer.cached_asset_count(),
+          unnamed_asset_failed, unnamed_asset_message, missing_target_failed,
+          missing_target_message);
       return 1;
     }
     lucent::info(
         "gpu",
         "ASSET SELFTEST: scene scanned {} pixels, {} room draws and {} actor "
         "draws; centered actor changed {}, offscreen actor changed 0; {} "
-        "pixels discriminate scene-wide material ordering; snapshot adapter "
+        "pixels discriminate scene-wide material ordering; enhanced shading "
+        "differs from vanilla in {} pixels; snapshot adapter "
         "matches 0 pixels different with 2 cached assets; external render "
         "pass matches 0 pixels different; unnamed asset and missing target "
         "rejected",
         scene_width * scene_height, asset.draws().size(),
-        skinned_asset.draws().size(),
-        actor_differences, material_order_differences);
+        skinned_asset.draws().size(), actor_differences,
+        material_order_differences, scene_lighting_differences);
   }
   return 0;
 }

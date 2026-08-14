@@ -149,10 +149,15 @@ AssetPipeline::AssetPipeline(Device &device, const Asset &asset,
                           .format = AttributeFormat(incidence),
                           .offset = incidence.offset});
   }
-  SDL_GPUShader *vertex =
-      CreateShader(device_, asset_.skinned() ? "skinned" : "textured",
-                   SDL_GPU_SHADERSTAGE_VERTEX,
-                   ShaderResources{.uniform_buffers = 1});
+  // Shadercross compacts the static shader's unused TEXCOORD3/4 semantics, so
+  // its normal is location 3. The skinned shader consumes both and retains 5.
+  attributes.push_back({.location = asset_.skinned() ? 5u : 3u,
+                        .buffer_slot = 0,
+                        .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+                        .offset = asset_.normal_offset()});
+  SDL_GPUShader *vertex = CreateShader(
+      device_, asset_.skinned() ? "skinned" : "textured",
+      SDL_GPU_SHADERSTAGE_VERTEX, ShaderResources{.uniform_buffers = 1});
   SDL_GPUShader *fragment = nullptr;
   try {
     fragment = CreateShader(device_, "textured", SDL_GPU_SHADERSTAGE_FRAGMENT,
@@ -209,43 +214,60 @@ std::vector<std::uint8_t> AssetPipeline::DrawAndReadback(std::uint32_t width,
 std::vector<std::uint8_t>
 AssetPipeline::DrawAndReadback(std::uint32_t width, std::uint32_t height,
                                const std::array<float, 16> &transform,
-                               bool textures, std::span<const float> joints) {
+                               bool textures, std::span<const float> joints,
+                               const DirectionalLight &light) {
   constexpr SDL_FColor clear{0.f, 1.f, 1.f, 1.f};
   return device_.RenderAndReadback(
       width, height, clear,
       [&](SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass) {
-        Draw(command, pass, transform, textures, joints);
+        Draw(command, pass, transform, textures, joints, light);
       },
       features_.depth_test);
 }
 
 void AssetPipeline::Draw(SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass,
-                         const std::array<float, 16> &transform,
-                         bool textures, std::span<const float> joints) {
-  DrawPass(command, pass, MaterialPass::kOpaque, transform, textures, joints);
-  DrawPass(command, pass, MaterialPass::kBlended, transform, textures, joints);
+                         const std::array<float, 16> &transform, bool textures,
+                         std::span<const float> joints,
+                         const DirectionalLight &light) {
+  DrawPass(command, pass, MaterialPass::kOpaque, transform, textures, joints,
+           light);
+  DrawPass(command, pass, MaterialPass::kBlended, transform, textures, joints,
+           light);
 }
 
 void AssetPipeline::DrawPass(SDL_GPUCommandBuffer *command,
                              SDL_GPURenderPass *pass,
                              MaterialPass material_pass,
                              const std::array<float, 16> &transform,
-                             bool textures, std::span<const float> joints) {
+                             bool textures, std::span<const float> joints,
+                             const DirectionalLight &light) {
   constexpr std::size_t kJointFloatCount = 80 * 3 * 4;
+  const std::array<float, 8> light_uniform{light.direction_to_light[0],
+                                           light.direction_to_light[1],
+                                           light.direction_to_light[2],
+                                           light.ambient,
+                                           light.color[0],
+                                           light.color[1],
+                                           light.color[2],
+                                           light.diffuse};
   if (asset_.skinned()) {
     if (joints.size() != kJointFloatCount)
-      throw std::invalid_argument(std::format(
-          "skinned asset requires {} joint floats, received {}",
-          kJointFloatCount, joints.size()));
-    std::array<float, 16 + kJointFloatCount> uniform{};
+      throw std::invalid_argument(
+          std::format("skinned asset requires {} joint floats, received {}",
+                      kJointFloatCount, joints.size()));
+    std::array<float, 16 + kJointFloatCount + 8> uniform{};
     std::copy(transform.begin(), transform.end(), uniform.begin());
     std::copy(joints.begin(), joints.end(), uniform.begin() + 16);
+    std::copy(light_uniform.begin(), light_uniform.end(),
+              uniform.begin() + 16 + kJointFloatCount);
     SDL_PushGPUVertexUniformData(command, 0, uniform.data(), sizeof(uniform));
   } else {
     if (!joints.empty())
       throw std::invalid_argument("static asset received a joint palette");
-    SDL_PushGPUVertexUniformData(command, 0, transform.data(),
-                                 sizeof(transform));
+    std::array<float, 24> uniform{};
+    std::copy(transform.begin(), transform.end(), uniform.begin());
+    std::copy(light_uniform.begin(), light_uniform.end(), uniform.begin() + 16);
+    SDL_PushGPUVertexUniformData(command, 0, uniform.data(), sizeof(uniform));
   }
   const SDL_GPUBufferBinding vertices{.buffer = asset_.vertices()};
   const SDL_GPUBufferBinding indices{.buffer = asset_.indices()};

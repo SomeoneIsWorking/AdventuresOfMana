@@ -4,6 +4,7 @@ namespace mana::gpu {
 
 int RunAssetPipelineSelfTest(const char *archive_path,
                              bool negative_control = false,
-                             const char *capture_path = nullptr);
+                             const char *capture_path = nullptr,
+                             const char *vanilla_capture_path = nullptr);
 
 } // namespace mana::gpu

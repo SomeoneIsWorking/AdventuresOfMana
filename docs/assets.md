@@ -139,10 +139,10 @@ buffer entirely.
 | Stride | Count | Layout |
 |--------|------:|--------|
 | 24 | 1118 | pos(12) + uv(8) + color(4) — static geometry |
-| 44 | 257 | pos(12) + normal(12) + uv(8) + color(4) + weight(4) + boneidx(4) — skinned |
+| 44 | 257 | pos(12) + color(4) + uv(8) + boneidx(4) + weight(16) — skinned |
 
-Matches the skinning vertex shader in `.rodata`, which declares exactly
-`position, texcoord0, color, weight, incidence`.
+These compact names are expanded and verified against the file-owned vertex
+declaration below. In particular, neither layout contains a normal.
 
 ## Verification
 
@@ -387,6 +387,16 @@ That was coincidence: bone weights sum to 1. The game's own skinning vertex
 shader in `.rodata` declares exactly `position, texcoord0, color, weight,
 incidence` and no normal, matching the declaration. Lighting comes from the
 `mLight` uniform block, not per-vertex normals.
+
+The recovered vanilla vertex shader uses `mLight[1]` as a point position plus
+inverse-radius-squared attenuation, adds the resulting `mLight[0]` colour to
+ambient `mLight[3]`, and multiplies vertex colour by direct colour `mLight[2]`.
+`SiDrawLight::Initialize` defaults those slots to point colour zero, attenuation
+`0.0001`, direct white, and ambient zero. `AppCharacterBase` likewise starts
+with direct white and ambient black. Thus the port's former
+texture-times-vertex-colour output was the real default-light baseline; the
+surface-directional light described in `docs/renderer-architecture.md` is an
+explicit PC enhancement, not a falsely attributed vanilla feature.
 
 ## `.smdl` sections 0 and 4 — materials and draw ranges
 

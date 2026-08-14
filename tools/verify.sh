@@ -16,8 +16,12 @@ python3 tools/check_structure.py --selftest || exit 1
 python3 tools/check_structure.py || exit 1
 
 echo "=== build shipping runtime ==="
-cmake --build build --target mana mana_gpu_selftest mana_gpu_asset_selftest -j2 || exit 1
+cmake --build build --target mana mana_gpu_selftest mana_gpu_asset_selftest \
+  mana_render_normals_selftest -j2 || exit 1
 mkdir -p scratch/logs
+
+echo "=== generated surface-normal self-test ==="
+./build/mana_render_normals_selftest || exit 1
 
 echo "=== SDL3 GPU offscreen device self-test ==="
 ./build/mana_gpu_selftest || exit 1
@@ -98,9 +102,19 @@ python3 tools/asset/mpk.py "$archive" --check-dir scratch/dump || exit 1
 echo "=== SDL3 GPU shipping-asset pipeline ==="
 mkdir -p scratch/screenshots
 scene_capture=scratch/screenshots/sdl3-gpu-scene.png
-./build/mana_gpu_asset_selftest --capture "$scene_capture" "$archive" || exit 1
+vanilla_scene_capture=scratch/screenshots/sdl3-gpu-scene-vanilla.png
+./build/mana_gpu_asset_selftest --capture-pair "$scene_capture" \
+  "$vanilla_scene_capture" "$archive" || exit 1
 if [ ! -s "$scene_capture" ]; then
   echo "FATAL: scene capture wrote no bytes to $scene_capture"
+  exit 1
+fi
+if [ ! -s "$vanilla_scene_capture" ]; then
+  echo "FATAL: vanilla scene capture wrote no bytes to $vanilla_scene_capture"
+  exit 1
+fi
+if cmp -s "$scene_capture" "$vanilla_scene_capture"; then
+  echo "FATAL: enhanced and vanilla scene captures are byte-identical"
   exit 1
 fi
 if [ -e scratch/logs/DOES_NOT_EXIST ]; then

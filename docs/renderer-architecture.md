@@ -19,9 +19,9 @@ longer issue GL calls.
 |---|---|---|
 | `host/gpu_device` | SDL video-subsystem lifetime, GPU device, offscreen targets, command submission, synchronized readback | **live and tested** |
 | shader pack | compile HLSL to tracked SPIR-V, DXIL, and MSL, embed all formats, and select the active backend without runtime source guessing | **live and tested** |
-| backend-independent assets | parse models, retain texture storage, resolve material textures, and compute bounds without a graphics API | **live and shared by GLES and SDL3 GPU** |
+| backend-independent assets | parse models, retain texture storage, resolve material textures, compute bounds, and derive area-weighted smooth normals from indexed geometry without a graphics API | **live and shared by GLES and SDL3 GPU** |
 | camera + render snapshot | resolve script camera targets/interpolation once and freeze room/object/actor inputs for one frame | **live and consumed by GLES and SDL3 GPU** |
-| GPU assets | texture, vertex-buffer, index-buffer, sampler, and lifetime ownership | **live and tested for static and skinned assets** |
+| GPU assets | texture, generated-normal/vertex-buffer, index-buffer, sampler, and lifetime ownership | **live and tested for static and skinned assets** |
 | scene renderer | room, static actor, skinned actor, depth, blend, and draw submission | **live offscreen for a composed shipping room and skinned actor, including running-world snapshots** |
 | UI renderer | font atlas, sprites, message windows, and HUD | missing |
 | fade overlay | freeze authored fade colour/coverage and composite it after scene/UI | **live offscreen in SDL3 GPU and the running paired capture** |
@@ -39,7 +39,12 @@ actor instances. Both renderers consume that same snapshot; SDL3 GPU does not
 reach back into `World` or duplicate script-camera policy.
 `mana_gpu_selftest` initializes SDL's offscreen video driver, creates no window,
 opens no audio subsystem, clears an RGBA8 GPU target to black and magenta, and
-reads every pixel back. The two-color discriminator prevents an all-zero or
+reads every pixel back. `host/render_normals` derives finite unit normals for
+both 16- and 32-bit index streams and leaves unsupported vertices exactly zero
+so the shader applies ambient light rather than inventing an orientation. Its
+focused positive checks +Z output for all three vertices; its degenerate
+negative reports one degenerate triangle and three exact-zero normals. The
+two-color discriminator prevents an all-zero or
 stale transfer buffer from looking like a successful capture; the mandatory
 wrong-color negative proves the same shipping readback rejects all 12 pixels.
 Generated MSL is normalized mechanically so compiler whitespace cannot dirty a
@@ -48,7 +53,7 @@ then draws a full-target triangle and proves all 48
 pixels changed from the black clear; its own wrong-color negative rejects all
 48. The textured asset pipeline uploads the shipping `M0001_00_00` room's
 vertex/index buffers and seven textures, submits all 12 draw ranges, and scans
-6,912 readback pixels. The positive changes 3,868 pixels with 194 distinct red
+6,912 readback pixels. The positive changes 3,868 pixels with 188 distinct red
 values, and all 3,868 differ from a forced-white texture render; the paired
 no-draw class changes 0. A layered near/far draw changes 0 pixels with depth
 enabled and 3,868 with depth disabled. A second shipping room contributes two
@@ -56,7 +61,12 @@ water draw ranges, and 128 pixels differ from the opaque-material control. The
 shipping hero `C0000_00` exercises the same two-bone incidence/weight formula
 as the GLES path with the shared 80-bone pose palette. Its bind render changes
 2,812 pixels from clear; translating every joint changes 3,723 pixels, while a
-missing palette fails explicitly instead of drawing stale state. Pose
+missing palette fails explicitly instead of drawing stale state. The room
+derives normals from 1,094 triangles with zero degenerates and zero unsupported
+vertices. Enhanced lighting differs from vanilla in 3,868 pixels and from an
+equal-ambient control in 3,675, proving the result contains directional surface
+response rather than global dimming. The skinned path differs from its
+equal-ambient control in 2,750 pixels. Pose
 evaluation lives in `host/render_pose`, not either backend. The verifier
 regenerates all 21 backend artifacts from seven HLSL sources and byte-compares
 them with the tracked pack.
@@ -69,8 +79,11 @@ so that policy is executed rather than inferred from call sites. Its
 shipping discriminator uses the host's default perspective-camera convention
 to compose room `M0001_00_00` and hero `C0000_00` at room center. The actor
 changes 88 of 76,800 pixels from the room-only image; translating the same
-actor beyond the frustum changes 0. The mandatory test writes that composite
-through `host/image_write` to `scratch/screenshots/sdl3-gpu-scene.png`. PNG
+actor beyond the frustum changes 0. The mandatory test writes enhanced and
+vanilla composites through `host/image_write` to
+`scratch/screenshots/sdl3-gpu-scene.png` and
+`scratch/screenshots/sdl3-gpu-scene-vanilla.png`, and refuses byte-identical
+captures. PNG
 output is no longer hidden in `main.cpp`, and an unavailable output directory
 fails explicitly.
 
@@ -121,11 +134,22 @@ other official builds.
 
 ## Lighting and image quality
 
-The washed-out image should be corrected in the renderer, not by editing the
-shipping Lua scripts or textures. First preserve a capture-compatible authored
-baseline. Then measure which model attributes and material fields carry normals
-and lighting inputs, add a linear-light scene target, and introduce lighting and
-tone mapping as explicit passes with A/B captures. Exposure, contrast, ambient
-level, and light direction must be named configuration with measured defaults;
-they must not become scattered shader constants chosen to make one room look
-good.
+The shipping model declaration contains no normals. The recovered vanilla
+`mLight` contract is point-colour attenuation plus direct/ambient colour, with
+defaults that reduce to texture times vertex colour; it is preserved by
+`DirectionalLight::Vanilla`. Better surface shading is therefore labelled as a
+PORT CHOICE rather than presented as recovered behaviour.
+
+`host/render_normals` generates area-weighted smooth normals once at asset load.
+The GPU asset interleaves that derived stream without changing the shipping
+model bytes. Static and two-bone skinned vertex shaders apply a centralized
+`DirectionalLight`: ambient 0.55 plus diffuse 0.45 sums to the vanilla maximum,
+and a diagonal overhead direction avoids privileging one wall axis. Model yaw
+rotates the light into local space; skinned normals use the same joint rows as
+positions with direction `w=0`. These values live in one named configuration,
+not Lua, textures, or scattered draw sites. The mandatory offscreen A/B and
+equal-ambient controls cover a room and skinned hero with no window or audio.
+
+This removes the washed-out flat baseline without claiming completion of image
+quality. A linear-light scene target, authored vanilla `mLight` point colours,
+and tone mapping remain separate future work.

@@ -7,6 +7,8 @@
 #include <span>
 #include <vector>
 
+#include "host/render_lighting.h"
+
 namespace mana::gpu {
 
 class Asset;
@@ -35,14 +37,17 @@ public:
   std::vector<std::uint8_t>
   DrawAndReadback(std::uint32_t width, std::uint32_t height,
                   const std::array<float, 16> &transform, bool textures = true,
-                  std::span<const float> joints = {});
+                  std::span<const float> joints = {},
+                  const DirectionalLight &light = {});
   void Draw(SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass,
             const std::array<float, 16> &transform, bool textures = true,
-            std::span<const float> joints = {});
+            std::span<const float> joints = {},
+            const DirectionalLight &light = {});
   void DrawPass(SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass,
                 MaterialPass material_pass,
                 const std::array<float, 16> &transform, bool textures = true,
-                std::span<const float> joints = {});
+                std::span<const float> joints = {},
+                const DirectionalLight &light = {});
   std::array<float, 16> TopDownTransform() const;
   Device &device() const { return device_; }
 

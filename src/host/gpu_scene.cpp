@@ -37,7 +37,7 @@ void SceneRenderer::Draw(SDL_GPUCommandBuffer *command,
                                    MaterialPass::kBlended}) {
     for (const auto &draw : draws) {
       draw.pipeline->DrawPass(command, pass, material_pass, draw.transform,
-                              draw.textures, draw.joints);
+                              draw.textures, draw.joints, draw.light);
     }
   }
 }

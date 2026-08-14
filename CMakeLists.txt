@@ -48,6 +48,8 @@ target_link_libraries(engine PUBLIC lua lucent::lucent SDL3::SDL3 PkgConfig::VOR
 add_library(render_assets STATIC
   src/host/render_asset.cpp
   src/host/render_camera.cpp
+  src/host/render_lighting.cpp
+  src/host/render_normals.cpp
   src/host/render_overlay.cpp
   src/host/render_pose.cpp
   src/host/render_snapshot.cpp)
@@ -107,6 +109,10 @@ target_link_libraries(host_gpu PUBLIC render_assets SDL3::SDL3 lucent::lucent)
 add_executable(mana_gpu_selftest
   src/tools/gpu_selftest.cpp)
 target_link_libraries(mana_gpu_selftest PRIVATE host_gpu)
+
+add_executable(mana_render_normals_selftest
+  src/tools/render_normals_selftest.cpp)
+target_link_libraries(mana_render_normals_selftest PRIVATE render_assets)
 
 add_executable(mana_gpu_asset_selftest
   src/tools/gpu_asset_selftest.cpp

@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "host/render_normals.h"
 #include "mcf/mcf.h"
 
 namespace mcf {
@@ -24,6 +25,7 @@ struct RenderAsset {
   std::vector<TextureSet> texture_sets;
   std::vector<std::optional<TextureRef>> textures;
   std::vector<std::optional<std::uint32_t>> draw_textures;
+  NormalGeneration normals;
   float lo[3]{}, hi[3]{};
 
   bool skinned() const { return model.Find(VertexUsage::kWeight) != nullptr; }

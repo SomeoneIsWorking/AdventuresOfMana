@@ -7,6 +7,8 @@
 #include <span>
 #include <vector>
 
+#include "host/render_lighting.h"
+
 namespace mana::gpu {
 
 class AssetPipeline;
@@ -17,6 +19,7 @@ struct SceneDraw {
   std::array<float, 16> transform{};
   std::span<const float> joints;
   bool textures = true;
+  DirectionalLight light;
 };
 
 // Owns scene-wide submission order. AssetPipeline owns per-asset GPU state;

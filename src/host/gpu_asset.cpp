@@ -148,8 +148,31 @@ SDL_GPUTexture *UploadTexture(Device &device, std::uint32_t width,
 Asset::Asset(Device &device, const mcf::RenderAsset &source) : device_(device) {
   if (source.model.index_size != 2 && source.model.index_size != 4)
     throw std::invalid_argument("model index elements must be 16 or 32 bit");
-  vertices_ = UploadBuffer(device_, source.model.vertices(),
-                           SDL_GPU_BUFFERUSAGE_VERTEX);
+  const std::size_t normal_float_count =
+      std::size_t(source.model.vertex_count) * 3;
+  if (source.normals.values.size() != normal_float_count)
+    throw std::invalid_argument(std::format(
+        "model has {} generated normal floats for {} vertices; expected {}",
+        source.normals.values.size(), source.model.vertex_count,
+        normal_float_count));
+  normal_offset_ = source.model.vertex_stride;
+  vertex_stride_ = normal_offset_ + sizeof(float) * 3;
+  std::vector<std::uint8_t> expanded_vertices(
+      std::size_t(source.model.vertex_count) * vertex_stride_);
+  const auto source_vertices = source.model.vertices();
+  for (std::uint32_t vertex = 0; vertex < source.model.vertex_count; ++vertex) {
+    std::uint8_t *destination =
+        expanded_vertices.data() + std::size_t(vertex) * vertex_stride_;
+    std::memcpy(destination,
+                source_vertices.data() +
+                    std::size_t(vertex) * source.model.vertex_stride,
+                source.model.vertex_stride);
+    std::memcpy(destination + normal_offset_,
+                source.normals.values.data() + std::size_t(vertex) * 3,
+                sizeof(float) * 3);
+  }
+  vertices_ =
+      UploadBuffer(device_, expanded_vertices, SDL_GPU_BUFFERUSAGE_VERTEX);
   try {
     indices_ = UploadBuffer(device_, source.model.indices(),
                             SDL_GPU_BUFFERUSAGE_INDEX);
@@ -203,7 +226,6 @@ Asset::Asset(Device &device, const mcf::RenderAsset &source) : device_(device) {
   }
   index_type_ = source.model.index_size == 2 ? SDL_GPU_INDEXELEMENTSIZE_16BIT
                                              : SDL_GPU_INDEXELEMENTSIZE_32BIT;
-  vertex_stride_ = source.model.vertex_stride;
   skinned_ = source.skinned();
   std::memcpy(lo_, source.lo, sizeof(lo_));
   std::memcpy(hi_, source.hi, sizeof(hi_));
