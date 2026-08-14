@@ -10,9 +10,7 @@
 #include <lucent/log.h>
 
 #include "host/gpu_device.h"
-#include "host/gpu_overlay.h"
-#include "host/gpu_snapshot_renderer.h"
-#include "host/gpu_ui.h"
+#include "host/gpu_frame_renderer.h"
 #include "host/image_compare.h"
 #include "host/image_write.h"
 #include "host/render_snapshot.h"
@@ -24,17 +22,14 @@ namespace mana {
 class ScenePairCapture::Impl {
 public:
   Impl(std::string output_prefix, const mcf::Font &font)
-      : prefix(std::move(output_prefix)), renderer(device), ui(device, font),
-        overlay(device) {
+      : prefix(std::move(output_prefix)), frame(device, font) {
     if (prefix.empty())
       throw std::invalid_argument("scene-pair output prefix is empty");
   }
 
   std::string prefix;
   gpu::Device device;
-  gpu::SnapshotRenderer renderer;
-  gpu::UiRenderer ui;
-  gpu::OverlayRenderer overlay;
+  gpu::FrameRenderer frame;
 };
 
 ScenePairCapture::ScenePairCapture(std::string output_prefix,
@@ -61,15 +56,8 @@ void ScenePairCapture::WriteFromGles(const RenderSnapshot &snapshot,
                 gles_bottom_up.data() +
                     std::size_t(height - 1 - y) * width * 4,
                 std::size_t(width) * 4);
-  impl_->ui.Prepare(ui_frame);
-  const auto gpu_pixels = impl_->device.RenderAndReadback(
-      width, height, SDL_FColor{.1f, .11f, .14f, 1.f},
-      [&](SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass) {
-        impl_->renderer.Draw(snapshot, width, height, command, pass);
-        impl_->ui.Draw(command, pass);
-        impl_->overlay.Draw(command, pass, overlay);
-      },
-      true);
+  const auto gpu_pixels = impl_->frame.DrawAndReadback(
+      snapshot, width, height, ui_frame, overlay);
   const std::string gl_path = impl_->prefix + "-gles.png";
   const std::string gpu_path = impl_->prefix + "-sdl3.png";
   WritePng(gl_path, width, height, gles_top_down);
@@ -81,7 +69,7 @@ void ScenePairCapture::WriteFromGles(const RenderSnapshot &snapshot,
       "batches/{} glyph quads, fade coverage {:.3f}; {} of {} pixels differ; "
       "wrote {} and {}",
       snapshot.instances.size(), snapshot.skinned_count(),
-      impl_->renderer.cached_asset_count(), ui_frame.batches.size(),
+      impl_->frame.cached_asset_count(), ui_frame.batches.size(),
       ui_frame.glyph_quads, overlay.color[3], different, width * height,
       gl_path, gpu_path);
 }

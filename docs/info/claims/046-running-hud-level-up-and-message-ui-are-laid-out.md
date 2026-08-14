@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,ui,sdl3,gles
 depends: src/host/render_ui.cpp#BuildGameUi, src/host/scene_pair_capture.cpp#WriteFromGles, src/host/main.cpp
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 14:42:04
+verified_at: 2026-08-14 15:04:26
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ if either backend stops consuming BuildGameUi output, the live pair omits UI, or
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full tools/verify.sh passed on the exact source tree committed as 088030a: structure gate 81 files/0 violations, 33/33 shader artifacts reproduced exactly, SDL3 GPU title omission controls measured sprite and text contributions, running ModeTitle completed offscreen with zero decoded audio frames, uncapped story verification reached sccnt=20, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+2026-08-14 full tools/verify.sh passed on the exact shared-frame-compositor tree: 87 source files/0 structure violations, 33/33 shaders, live offscreen GLES/SDL3 scene UI fade pair with zero audio, uncapped story through sccnt=20, and ALL PARSERS PASSED.

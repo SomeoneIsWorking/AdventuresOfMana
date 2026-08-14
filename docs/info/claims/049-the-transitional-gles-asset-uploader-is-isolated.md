@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,structure
 depends: src/host/gles_asset.cpp#Asset::Release, src/host/main.cpp#main
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 15:01:37
+verified_at: 2026-08-14 15:04:26
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ A GLES handle reappears in host/render, an Asset copy becomes possible, a resour
 ## Re-confirmed 2026-08-14
 
 2026-08-14 full tools/verify.sh passed on the exact GLES ownership source tree: 85 source files/0 structure violations, same-frame GLES/SDL3 scene UI fade pair, uncapped zero-audio story through sccnt=20, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+2026-08-14 full tools/verify.sh passed on the exact shared-frame-compositor tree: 87 source files/0 structure violations, 33/33 shaders, live offscreen GLES/SDL3 scene UI fade pair with zero audio, uncapped story through sccnt=20, and ALL PARSERS PASSED.

@@ -115,6 +115,7 @@ add_library(host_gpu STATIC
   src/host/gpu_asset.cpp
   src/host/gpu_asset_pipeline.cpp
   src/host/gpu_device.cpp
+  src/host/gpu_frame_renderer.cpp
   src/host/gpu_overlay.cpp
   src/host/gpu_pipeline.cpp
   src/host/gpu_presentation.cpp

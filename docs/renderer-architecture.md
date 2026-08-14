@@ -23,6 +23,7 @@ longer issue GL calls.
 | camera + render snapshot | resolve script camera targets/interpolation once and freeze room/object/actor inputs for one frame | **live and consumed by GLES and SDL3 GPU** |
 | GPU assets | texture, generated-normal/vertex-buffer, index-buffer, sampler, and lifetime ownership | **live and tested for static and skinned assets** |
 | scene renderer | room, static actor, skinned actor, depth, blend, and draw submission | **live offscreen for a composed shipping room and skinned actor, including running-world snapshots** |
+| frame compositor | submit one immutable running frame in scene, UI, authored-fade order without owning presentation or game state | **live in deterministic readback and the running paired capture** |
 | UI content + layout | format shipping strings/live player values once, decode UTF-8, wrap messages, and emit backend-independent panel/glyph batches | **live and shared by GLES and SDL3 GPU for the running HUD, level-up screen, and messages** |
 | GPU UI renderer | shipping R8 font atlas upload, portable blended pipeline, and shared UI-batch submission | **live offscreen in SDL3 GPU and the running paired capture** |
 | boot/title renderer | shipping logo PNG decode, aspect-fit sprite geometry, and attract/menu/crawl/name text layout | **backend-independent and rendered by both GLES and SDL3 GPU offscreen; interactive presentation still uses GLES** |
@@ -112,6 +113,15 @@ real room snapshot: 3 instances, 2 skinned, 3 cached assets, and the live HUD
 through the same two UI batches and 58 glyph quads. It exits
 cleanly through the offscreen video driver with zero audio frames; GPU objects
 are destroyed before SDL video teardown.
+
+`host/gpu_frame_renderer` is the shared production compositor above the three
+individual pass owners. It prepares the immutable `UiFrame`, submits the
+`RenderSnapshot`, UI, and `FadeOverlay` in shipping order, and exposes the same
+draw operation through caller-owned command/pass and synchronized readback
+interfaces. `host/scene_pair_capture` now delegates to that owner rather than
+maintaining a second ordering recipe. The focused live pair still reports 3
+instances (2 skinned), 3 cached assets, 2 UI batches/58 glyph quads, and fade
+coverage 0.500 under the offscreen driver with zero decoded audio frames.
 
 `host/render_overlay` freezes the engine's authored fade RGB and resolved
 coverage for one frame. `host/gpu_overlay` composites that input as its own
