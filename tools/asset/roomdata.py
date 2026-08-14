@@ -65,7 +65,9 @@ def parse_odt(data):
         o = ODT_HEADER + i * ODT_STRIDE
         kind, obj_id = struct.unpack_from("<ii", data, o)
         x, y, z = struct.unpack_from("<fff", data, o + 8)
+        flags, script_id = struct.unpack_from("<Ii", data, o + 0x3c)
         out.append({"kind": kind, "id": obj_id, "pos": (x, y, z),
+                    "flags": flags, "script_id": script_id,
                     "raw": data[o:o + ODT_STRIDE]})
     return out
 

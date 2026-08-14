@@ -601,9 +601,11 @@ Each record is an `AppObjectModel::PARAMETERIMAGE` handed to
 | 0x00 | i32 | kind — **1 in all 3284 shipping records** |
 | 0x04 | i32 | object id; looked up in a table of 0x138-byte entries |
 | 0x08 | f32×3 | position X, Y, Z, in **world** coordinates |
+| 0x3C | u32 | object damage/collision policy flags |
+| 0x40 | i32 | script id; `AppObjectServer::GetScpId` compares this against object `+0x1a4` |
 
-The remaining 0xA8 bytes are mostly 1.0f scale-looking values and zeroes and are
-NOT decoded. **424/424 files satisfy `len == 0x40 + count*0xC0` exactly** — a
+The other fields are mostly 1.0f scale-looking values and zeroes and are NOT
+decoded. **424/424 files satisfy `len == 0x40 + count*0xC0` exactly** — a
 real test, since a wrong header size or stride fails the equation outright.
 
 ### `.gdt` — ground attributes, `ModeGame::Load_GroundAttribute(char*,int,int)` @ `0x2e6cf4`

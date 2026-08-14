@@ -274,6 +274,7 @@ struct MapObject {
     int32_t id = 0;          // resolved through src/engine/object_table.inc
     float pos[3]{};
     uint32_t flags = 0;      // PARAMETERIMAGE +0x3c; object damage/collision policy
+    int32_t script_id = 0;   // +0x40; AppObjectServer::GetScpId lookup key
 };
 
 // Returns an empty list (never throws) for a file the engine itself would

@@ -2443,6 +2443,7 @@ int main(int argc, char** argv) {
                 float pos[3];
                 int32_t id = 0;
                 uint32_t flags = 0;
+                int32_t script_id = 0;
                 bool alive = true;
             };
             std::vector<PlacedObj> objects;
@@ -2813,7 +2814,7 @@ int main(int argc, char** argv) {
                     }
                     objects.push_back({&cache[nm],
                                        {o.pos[0], o.pos[1], o.pos[2]},
-                                       o.id, o.flags, true});
+                                       o.id, o.flags, o.script_id, true});
                 }
                 // Report the denominator: "0 objects" from a room that has no
                 // .odt and from a room whose table failed to parse would
@@ -2879,7 +2880,9 @@ int main(int argc, char** argv) {
                     // object. Other table entries may be decorative or use a
                     // table-defined collision box that is not the render AABB;
                     // do not manufacture collision from visual geometry.
-                    if (!object.alive || !(object.flags & 0x08)) continue;
+                    if (!object.alive || !sc.ObjectVisible(object.script_id) ||
+                        !(object.flags & 0x08))
+                        continue;
                     // The automated route may cross a destructible object only
                     // while it has the shipping tool that can clear it. Live
                     // movement still asks for the hit object and performs the
@@ -3369,6 +3372,7 @@ int main(int argc, char** argv) {
             struct DriverWaypoint { float x, y, z; };
             std::deque<DriverWaypoint> driver_route;
             bool driver_route_is_staging = false;
+            bool driver_route_descending = false;
             float driver_route_staging_floor = 0.f;
             int driver_blocked_frames = 0;
             bool event_wall_inside = false;
@@ -3774,6 +3778,7 @@ int main(int argc, char** argv) {
                 if (!player_input_enabled) mx = mz = 0.f;
                 float headless_move_limit =
                     std::numeric_limits<float>::infinity();
+                bool headless_lower_event_goal = false;
                 // Headless driver: steer toward a room-local target so the
                 // walk-into-an-event-box path (which is how the game connects
                 // rooms) can be exercised without a human at the keyboard.
@@ -4196,6 +4201,21 @@ int main(int argc, char** argv) {
                                 }
                         }
 
+                        if (active_goal_boxes.empty() ||
+                            (!driver_route_room.empty() &&
+                             driver_route_room != room_name))
+                            driver_route_descending = false;
+                        const bool target_starts_below = std::any_of(
+                            active_goal_boxes.begin(),
+                            active_goal_boxes.end(),
+                            [&](const mcf::EventBox* box) {
+                                return box->hi[1] <=
+                                       py + kEventBoxProbeHeight + .01f;
+                            });
+                        if (target_starts_below)
+                            driver_route_descending = true;
+                        headless_lower_event_goal = driver_route_descending;
+
                         // Multi-level overworld rooms author paired WALL_UP /
                         // WALL_DN volumes. Approach the direction belonging to
                         // both the player's current floor and story objective;
@@ -4378,27 +4398,41 @@ int main(int argc, char** argv) {
                                         nav_x(hx), nav_z(hz), nav_x(nx), nav_z(nz),
                                         height[size_t(here)], room_org[0], room_org[2]);
                                     const bool stair_step =
-                                        height[size_t(next)] >
-                                            height[size_t(here)] + .01f &&
-                                        height[size_t(next)] -
-                                                height[size_t(here)] <= 30.f;
+                                        (height[size_t(next)] >
+                                             height[size_t(here)] + .01f &&
+                                         height[size_t(next)] -
+                                             height[size_t(here)] <= 30.f) ||
+                                        (headless_lower_event_goal &&
+                                         height[size_t(here)] >
+                                             height[size_t(next)] + .01f &&
+                                         height[size_t(here)] -
+                                             height[size_t(next)] <= 30.f);
                                     bool edge_wall = false;
                                     bool edge_object = false;
-                                    const float edge_dx = nav_x(nx) - nav_x(hx);
-                                    const float edge_dz = nav_z(nz) - nav_z(hz);
-                                    const float edge_length = std::sqrt(
-                                        edge_dx * edge_dx + edge_dz * edge_dz);
                                     // Begin at the actual lattice node. Moving
                                     // the validator backward across a collision
                                     // boundary can make a blocked diagonal look
                                     // clear even though shipping movement starts
-                                    // exactly on that boundary.
-                                    const float edge_start_x = nav_x(hx);
-                                    const float edge_start_z = nav_z(hz);
+                                    // exactly on that boundary. The one
+                                    // exception is the first edge of a lower-
+                                    // event route: its rounded node can lie on
+                                    // the opposite side of a slope wall from
+                                    // the live centre, so retain the live point.
+                                    const float edge_start_x =
+                                        headless_lower_event_goal && here == start
+                                            ? px : nav_x(hx);
+                                    const float edge_start_z =
+                                        headless_lower_event_goal && here == start
+                                            ? pz : nav_z(hz);
+                                    const float edge_dx = nav_x(nx) - edge_start_x;
+                                    const float edge_dz = nav_z(nz) - edge_start_z;
+                                    const float edge_length = std::sqrt(
+                                        edge_dx * edge_dx + edge_dz * edge_dz);
                                     const float route_move_step = kWalk / 30.f;
                                     const int edge_sweep_samples = std::max(
                                         1, int(std::ceil(edge_length /
                                                         route_move_step)));
+                                    float edge_floor = height[size_t(here)];
                                     for (int sample = 1;
                                          sample <= edge_sweep_samples; ++sample) {
                                         const float t0 = std::min(
@@ -4416,14 +4450,40 @@ int main(int argc, char** argv) {
                                             edge_start_x, nav_x(nx), t1);
                                         const float bz = std::lerp(
                                             edge_start_z, nav_z(nz), t1);
-                                        if (!stair_step && col.BlockedXZ(
-                                                ax, az, bx, bz,
-                                                height[size_t(here)], 30.f,
-                                                mcf::Collision::kWallMask))
+                                        if (headless_lower_event_goal) {
+                                            float sample_floor = 0.f;
+                                            const bool floor_found =
+                                                col.GetFloorBelow(
+                                                    bx, bz, edge_floor + 30.f,
+                                                    mcf::Collision::kFloorMask,
+                                                    &sample_floor);
+                                            const bool sample_step = floor_found &&
+                                                std::fabs(sample_floor - edge_floor) >
+                                                    .01f &&
+                                                std::fabs(sample_floor - edge_floor) <=
+                                                    30.f;
+                                            if (!floor_found ||
+                                                std::fabs(sample_floor - edge_floor) >
+                                                    30.f ||
+                                                (!sample_step && col.BlockedXZ(
+                                                    ax, az, bx, bz, edge_floor,
+                                                    30.f,
+                                                    mcf::Collision::kWallMask)))
+                                                edge_wall = true;
+                                            if (floor_found)
+                                                edge_floor = sample_floor;
+                                        } else if (!stair_step && col.BlockedXZ(
+                                                       ax, az, bx, bz,
+                                                       height[size_t(here)], 30.f,
+                                                       mcf::Collision::kWallMask)) {
                                             edge_wall = true;
+                                        }
                                         if (objectBlockedXZ(
                                                 ax, az, bx, bz,
-                                                height[size_t(here)], nullptr))
+                                                headless_lower_event_goal
+                                                    ? edge_floor
+                                                    : height[size_t(here)],
+                                                nullptr))
                                             edge_object = true;
                                     }
                                     if ((std::fabs(mid_floor -
@@ -4524,7 +4584,8 @@ int main(int argc, char** argv) {
                                     goal = i;
                                 }
                             }
-                            if (goal < 0 && !active_goal_boxes.empty()) {
+                            if (goal < 0 && !active_goal_boxes.empty() &&
+                                !headless_lower_event_goal) {
                                 float best_stage_height = py + 5.f;
                                 float best_stage_distance =
                                     std::numeric_limits<float>::infinity();
@@ -4559,6 +4620,14 @@ int main(int argc, char** argv) {
                             if (goal < 0) {
                                 float max_sampled = -std::numeric_limits<float>::infinity();
                                 float max_reachable = -std::numeric_limits<float>::infinity();
+                                float min_reachable_x =
+                                    std::numeric_limits<float>::infinity();
+                                float max_reachable_x =
+                                    -std::numeric_limits<float>::infinity();
+                                float min_reachable_z =
+                                    std::numeric_limits<float>::infinity();
+                                float max_reachable_z =
+                                    -std::numeric_limits<float>::infinity();
                                 int rise_frontier = 0;
                                 int rise_low_wall = 0;
                                 int rise_high_wall = 0;
@@ -4567,9 +4636,16 @@ int main(int argc, char** argv) {
                                     if (height[size_t(i)] < kChipNoFloor)
                                         max_sampled = std::max(
                                             max_sampled, height[size_t(i)]);
-                                    if (dist[size_t(i)] >= 0)
+                                    if (dist[size_t(i)] >= 0) {
                                         max_reachable = std::max(
                                             max_reachable, height[size_t(i)]);
+                                        const float cx = (i % nav_w) * kNavStep;
+                                        const float cz = (i / nav_w) * kNavStep;
+                                        min_reachable_x = std::min(min_reachable_x, cx);
+                                        max_reachable_x = std::max(max_reachable_x, cx);
+                                        min_reachable_z = std::min(min_reachable_z, cz);
+                                        max_reachable_z = std::max(max_reachable_z, cz);
+                                    }
                                     if (dist[size_t(i)] < 0) continue;
                                     const int ix = i % nav_w;
                                     const int iz = i / nav_w;
@@ -4607,13 +4683,17 @@ int main(int argc, char** argv) {
                                     "of {} samples but found no reachable target "
                                     "for ({:.1f},{:.1f}) in {}; reachable "
                                     "contact-band samples up/right/down/left="
-                                    "{}/{}/{}/{}; max sampled/reachable floor="
+                                    "{}/{}/{}/{}; reachable local extent x="
+                                    "{:.1f}..{:.1f}, z={:.1f}..{:.1f}; max "
+                                    "sampled/reachable floor="
                                     "{:.1f}/{:.1f}; rise frontier={} (low-wall "
                                     "{}, high-wall {}, object {})",
                                     sx, sz, reached, height.size(),
                                     active_walk_x, active_walk_z, room_name,
                                     reachable_side[0], reachable_side[1],
                                     reachable_side[2], reachable_side[3],
+                                    min_reachable_x, max_reachable_x,
+                                    min_reachable_z, max_reachable_z,
                                     max_sampled, max_reachable, rise_frontier,
                                     rise_low_wall, rise_high_wall, rise_object);
                                 run_failed = true;
@@ -5056,7 +5136,9 @@ int main(int argc, char** argv) {
                     bool move_has_floor = !have_col || col.GetFloorBelow(
                         px, pz, py + 30.f, mcf::Collision::kFloorMask, &g);
                     const bool point_stair_step = have_col && move_has_floor &&
-                        g > py + .01f && g - py <= 30.f;
+                        ((g > py + .01f && g - py <= 30.f) ||
+                         (headless_lower_event_goal && py > g + .01f &&
+                          py - g <= 30.f));
                     float body_floor = 0.f;
                     const float body_probe_x = px + mx / len *
                                                     kEventBoxProbeHeight;
@@ -5094,6 +5176,18 @@ int main(int argc, char** argv) {
                                      hit_object->pos[0] - room_org[0],
                                      hit_object->pos[2] - room_org[2],
                                      inventory.Uses(17));
+                        if (hit_object->script_id != 0) {
+                            const std::string callback = std::format(
+                                "_BREAKOBJ_{}", hit_object->script_id);
+                            if (sc.HasFunction(callback)) {
+                                if (!sc.StartCoroutine(callback))
+                                    lucent::warn("lua", "{}: {}", callback,
+                                                 sc.last_error());
+                                else
+                                    lucent::info("world", "started break "
+                                                 "callback {}", callback);
+                            }
+                        }
                     }
                     bool blocked = static_blocked || object_blocked;
                     float lx = px - room_org[0], lz = pz - room_org[2];
@@ -6018,15 +6112,22 @@ int main(int argc, char** argv) {
                         seedCombat();
                         px = room_exit.world_x;
                         pz = room_exit.world_z;
-                        // The shared edge itself may belong only to the room
-                        // we just left (M0000_07_05 reports y=180 there while
-                        // M0000_07_04's inward terrain is y=330). Place the
-                        // character one established body radius inside the
-                        // destination before resolving its floor.
-                        if (room_exit.arrow == 0) pz -= kEventBoxProbeHeight;
-                        if (room_exit.arrow == 1) px += kEventBoxProbeHeight;
-                        if (room_exit.arrow == 2) pz += kEventBoxProbeHeight;
-                        if (room_exit.arrow == 3) px -= kEventBoxProbeHeight;
+                        // The 330x270 room format wraps the ordinary 300x240
+                        // playable area in a 15-unit margin on every side.
+                        // Cross that margin plus one character radius; using
+                        // radius alone strands the centre in the padding strip
+                        // (M0013_01_00 measures reachable x=307.5..322.5).
+                        constexpr float kRoomEdgeBodyRadius = 30.f;
+                        const float inset_x = room_size.w > 300.f
+                            ? 15.f + kRoomEdgeBodyRadius
+                            : kEventBoxProbeHeight;
+                        const float inset_z = room_size.h > 240.f
+                            ? 15.f + kRoomEdgeBodyRadius
+                            : kEventBoxProbeHeight;
+                        if (room_exit.arrow == 0) pz -= inset_z;
+                        if (room_exit.arrow == 1) px += inset_x;
+                        if (room_exit.arrow == 2) pz += inset_z;
+                        if (room_exit.arrow == 3) px -= inset_x;
                         py = source_floor_y;
                         bool source_level_event_wall = false;
                         if (have_col) {
@@ -6231,7 +6332,8 @@ int main(int argc, char** argv) {
                 anim_t = t;
                 drawOne(stage, origin_zero, nullptr);
                 for (const auto& o : objects)
-                    if (o.alive) drawOne(*o.r, o.pos, nullptr);
+                    if (o.alive && sc.ObjectVisible(o.script_id))
+                        drawOne(*o.r, o.pos, nullptr);
                 // Draw from LIVE actor state: `placed` was a load-time snapshot,
                 // so enemies that move would have rendered at their spawn point.
                 for (auto& a : world.actors_mutable()) {

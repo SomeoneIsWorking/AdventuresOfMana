@@ -568,6 +568,7 @@ std::vector<MapObject> ParseOdt(const std::vector<uint8_t>& file) {
             std::memcpy(&m.pos[k], &bits, 4);
         }
         m.flags = RdU32(file, o + 0x3c);
+        m.script_id = RdS32(file, o + 0x40);
         out.push_back(m);
     }
     return out;
