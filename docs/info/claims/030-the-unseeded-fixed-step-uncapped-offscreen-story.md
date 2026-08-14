@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-14
 tags: progression,hydra,navigation
 depends: src/host/main.cpp, tools/verify.sh
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 10:18:31
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Full ./tools/verify.sh on 2026-08-14: after Recovery, the run attached at the lo
 ## What would falsify it
 
 if the unseeded route fails to complete Recovery, does not traverse the authored mountain callbacks and M0013_05_05/in_1, fails to reach M0013_09_00, opens a window, or decodes audio
+
+## Re-confirmed 2026-08-14
+
+Commit af6e3c5 passed the complete offscreen/dummy-audio fixed-step tools/verify.sh gate on 2026-08-14; gameplay and static/corpus evidence is recorded under scratch/logs/.
