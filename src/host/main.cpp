@@ -48,6 +48,17 @@ bool EventBoxCharacterContact(const mcf::EventBox& box,
     return dx * dx + dz * dz < radius * radius;
 }
 
+int EquippedDoorKeySlot(const mcf::Inventory& inventory) {
+    // AppObjectModel::HitCharacter checks the four item-button fields and
+    // accepts the three shipping key ids before calling UseInventory on the
+    // matching button. GetEquipID exposes those fields as slots 4..7.
+    for (int slot = 4; slot < 8; ++slot) {
+        const int id = inventory.Equipped(slot);
+        if (id == 18 || id == 30 || id == 37) return slot;
+    }
+    return -1;
+}
+
 // --- the shipping game's shaders, byte-for-byte from the binary --------------
 // Matches the 24-byte vertex layout (position, color, texcoord0).
 constexpr const char* kVS =
@@ -388,7 +399,7 @@ int main(int argc, char** argv) {
                 "  --no-audio          skip playback and audio decoding\n"
                 "  --lang en|ja        dialogue language (default en)\n"
                 "  --spawn X Z         start at these room-local coordinates\n"
-                "\nControls: WASD / arrows to move, Space or Z to attack, Esc to quit.\n"
+                "\nControls: WASD / arrows to move, Space or Z to attack, C to cast Cure, Esc to quit.\n"
                 "\nTools:\n"
                 "  --model NAME [--anim FILE] [--time T]   view one model\n"
                 "  --screenshot OUT.png [--warmup N]       render N frames, save, exit\n"
@@ -1591,6 +1602,8 @@ int main(int argc, char** argv) {
                 check("an owned item equips into a button slot",
                       inv.Add(30) && inv.Equip(4, 30) &&
                       inv.Equipped(4) == 30, 1);
+                check("equipped Silver Key is recognized as a door key",
+                      EquippedDoorKeySlot(inv), 4);
                 // 201, 301 and 401 are types 4, 5 and 6 -- one SHARED bag, so
                 // three of NewGame's four grants occupy the same 16 slots.
                 check("helm/armour/accessory share a bag",
@@ -1624,6 +1637,10 @@ int main(int argc, char** argv) {
                 check("one-use item grant succeeds", inv.Add(1), 1);
                 check("one-use item is removed immediately", inv.Consume(1) &&
                       !inv.Has(1), 1);
+                check("spent equipped key clears its item button",
+                      inv.Add(30) && inv.Equip(4, 30) && inv.Consume(30) &&
+                          inv.Equipped(4) == 0,
+                      1);
             }
             {   // The bag fills and then REFUSES -- the failing case, which is
                 // the one a first-free-slot scan can get wrong.
@@ -2540,6 +2557,8 @@ int main(int argc, char** argv) {
             bool post_matock_cave_crossed = false;
             bool hydra_upper_bridge_crossed = false;
             bool hydra_mountain_climbed = false;
+            bool hydra_silver_door_opened = false;
+            bool hydra_roper_room_cleared = false;
             std::optional<mcf::EventBox> mapjump_floor_owner;
             float mapjump_floor_owner_y = 0.f;
             bool fallman_talked = false;
@@ -2559,6 +2578,9 @@ int main(int argc, char** argv) {
                 if (previous_room == "M0013_06_05" &&
                     name == "M0013_01_00")
                     hydra_mountain_climbed = true;
+                if (previous_room == "M0013_01_01" &&
+                    name == "M0013_00_01")
+                    hydra_roper_room_cleared = true;
                 if (name == "M0010_00_01") bogard_house_visited = true;
                 if (bogard_house_visited && name == "M0000_07_04")
                     bogard_return_reached_vine_summit = true;
@@ -3299,6 +3321,7 @@ int main(int argc, char** argv) {
 
             std::string last_warned_message;
             bool confirm_prev = false;
+            bool cure_prev = false;
             bool menu_up_prev = false, menu_down_prev = false;
             bool level_up_open = false;
             int level_up_choice = 0;
@@ -3306,6 +3329,7 @@ int main(int argc, char** argv) {
             bool cam_init = false;
             bool running = true;
             bool run_failed = false;
+            bool stop_room_reached = stop_room.empty() || room_name == stop_room;
             struct RoomExitReq {
                 bool pending = false;
                 std::string dest;
@@ -3792,6 +3816,30 @@ int main(int argc, char** argv) {
                 }
                 int nk = 0;
                 const bool* key = SDL_GetKeyboardState(&nk);
+                const bool cure_pressed = key && key[SDL_SCANCODE_C];
+                const bool cure_edge = cure_pressed && !cure_prev;
+                cure_prev = cure_pressed;
+                const bool auto_cure = opening_story &&
+                    ps.hp > 0 && ps.hp * 2 <= ps.max_hp();
+                if (player_input_enabled && !sc.message_pending &&
+                    !level_up_open && (cure_edge || auto_cure) &&
+                    inventory.Has(501) && ps.mp >= 2 &&
+                    ps.hp > 0 && ps.hp < ps.max_hp()) {
+                    // ModeGame::UseInventoryFunc(501): Cure costs tblMagic's
+                    // +0x04 (2 MP) and adds effective wisdom + 20, then
+                    // GameRandom(25) percent of wisdom. The absent charge
+                    // gauge contributes no second wisdom term.
+                    const int before_hp = ps.hp;
+                    const int wisdom = mcf::PlayerStats::Cap(ps.wisdom);
+                    const int roll = game_random(25);
+                    ps.mp -= 2;
+                    ps.hp = std::min(ps.max_hp(),
+                                     ps.hp + wisdom + 20 +
+                                         roll * wisdom / 100);
+                    lucent::info("player", "cast Cure (roll {}) HP {}/{}, "
+                                 "MP {}/{}", roll, before_hp, ps.hp,
+                                 ps.mp, ps.max_mp());
+                }
                 float mx = 0, my = 0, mz = 0;
                 if (key) {
                     if (key[SDL_SCANCODE_LEFT]  || key[SDL_SCANCODE_A]) mx -= 1;
@@ -3802,7 +3850,7 @@ int main(int argc, char** argv) {
                 if (!player_input_enabled) mx = mz = 0.f;
                 float headless_move_limit =
                     std::numeric_limits<float>::infinity();
-                bool headless_lower_event_goal = false;
+                bool headless_lower_goal = false;
                 const bool player_on_wall = [&] {
                     const auto* player = world.Find("MainPlayer");
                     return player &&
@@ -3813,6 +3861,7 @@ int main(int argc, char** argv) {
                 // rooms) can be exercised without a human at the keyboard.
                 if (walk_to && player_input_enabled) {
                     float active_walk_x = walk_x, active_walk_z = walk_z;
+                    bool active_lower_actor_goal = false;
                     std::vector<const mcf::EventBox*> active_event_walls;
                     std::vector<const mcf::EventBox*> active_goal_boxes;
                     if (opening_story) {
@@ -4186,6 +4235,35 @@ int main(int argc, char** argv) {
                                         break;
                                     }
                             }
+                        } else if (room_name == "M0013_00_00" &&
+                                   story_sccnt == 15 && inventory.Has(30)) {
+                            active_walk_x = room_size.w * .5f;
+                            active_walk_z = room_size.h + 30.f;
+                        } else if (room_name == "M0013_00_01" &&
+                                   story_sccnt == 15 &&
+                                   (inventory.Has(30) ||
+                                    hydra_silver_door_opened)) {
+                            if (hydra_roper_room_cleared) {
+                                active_walk_x = room_size.w * .5f;
+                                active_walk_z = room_size.h + 30.f;
+                            } else {
+                                active_walk_x = room_size.w + 30.f;
+                                active_walk_z = room_size.h * .5f;
+                            }
+                        } else if (room_name == "M0013_01_01" &&
+                                   story_sccnt == 15 &&
+                                   hydra_silver_door_opened) {
+                            if (const auto* box = world.Find("_BOX")) {
+                                if (!box->treasure_open) {
+                                    active_walk_x = box->pos[0];
+                                    active_walk_z = box->pos[2];
+                                    active_lower_actor_goal =
+                                        box->pos[1] + room_org[1] < py - .01f;
+                                } else {
+                                    active_walk_x = -30.f;
+                                    active_walk_z = room_size.h * .5f;
+                                }
+                            }
                         } else if (room_name == "M0013_06_05" &&
                                    story_sccnt == 15 && inventory.Has(30)) {
                             if (player_on_wall) {
@@ -4282,7 +4360,8 @@ int main(int argc, char** argv) {
                             });
                         if (target_starts_below)
                             driver_route_descending = true;
-                        headless_lower_event_goal = driver_route_descending;
+                        headless_lower_goal = driver_route_descending ||
+                                              active_lower_actor_goal;
 
                         // Multi-level overworld rooms author paired WALL_UP /
                         // WALL_DN volumes. Approach the direction belonging to
@@ -4490,7 +4569,7 @@ int main(int argc, char** argv) {
                                              height[size_t(here)] + .01f &&
                                          height[size_t(next)] -
                                              height[size_t(here)] <= 30.f) ||
-                                        (headless_lower_event_goal &&
+                                        (headless_lower_goal &&
                                          height[size_t(here)] >
                                              height[size_t(next)] + .01f &&
                                          height[size_t(here)] -
@@ -4507,10 +4586,10 @@ int main(int argc, char** argv) {
                                     // the opposite side of a slope wall from
                                     // the live centre, so retain the live point.
                                     const float edge_start_x =
-                                        headless_lower_event_goal && here == start
+                                        headless_lower_goal && here == start
                                             ? px : nav_x(hx);
                                     const float edge_start_z =
-                                        headless_lower_event_goal && here == start
+                                        headless_lower_goal && here == start
                                             ? pz : nav_z(hz);
                                     const float edge_dx = nav_x(nx) - edge_start_x;
                                     const float edge_dz = nav_z(nz) - edge_start_z;
@@ -4538,7 +4617,7 @@ int main(int argc, char** argv) {
                                             edge_start_x, nav_x(nx), t1);
                                         const float bz = std::lerp(
                                             edge_start_z, nav_z(nz), t1);
-                                        if (headless_lower_event_goal) {
+                                        if (headless_lower_goal) {
                                             float sample_floor = 0.f;
                                             const bool floor_found =
                                                 col.GetFloorBelow(
@@ -4568,7 +4647,7 @@ int main(int argc, char** argv) {
                                         }
                                         if (objectBlockedXZ(
                                                 ax, az, bx, bz,
-                                                headless_lower_event_goal
+                                                headless_lower_goal
                                                     ? edge_floor
                                                     : height[size_t(here)],
                                                 nullptr))
@@ -4672,7 +4751,7 @@ int main(int argc, char** argv) {
                                 }
                             }
                             if (goal < 0 && !active_goal_boxes.empty() &&
-                                !headless_lower_event_goal) {
+                                !headless_lower_goal) {
                                 float best_stage_height = py + 5.f;
                                 float best_stage_distance =
                                     std::numeric_limits<float>::infinity();
@@ -5236,7 +5315,7 @@ int main(int argc, char** argv) {
                         px, pz, py + 30.f, mcf::Collision::kFloorMask, &g);
                     const bool point_stair_step = have_col && move_has_floor &&
                         ((g > py + .01f && g - py <= 30.f) ||
-                         (headless_lower_event_goal && py > g + .01f &&
+                         (headless_lower_goal && py > g + .01f &&
                           py - g <= 30.f));
                     float body_floor = 0.f;
                     const float body_probe_x = px + mx / len *
@@ -5331,6 +5410,27 @@ int main(int argc, char** argv) {
                             // other authored types remain closed.
                             bool passable = door == mcf::World::kNoDoor ||
                                             (door == 0 && at_door[side]);
+                            if (door == 1 && outward[side] && at_side[side] &&
+                                at_door[side]) {
+                                const int key_slot =
+                                    EquippedDoorKeySlot(inventory);
+                                if (key_slot >= 0) {
+                                    const int key_id =
+                                        inventory.Equipped(key_slot);
+                                    if (inventory.Consume(key_id)) {
+                                        if (key_id == 30)
+                                            hydra_silver_door_opened = true;
+                                        world.SetDoor(
+                                            side, mcf::World::kNoDoor);
+                                        passable = true;
+                                        lucent::info(
+                                            "inventory",
+                                            "used equipped key item {} from "
+                                            "slot {} to open room side {}",
+                                            key_id, key_slot, side);
+                                    }
+                                }
+                            }
                             if (outward[side] && at_side[side] && passable) {
                                 exit_arrow = side;
                                 break;
@@ -6354,6 +6454,7 @@ int main(int argc, char** argv) {
                         cam_init = false;
                         serviceAudio();
                         if (!stop_room.empty() && room_name == stop_room) {
+                            stop_room_reached = true;
                             lucent::info("world", "reached requested stop room {}",
                                          stop_room);
                             running = false;
@@ -6476,6 +6577,7 @@ int main(int argc, char** argv) {
                         cam_init = false;
                         serviceAudio();
                         if (!stop_room.empty() && room_name == stop_room) {
+                            stop_room_reached = true;
                             lucent::info("world", "reached requested stop room {}",
                                          stop_room);
                             running = false;
@@ -6988,6 +7090,11 @@ int main(int argc, char** argv) {
                                                           cs.closest_vs_player,
                                                           cs.closest_xz, cs.closest_y)
                                             : "n/a");
+            if (!stop_room_reached) {
+                lucent::error("world", "requested stop room {} was not reached; "
+                              "ended in {}", stop_room, room_name);
+                run_failed = true;
+            }
             SDL_GL_DestroyContext(ctx);
             SDL_DestroyWindow(win);
             SDL_Quit();

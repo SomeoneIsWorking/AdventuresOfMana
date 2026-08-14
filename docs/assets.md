@@ -2180,6 +2180,28 @@ required by `M0013_06_05`: broad wall-mode body tests fire `wall_01` from
 outside its strict bounds and reset floor type before the authored `up_01`
 exit, while the lone `WALL_UP` region correctly enters X/Y wall movement.
 
+### Door keys and Cure
+
+`AppObjectModel::HitCharacter` @ `0x2be064` distinguishes door object flags.
+The key-door path at `0x2be160` reads the four equipped item-button ids at
+`oG+0x454,+0x45c,+0x464,+0x46c`, accepts exactly ids **18, 30, and 37**, calls
+`ModeGame::UseInventory(button,true)`, then `ModeGame::OpenDoor(side,false)`.
+Thus `eDoor.KEY` is a consumable equipped-key gate, not a permanently closed
+door and not a script-specific Silver Key check. A spent key must disappear
+from its button or it would reopen every later gate.
+
+`ModeGame::UseInventoryFunc(501)` @ `0x2deb78` supplies Cure independently of
+the table labels. It requires the commit path, then when HP is positive adds:
+
+```
+effective_wisdom + 20 + GameRandom(25) * effective_wisdom / 100
+```
+
+A full 16000 charge gauge adds effective wisdom once more. `tblMagic[501]`'s
+`+0x04` is the MP cost, **2**; the headless run has no charge gauge and uses
+the uncharged formula. The negative branch refuses dead characters, so Cure
+cannot revive.
+
 ### `+0x3910` is a countdown, and what "expired" gated
 
 At the loop's exit, `0x2a9cd4` does `+0x3910 -= 1` unconditionally, once per

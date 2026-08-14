@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: gameplay,progression,verification
 depends: src/host/main.cpp#main, src/engine/script.cpp#Dispatch, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 07:32:22
+verified_at: 2026-08-14 07:51:11
 ---
 
 ## Claim
@@ -64,3 +64,7 @@ Full ./tools/verify.sh passed on 2026-08-14 after the Hydra-dungeon pressure-swi
 ## Re-confirmed 2026-08-14
 
 Full ./tools/verify.sh passed on 2026-08-14 after the Hydra mountain change; all claim-specific self-tests and continuous fixed-step offscreen zero-audio progression gates passed.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the verifier was made to rebuild mana first; 62 inventory cases and all continuous offscreen zero-audio gates passed.

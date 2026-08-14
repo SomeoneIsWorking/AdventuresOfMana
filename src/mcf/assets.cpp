@@ -1030,7 +1030,15 @@ bool Inventory::Consume(int32_t id) {
     Slot* s = bag(kItems, &n);
     for (int i = 0; i < n; ++i) {
         if (s[i].id != id) continue;
-        if (--s[i].uses <= 0) s[i] = Slot{};
+        if (--s[i].uses <= 0) {
+            s[i] = Slot{};
+            // ModeGame::UseInventory consumes through one of the four
+            // equipped item buttons. Once the backing item is exhausted that
+            // button no longer names it; retaining the id would let a spent
+            // key open every later locked door.
+            for (int& equipped_id : equipped)
+                if (equipped_id == id) equipped_id = 0;
+        }
         return true;
     }
     return false;

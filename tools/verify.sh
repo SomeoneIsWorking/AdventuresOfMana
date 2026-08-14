@@ -11,6 +11,9 @@ cd "$(dirname "$0")/.."
 export SDL_VIDEODRIVER=offscreen
 export SDL_AUDIODRIVER=dummy
 
+echo "=== build shipping runtime ==="
+cmake --build build --target mana -j2 || exit 1
+
 check_runtime() {
   if [ ! -x "$1" ]; then
     echo "FATAL: game binary $1 is missing or not executable; 0 gameplay checks ran."
@@ -39,7 +42,7 @@ python3 tools/asset/mpk.py "$archive" --check-dir scratch/dump || exit 1
 
 fail=0
 
-echo "=== runtime preflight negatives ==="
+  echo "=== runtime preflight negatives ==="
 preflight_log=scratch/logs/runtime-preflight-negative.log
 if check_runtime scratch/logs/DOES_NOT_EXIST scratch/raw/assets \
     scratch/raw/libmcfandroid.so \
@@ -58,7 +61,18 @@ if check_runtime build/mana scratch/raw/assets scratch/logs/DOES_NOT_EXIST \
   fail=1
 fi
 grep -F "0 static extraction checks ran" "$preflight_log" >/dev/null || fail=1
-echo "  missing game, assets, and source-binary negatives passed"
+  echo "  missing game, assets, and source-binary negatives passed"
+
+  stop_negative_log=scratch/logs/stop-room-negative.log
+  if ./build/mana --room M0001_00_00 --stop-room M0099_99_99 \
+      --screenshot scratch/screenshots/stop-room-negative.png --warmup 1 \
+      --no-window --no-audio >"$stop_negative_log" 2>&1; then
+    echo "FAIL: an unmet --stop-room returned success"
+    fail=1
+  fi
+  grep -F "requested stop room M0099_99_99 was not reached" \
+    "$stop_negative_log" || fail=1
+  echo "  unmet stop-room negative passed"
 
 # Prove exact corpus identity can produce the other answer. Work on one known
 # member with an EXIT trap so interruption restores it before any parser runs.
@@ -355,9 +369,9 @@ echo "=== combat self-test ==="
   # equipped Silver Key, then continue through the first authored dungeon
   # pressure switch. This is also the discriminator for 3D auto-combat range,
   # floor-aware diagonal routing, and the switch_result callback payload.
-  echo "=== continuous route through the Hydra mountain ascent ==="
+  echo "=== continuous route through the Hydra Silver Key side room ==="
   silver_key_log=scratch/logs/silver-key-story.log
-  ./build/mana --opening-story --continue-story --stop-room M0013_00_00 \
+  ./build/mana --opening-story --continue-story --stop-room M0013_00_02 \
     >"$silver_key_log" 2>&1 || fail=1
   grep -F "entered event box 'out_1'" "$silver_key_log" || fail=1
   grep -F "mapjump -> M0000_10_09 at (165,0,135) arrow 2" \
@@ -402,7 +416,13 @@ echo "=== combat self-test ==="
   grep -F "mapjump -> M0013_01_00 at (225,0,45) arrow 3" \
     "$silver_key_log" || fail=1
   grep -F "room exit 3 -> M0013_00_00" "$silver_key_log" || fail=1
-  grep -F "reached requested stop room M0013_00_00" \
+  grep -F "used equipped key item 30 from slot 4 to open room side 1" \
+    "$silver_key_log" || fail=1
+  grep -F "opened box and acquired item 402" "$silver_key_log" || fail=1
+  grep -F "room exit 3 -> M0013_00_01" "$silver_key_log" || fail=1
+  grep -F "room exit 2 -> M0013_00_02" "$silver_key_log" || fail=1
+  grep -F "cast Cure" "$silver_key_log" || fail=1
+  grep -F "reached requested stop room M0013_00_02" \
     "$silver_key_log" || fail=1
   grep -F "video driver: offscreen" "$silver_key_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$silver_key_log" || fail=1
