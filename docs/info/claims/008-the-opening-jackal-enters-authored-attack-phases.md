@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: bosses,combat,collision,scripting
 depends: src/mcf/assets.cpp#ParseGdt, src/mcf/assets.cpp#Collision::BlockedXZ, src/engine/script.cpp#ChrAttackBoneValid, src/engine/world.cpp#TickScriptMoves, src/host/main.cpp#ground_attribute, src/host/main.cpp#hit_this_swing, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 11:19:33
+verified_at: 2026-08-14 11:34:21
 ---
 
 ## Claim
@@ -140,3 +140,7 @@ Reverified unchanged behavior after commit 6e5d104 by full ./tools/verify.sh: sc
 ## Re-confirmed 2026-08-14
 
 Reverified after commits adedb5d/addb897 by full ./tools/verify.sh: scratch/logs/verify-sdl3-gpu-negative.log ALL PARSERS PASSED on 2026-08-14; mandatory story remained fixed-step uncapped, SDL-offscreen, and decoded 0 audio frames.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commit f5b4048 by full ./tools/verify.sh: scratch/logs/verify-sdl3-gpu-pipeline-final.log ALL PARSERS PASSED on 2026-08-14; mandatory story remained fixed-step uncapped, SDL-offscreen, and decoded 0 audio frames.

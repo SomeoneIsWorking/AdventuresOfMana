@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,sdl3,gpu,tooling
 depends: src/host/gpu_device.cpp#Device::ClearAndReadback, src/host/gpu_device.cpp#RunDeviceSelfTest, src/tools/gpu_selftest.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 11:19:52
+verified_at: 2026-08-14 11:34:23
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ if either exact-color run fails, the wrong-color control succeeds or reports few
 ## Re-confirmed 2026-08-14
 
 Tracked baseline established after commit 8bc169f; full ./tools/verify.sh passed in scratch/logs/verify-sdl3-gpu-negative.log on 2026-08-14, including exact two-color readback, zero windows/audio, required 12/12 wrong-color rejection, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commit f5b4048 by full ./tools/verify.sh: scratch/logs/verify-sdl3-gpu-pipeline-final.log ALL PARSERS PASSED on 2026-08-14; mandatory story remained fixed-step uncapped, SDL-offscreen, and decoded 0 audio frames.
