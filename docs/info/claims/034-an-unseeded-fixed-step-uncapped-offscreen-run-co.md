@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-14
 tags: progression,kett,lua,headless
 depends: src/host/story_driver.cpp#StoryDriver::Target, src/engine/script.cpp#Script::StartTreasureCallback, src/host/main.cpp#main, tools/verify.sh
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 11:08:14
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Commit 6e5d104; full ./tools/verify.sh passed in scratch/logs/verify-chain-flail
 ## What would falsify it
 
 if an unseeded mandatory run fails to reach sccnt=20, does not acquire item 104 through the live box, opens a window or audio device, or any callback selftest class fails
+
+## Re-confirmed 2026-08-14
+
+Tracked baseline established after commit 73f540a; behavior was verified by full ./tools/verify.sh in scratch/logs/verify-chain-flail.log on 2026-08-14 with ALL PARSERS PASSED, SDL offscreen, sccnt=20 at frame 21961, and zero decoded audio frames.
