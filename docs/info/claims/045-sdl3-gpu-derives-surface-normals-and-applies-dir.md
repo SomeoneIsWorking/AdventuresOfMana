@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-14
 tags: renderer,sdl3-gpu,shading
 depends: src/host/render_normals.cpp#GenerateNormals, src/host/gpu_asset.cpp#Asset::Asset, src/host/gpu_asset_pipeline.cpp#AssetPipeline::DrawPass, src/host/render_lighting.cpp#DirectionalLight::ForModelYaw, shaders/src/textured.vert.hlsl, shaders/src/skinned.vert.hlsl, src/tools/gpu_asset_selftest.cpp#RunAssetPipelineSelfTest
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 13:41:40
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Full tools/verify.sh pass in scratch/logs/verify-directional-shading.log: 16/32-
 ## What would falsify it
 
 Changes to render_normals, RenderAsset normal ownership, GPU vertex layout, textured/skinned shaders, DirectionalLight defaults, shader compilation, or the SDL3 shipping-asset selftest
+
+## Re-confirmed 2026-08-14
+
+Reverified at implementation commit 51cc938 by complete tools/verify.sh in scratch/logs/verify-directional-shading-51cc938.log: generated-normal positives/negatives, directional/equal-ambient static and skinned controls, distinct A/B captures, 21/21 portable shaders, both 21,961-frame story runs offscreen with zero audio frames, and ALL PARSERS PASSED.

@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,sdl3,skinning
 depends: src/host/render_pose.cpp#BuildJointPalette, src/host/gpu_asset_pipeline.cpp#AssetPipeline::Draw, shaders/src/skinned.vert.hlsl#main, src/tools/gpu_asset_selftest.cpp#RunAssetPipelineSelfTest, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 13:07:21
+verified_at: 2026-08-14 13:41:39
 ---
 
 ## Claim
@@ -44,3 +44,7 @@ Reverified at implementation commit 180133b by the complete tools/verify.sh gate
 ## Re-confirmed 2026-08-14
 
 Reverified at implementation commit 3bee232 by complete tools/verify.sh in scratch/logs/verify-sdl3-fade-final.log: all focused positives and negatives passed, 21/21 portable shaders regenerated, the 0.500 scene/fade pair stayed offscreen with 0 audio frames, both 21,961-frame story runs passed, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+Reverified at implementation commit 51cc938 by complete tools/verify.sh in scratch/logs/verify-directional-shading-51cc938.log: generated-normal positives/negatives, directional/equal-ambient static and skinned controls, distinct A/B captures, 21/21 portable shaders, both 21,961-frame story runs offscreen with zero audio frames, and ALL PARSERS PASSED.
