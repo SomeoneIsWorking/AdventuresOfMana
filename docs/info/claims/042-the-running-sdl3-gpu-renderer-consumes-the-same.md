@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,sdl3-gpu,snapshot
 depends: src/host/gpu_snapshot_renderer.cpp, src/host/scene_pair_capture.cpp, src/host/main.cpp
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 12:54:26
+verified_at: 2026-08-14 13:07:21
 ---
 
 ## Claim
@@ -32,3 +32,7 @@ Reverified after b07f16a and the external-pass changes by the complete tools/ver
 ## Re-confirmed 2026-08-14
 
 Reverified at implementation commit 180133b by the complete tools/verify.sh gate in scratch/logs/verify-external-gpu-pass-final.log: external target parity 0/76800, missing-target negative passed, live pair stayed offscreen with 0 audio frames, both 21,961-frame story runs passed, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+Reverified at implementation commit 3bee232 by complete tools/verify.sh in scratch/logs/verify-sdl3-fade-final.log: all focused positives and negatives passed, 21/21 portable shaders regenerated, the 0.500 scene/fade pair stayed offscreen with 0 audio frames, both 21,961-frame story runs passed, and ALL PARSERS PASSED.

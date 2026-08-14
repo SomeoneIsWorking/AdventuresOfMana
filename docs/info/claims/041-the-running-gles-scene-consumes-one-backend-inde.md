@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,snapshot,camera
 depends: src/host/render_camera.cpp#CameraTracker::Update, src/host/render_snapshot.cpp#RenderSnapshot::Add, src/host/main.cpp, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 12:53:52
+verified_at: 2026-08-14 13:07:21
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Reverified after commit 7b7e22c by the complete tools/verify.sh gate in scratch/
 ## Re-confirmed 2026-08-14
 
 Reverified after b07f16a and the external-pass changes by the complete tools/verify.sh gate in scratch/logs/verify-external-gpu-pass-final.log: all focused positives and negatives passed, both 21,961-frame story runs stayed fixed-step uncapped/offscreen with 0 audio frames, the live SDL3 pair and external-pass parity passed, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+Reverified at implementation commit 3bee232 by complete tools/verify.sh in scratch/logs/verify-sdl3-fade-final.log: all focused positives and negatives passed, 21/21 portable shaders regenerated, the 0.500 scene/fade pair stayed offscreen with 0 audio frames, both 21,961-frame story runs passed, and ALL PARSERS PASSED.
