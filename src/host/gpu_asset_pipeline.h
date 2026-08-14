@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace mana::gpu {
@@ -31,9 +32,11 @@ public:
                                             bool textures = true);
   std::vector<std::uint8_t>
   DrawAndReadback(std::uint32_t width, std::uint32_t height,
-                  const std::array<float, 16> &transform, bool textures = true);
+                  const std::array<float, 16> &transform, bool textures = true,
+                  std::span<const float> joints = {});
   void Draw(SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass,
-            const std::array<float, 16> &transform, bool textures = true);
+            const std::array<float, 16> &transform, bool textures = true,
+            std::span<const float> joints = {});
   std::array<float, 16> TopDownTransform() const;
 
 private:

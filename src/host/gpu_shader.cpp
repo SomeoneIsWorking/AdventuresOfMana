@@ -52,6 +52,15 @@ ShaderCode SelectTextured(SDL_GPUShaderFormat format, bool vertex) {
                              format, "main0"};
 }
 
+ShaderCode SelectSkinned(SDL_GPUShaderFormat format) {
+  using namespace embedded;
+  if (format == SDL_GPU_SHADERFORMAT_SPIRV)
+    return {skinned_vert_spv, sizeof(skinned_vert_spv), format, "main"};
+  if (format == SDL_GPU_SHADERFORMAT_DXIL)
+    return {skinned_vert_dxil, sizeof(skinned_vert_dxil), format, "main"};
+  return {skinned_vert_msl, sizeof(skinned_vert_msl), format, "main0"};
+}
+
 SDL_GPUShaderFormat PreferredFormat(SDL_GPUShaderFormat supported) {
   if (supported & SDL_GPU_SHADERFORMAT_SPIRV)
     return SDL_GPU_SHADERFORMAT_SPIRV;
@@ -75,6 +84,10 @@ SDL_GPUShader *CreateShader(Device &device, std::string_view program,
     code = SelectSolid(format, vertex);
   else if (program == "textured")
     code = SelectTextured(format, vertex);
+  else if (program == "skinned" && vertex)
+    code = SelectSkinned(format);
+  else if (program == "skinned")
+    throw std::invalid_argument("skinned shader program has no fragment stage");
   else
     throw std::invalid_argument(
         std::format("unknown shader program '{}'", program));

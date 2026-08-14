@@ -15,6 +15,7 @@
 #include "host/gpu_asset_pipeline.h"
 #include "host/gpu_device.h"
 #include "host/render_asset.h"
+#include "host/render_pose.h"
 #include "mcf/mcf.h"
 
 namespace mana::gpu {
@@ -30,6 +31,16 @@ std::uint32_t PixelDifference(std::span<const std::uint8_t> left,
       ++different;
   }
   return different;
+}
+
+std::uint32_t ChangedFromClear(std::span<const std::uint8_t> pixels) {
+  constexpr std::array<std::uint8_t, 4> clear{0, 255, 255, 255};
+  std::uint32_t changed = 0;
+  for (std::size_t offset = 0; offset < pixels.size(); offset += 4) {
+    if (std::memcmp(pixels.data() + offset, clear.data(), clear.size()) != 0)
+      ++changed;
+  }
+  return changed;
 }
 
 std::vector<std::uint8_t>
@@ -189,6 +200,72 @@ int RunAssetPipelineSelfTest(const char *archive_path, bool negative_control) {
         "{} differ from opaque control",
         width * height, blend_asset.blended_draw_count(), blend_name,
         blend_differences);
+
+    constexpr std::string_view skinned_name = "C0000_00";
+    mcf::RenderAsset skinned_source;
+    if (!mcf::LoadRenderAsset(archive, std::string(skinned_name),
+                              &skinned_source)) {
+      lucent::error("gpu",
+                    "ASSET SELFTEST FAIL: scanned archive for {}, matched 0",
+                    skinned_name);
+      return 1;
+    }
+    Asset skinned_asset(device, skinned_source);
+    if (!skinned_source.skinned() || !skinned_asset.skinned()) {
+      lucent::error(
+          "gpu",
+          "ASSET SELFTEST FAIL: scanned {} vertices in {}; expected shipping "
+          "skinning attributes, source={} GPU={}",
+          skinned_source.model.vertex_count,
+          skinned_name, skinned_source.skinned(), skinned_asset.skinned());
+      return 1;
+    }
+    std::vector<float> bind_joints;
+    mcf::BuildJointPalette(skinned_source.model, nullptr, 0.f, &bind_joints);
+    AssetPipeline skinned_pipeline(device, skinned_asset);
+    const auto transform = skinned_pipeline.TopDownTransform();
+    const auto bind_pixels = skinned_pipeline.DrawAndReadback(
+        width, height, transform, true, bind_joints);
+    auto shifted_joints = bind_joints;
+    const float shift = (skinned_source.hi[0] - skinned_source.lo[0]) * .2f;
+    for (std::size_t bone = 0; bone < 80; ++bone)
+      shifted_joints[bone * 12 + 3] += shift;
+    const auto shifted_pixels = skinned_pipeline.DrawAndReadback(
+        width, height, transform, true, shifted_joints);
+    const std::uint32_t skinned_changed = ChangedFromClear(bind_pixels);
+    const std::uint32_t shifted_differences =
+        PixelDifference(bind_pixels, shifted_pixels);
+    bool missing_palette_failed = false;
+    std::string missing_palette_message;
+    try {
+      (void)skinned_pipeline.DrawAndReadback(width, height, transform, true);
+    } catch (const std::invalid_argument &error) {
+      missing_palette_message = error.what();
+      missing_palette_failed =
+          missing_palette_message ==
+          "skinned asset requires 960 joint floats, received 0";
+    }
+    if (skinned_changed == 0 || shifted_differences == 0 ||
+        !missing_palette_failed) {
+      lucent::error(
+          "gpu",
+          "ASSET SELFTEST FAIL: skinning scanned {} pixels and {} vertices in "
+          "{}; {} changed from clear, {} differ after shifting all 80 joints; "
+          "missing-palette discriminator={} ({})",
+          width * height,
+          skinned_source.model.vertex_count,
+          skinned_name, skinned_changed, shifted_differences,
+          missing_palette_failed, missing_palette_message);
+      return 1;
+    }
+    lucent::info(
+        "gpu",
+        "ASSET SELFTEST: skinning scanned {} pixels and {} vertices in {}; {} "
+        "changed from clear, {} differ after shifting all 80 joints; missing "
+        "960-float palette rejected",
+        width * height,
+        skinned_source.model.vertex_count,
+        skinned_name, skinned_changed, shifted_differences);
   }
   return 0;
 }

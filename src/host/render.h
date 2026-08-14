@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "host/render_asset.h"
+#include "host/render_pose.h"
 #include "mcf/mcf.h"
 
 namespace mcf {
@@ -28,17 +29,6 @@ struct Renderable {
 // `.mtex` files for maps. Returns false if the model is not in the archive.
 bool LoadRenderable(const Archive& ar, const std::string& name, GLuint white,
                     Renderable* out);
-
-// Fills `out` (80*3*4 floats) with the vJoint palette: three vec4 rows per bone
-// of `world_animated * inv_world_bind`. With `motion == nullptr` this collapses
-// to identity, i.e. the bind pose.
-void BuildJointPalette(const Model& m, const Motion* motion, float time,
-                       std::vector<float>* out);
-
-// World-space position of a named bone in the model's animated pose, before the
-// actor's own placement transform. Returns false if the model has no such bone.
-bool BoneLocalPos(const Model& m, const Motion* motion, float time,
-                  const std::string& bone, float out[3]);
 
 // Resolves a script-level actor type id to a model name. Verified against the
 // enums in sk1.lua: all 73 ordinary positive eENEMY ids have E<id>_00 and all

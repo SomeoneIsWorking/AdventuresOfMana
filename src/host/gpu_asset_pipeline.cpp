@@ -4,7 +4,9 @@
 #include <array>
 #include <cmath>
 #include <format>
+#include <span>
 #include <stdexcept>
+#include <vector>
 
 #include "host/gpu_asset.h"
 #include "host/gpu_device.h"
@@ -45,7 +47,7 @@ SDL_GPUGraphicsPipeline *
 CreateGraphicsPipeline(Device &device, SDL_GPUShader *vertex,
                        SDL_GPUShader *fragment,
                        const SDL_GPUVertexBufferDescription &vertex_buffer,
-                       const std::array<SDL_GPUVertexAttribute, 3> &attributes,
+                       std::span<const SDL_GPUVertexAttribute> attributes,
                        PipelineFeatures features, bool blended) {
   const SDL_GPUColorTargetDescription color_target{
       .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
@@ -68,7 +70,8 @@ CreateGraphicsPipeline(Device &device, SDL_GPUShader *vertex,
               .vertex_buffer_descriptions = &vertex_buffer,
               .num_vertex_buffers = 1,
               .vertex_attributes = attributes.data(),
-              .num_vertex_attributes = attributes.size(),
+              .num_vertex_attributes =
+                  static_cast<std::uint32_t>(attributes.size()),
           },
       .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
       .rasterizer_state = {.fill_mode = SDL_GPU_FILLMODE_FILL,
@@ -118,7 +121,7 @@ AssetPipeline::AssetPipeline(Device &device, const Asset &asset,
       .pitch = asset_.vertex_stride(),
       .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
   };
-  const std::array<SDL_GPUVertexAttribute, 3> attributes{{
+  std::vector<SDL_GPUVertexAttribute> attributes{{
       {.location = 0,
        .buffer_slot = 0,
        .format = AttributeFormat(position),
@@ -132,8 +135,23 @@ AssetPipeline::AssetPipeline(Device &device, const Asset &asset,
        .format = AttributeFormat(texcoord),
        .offset = texcoord.offset},
   }};
+  if (asset_.skinned()) {
+    const auto &weight =
+        RequireAttribute(asset_, mcf::VertexUsage::kWeight, "weight");
+    const auto &incidence =
+        RequireAttribute(asset_, mcf::VertexUsage::kIncidence, "incidence");
+    attributes.push_back({.location = 3,
+                          .buffer_slot = 0,
+                          .format = AttributeFormat(weight),
+                          .offset = weight.offset});
+    attributes.push_back({.location = 4,
+                          .buffer_slot = 0,
+                          .format = AttributeFormat(incidence),
+                          .offset = incidence.offset});
+  }
   SDL_GPUShader *vertex =
-      CreateShader(device_, "textured", SDL_GPU_SHADERSTAGE_VERTEX,
+      CreateShader(device_, asset_.skinned() ? "skinned" : "textured",
+                   SDL_GPU_SHADERSTAGE_VERTEX,
                    ShaderResources{.uniform_buffers = 1});
   SDL_GPUShader *fragment = nullptr;
   try {
@@ -191,20 +209,35 @@ std::vector<std::uint8_t> AssetPipeline::DrawAndReadback(std::uint32_t width,
 std::vector<std::uint8_t>
 AssetPipeline::DrawAndReadback(std::uint32_t width, std::uint32_t height,
                                const std::array<float, 16> &transform,
-                               bool textures) {
+                               bool textures, std::span<const float> joints) {
   constexpr SDL_FColor clear{0.f, 1.f, 1.f, 1.f};
   return device_.RenderAndReadback(
       width, height, clear,
       [&](SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass) {
-        Draw(command, pass, transform, textures);
+        Draw(command, pass, transform, textures, joints);
       },
       features_.depth_test);
 }
 
 void AssetPipeline::Draw(SDL_GPUCommandBuffer *command, SDL_GPURenderPass *pass,
                          const std::array<float, 16> &transform,
-                         bool textures) {
-  SDL_PushGPUVertexUniformData(command, 0, transform.data(), sizeof(transform));
+                         bool textures, std::span<const float> joints) {
+  constexpr std::size_t kJointFloatCount = 80 * 3 * 4;
+  if (asset_.skinned()) {
+    if (joints.size() != kJointFloatCount)
+      throw std::invalid_argument(std::format(
+          "skinned asset requires {} joint floats, received {}",
+          kJointFloatCount, joints.size()));
+    std::array<float, 16 + kJointFloatCount> uniform{};
+    std::copy(transform.begin(), transform.end(), uniform.begin());
+    std::copy(joints.begin(), joints.end(), uniform.begin() + 16);
+    SDL_PushGPUVertexUniformData(command, 0, uniform.data(), sizeof(uniform));
+  } else {
+    if (!joints.empty())
+      throw std::invalid_argument("static asset received a joint palette");
+    SDL_PushGPUVertexUniformData(command, 0, transform.data(),
+                                 sizeof(transform));
+  }
   const SDL_GPUBufferBinding vertices{.buffer = asset_.vertices()};
   const SDL_GPUBufferBinding indices{.buffer = asset_.indices()};
   SDL_BindGPUVertexBuffers(pass, 0, &vertices, 1);

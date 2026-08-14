@@ -44,12 +44,10 @@ shader_regen=scratch/logs/shader-generated
 OUTPUT_DIR="$shader_regen" ./tools/compile_shaders.sh || exit 1
 python3 tools/embed_shader_pack.py --input-dir "$shader_regen" \
   --output scratch/logs/shader-pack.inc || exit 1
-for program in solid textured; do
-  for stage in vert frag; do
-    for extension in spv dxil msl; do
-      shader="$program.$stage.$extension"
-      cmp "$shader_regen/$shader" "shaders/generated/$shader" || exit 1
-    done
+for source_name in solid.vert solid.frag textured.vert textured.frag skinned.vert; do
+  for extension in spv dxil msl; do
+    shader="$source_name.$extension"
+    cmp "$shader_regen/$shader" "shaders/generated/$shader" || exit 1
   done
 done
 shader_pack_negative=scratch/logs/shader-pack-negative.log
@@ -58,9 +56,9 @@ if python3 tools/embed_shader_pack.py --input-dir scratch/logs/DOES_NOT_EXIST \
   echo "FATAL: missing shader-pack negative returned success"
   exit 1
 fi
-grep -F "scanned 0 artifacts, expected 12; 12 missing" \
+grep -F "scanned 0 artifacts, expected 15; 15 missing" \
   "$shader_pack_negative" || exit 1
-echo "  12/12 artifacts regenerate exactly; missing-pack negative passed"
+echo "  15/15 artifacts regenerate exactly; missing-pack negative passed"
 
 check_runtime() {
   if [ ! -x "$1" ]; then

@@ -20,8 +20,8 @@ longer issue GL calls.
 | `host/gpu_device` | SDL video-subsystem lifetime, GPU device, offscreen targets, command submission, synchronized readback | **live and tested** |
 | shader pack | compile HLSL to tracked SPIR-V, DXIL, and MSL, embed all formats, and select the active backend without runtime source guessing | **live and tested** |
 | backend-independent assets | parse models, retain texture storage, resolve material textures, and compute bounds without a graphics API | **live and shared by GLES and SDL3 GPU** |
-| GPU assets | texture, vertex-buffer, index-buffer, sampler, and lifetime ownership | **live and tested for static assets** |
-| scene renderer | room, static actor, skinned actor, depth, blend, and draw submission | static textured draw, explicit camera transform, depth, and material blend ordering are live offscreen; skinning and shipping-scene integration remain missing |
+| GPU assets | texture, vertex-buffer, index-buffer, sampler, and lifetime ownership | **live and tested for static and skinned assets** |
+| scene renderer | room, static actor, skinned actor, depth, blend, and draw submission | static and two-bone skinned textured draws, explicit camera transform, depth, and material blend ordering are live offscreen; shipping-scene integration remains missing |
 | UI renderer | font atlas, sprites, message windows, HUD, and fade | missing |
 | presentation | window/swapchain ownership, resize, present mode, and interactive pacing | missing |
 
@@ -45,9 +45,13 @@ values, and all 3,868 differ from a forced-white texture render; the paired
 no-draw class changes 0. A layered near/far draw changes 0 pixels with depth
 enabled and 3,868 with depth disabled. A second shipping room contributes two
 water draw ranges, and 128 pixels differ from the opaque-material control. The
-verifier regenerates all 12
-backend artifacts from four HLSL sources and byte-compares them with the
-tracked pack.
+shipping hero `C0000_00` exercises the same two-bone incidence/weight formula
+as the GLES path with the shared 80-bone pose palette. Its bind render changes
+2,812 pixels from clear; translating every joint changes 3,723 pixels, while a
+missing palette fails explicitly instead of drawing stale state. Pose
+evaluation lives in `host/render_pose`, not either backend. The verifier
+regenerates all 15 backend artifacts from five HLSL sources and byte-compares
+them with the tracked pack.
 
 SDL's official Shadercross build is a regeneration tool, not a runtime
 dependency. On Linux, `tools/bootstrap_shadercross_linux.sh` downloads and
@@ -61,7 +65,8 @@ other official builds.
    retaining CPU `Model` and `TextureSet` data independently of the backend.~~
 2. Port the tested textured static-room pass into the shipping scene and compare offscreen captures against
    the existing GLES path from the same camera and frame.
-3. Port skinning, actors, UI, fade, and capture as separate passes. Delete each
+3. Route the tested skinning pipeline into actors, then port UI, fade, and
+   capture as separate passes. Delete each
    GLES owner when its SDL3 GPU replacement passes its discriminator; do not
    maintain two permanent renderers.
 4. Add presentation last so all automated work stays texture-backed,

@@ -46,7 +46,8 @@ target_include_directories(engine PUBLIC src)
 target_link_libraries(engine PUBLIC lua lucent::lucent SDL3::SDL3 PkgConfig::VORBISFILE)
 
 add_library(render_assets STATIC
-  src/host/render_asset.cpp)
+  src/host/render_asset.cpp
+  src/host/render_pose.cpp)
 target_include_directories(render_assets PUBLIC src)
 target_link_libraries(render_assets PUBLIC mcf lucent::lucent)
 
@@ -62,7 +63,10 @@ set(MANA_SHADER_ARTIFACTS
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.msl
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.frag.spv
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.frag.dxil
-  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.frag.msl)
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.frag.msl
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/skinned.vert.spv
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/skinned.vert.dxil
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/skinned.vert.msl)
 set(MANA_SHADER_PACK ${CMAKE_CURRENT_BINARY_DIR}/generated/shader_pack.inc)
 add_custom_command(
   OUTPUT ${MANA_SHADER_PACK}

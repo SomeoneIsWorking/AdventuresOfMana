@@ -33,6 +33,7 @@ public:
   const std::vector<mcf::DrawRange> &draws() const { return draws_; }
   bool DrawBlended(std::size_t draw) const;
   std::size_t blended_draw_count() const;
+  bool skinned() const { return skinned_; }
   const float *lo() const { return lo_; }
   const float *hi() const { return hi_; }
 
@@ -49,6 +50,7 @@ private:
   std::vector<bool> draw_blended_;
   SDL_GPUIndexElementSize index_type_ = SDL_GPU_INDEXELEMENTSIZE_16BIT;
   std::uint32_t vertex_stride_ = 0;
+  bool skinned_ = false;
   float lo_[3]{}, hi_[3]{};
 };
 

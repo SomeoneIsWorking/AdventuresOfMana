@@ -204,6 +204,7 @@ Asset::Asset(Device &device, const mcf::RenderAsset &source) : device_(device) {
   index_type_ = source.model.index_size == 2 ? SDL_GPU_INDEXELEMENTSIZE_16BIT
                                              : SDL_GPU_INDEXELEMENTSIZE_32BIT;
   vertex_stride_ = source.model.vertex_stride;
+  skinned_ = source.skinned();
   std::memcpy(lo_, source.lo, sizeof(lo_));
   std::memcpy(hi_, source.hi, sizeof(hi_));
 }
