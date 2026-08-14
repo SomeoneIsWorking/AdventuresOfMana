@@ -7,6 +7,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(SDL3 REQUIRED CONFIG)
 find_package(PkgConfig REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 pkg_check_modules(GLESV2 REQUIRED IMPORTED_TARGET glesv2)
 pkg_check_modules(VORBISFILE REQUIRED IMPORTED_TARGET vorbisfile)
 
@@ -44,9 +45,28 @@ add_library(engine STATIC
 target_include_directories(engine PUBLIC src)
 target_link_libraries(engine PUBLIC lua lucent::lucent SDL3::SDL3 PkgConfig::VORBISFILE)
 
+set(MANA_SHADER_ARTIFACTS
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.vert.spv
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.vert.dxil
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.vert.msl
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.frag.spv
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.frag.dxil
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/solid.frag.msl)
+set(MANA_SHADER_PACK ${CMAKE_CURRENT_BINARY_DIR}/generated/shader_pack.inc)
+add_custom_command(
+  OUTPUT ${MANA_SHADER_PACK}
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_shader_pack.py
+          --input-dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated
+          --output ${MANA_SHADER_PACK}
+  DEPENDS tools/embed_shader_pack.py ${MANA_SHADER_ARTIFACTS}
+  VERBATIM)
+
 add_library(host_gpu STATIC
-  src/host/gpu_device.cpp)
+  src/host/gpu_device.cpp
+  src/host/gpu_pipeline.cpp
+  ${MANA_SHADER_PACK})
 target_include_directories(host_gpu PUBLIC src)
+target_include_directories(host_gpu PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(host_gpu PUBLIC SDL3::SDL3 lucent::lucent)
 
 add_executable(mana_gpu_selftest

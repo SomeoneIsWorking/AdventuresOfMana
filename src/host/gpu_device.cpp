@@ -73,6 +73,13 @@ SDL_GPUShaderFormat Device::shader_formats() const {
 std::vector<std::uint8_t> Device::ClearAndReadback(std::uint32_t width,
                                                    std::uint32_t height,
                                                    SDL_FColor color) {
+  return RenderAndReadback(width, height, color, {});
+}
+
+std::vector<std::uint8_t> Device::RenderAndReadback(
+    std::uint32_t width, std::uint32_t height, SDL_FColor clear_color,
+    const std::function<void(SDL_GPUCommandBuffer *, SDL_GPURenderPass *)>
+        &draw) {
   if (width == 0 || height == 0)
     throw std::invalid_argument("GPU readback dimensions must be nonzero");
   const std::uint64_t byte_count = std::uint64_t(width) * height * 4;
@@ -109,7 +116,7 @@ std::vector<std::uint8_t> Device::ClearAndReadback(std::uint32_t width,
     Fail("SDL_AcquireGPUCommandBuffer");
   const SDL_GPUColorTargetInfo target{
       .texture = resources.texture,
-      .clear_color = color,
+      .clear_color = clear_color,
       .load_op = SDL_GPU_LOADOP_CLEAR,
       .store_op = SDL_GPU_STOREOP_STORE,
   };
@@ -118,6 +125,14 @@ std::vector<std::uint8_t> Device::ClearAndReadback(std::uint32_t width,
   if (!render) {
     SDL_CancelGPUCommandBuffer(command);
     Fail("SDL_BeginGPURenderPass");
+  }
+  try {
+    if (draw)
+      draw(command, render);
+  } catch (...) {
+    SDL_EndGPURenderPass(render);
+    SDL_CancelGPUCommandBuffer(command);
+    throw;
   }
   SDL_EndGPURenderPass(render);
 

@@ -29,6 +29,34 @@ fi
 grep -F "magenta clear scanned 12 pixels, 12 mismatched" \
   "$gpu_negative_log" || exit 1
 echo "  wrong-color negative passed (12/12 pixels rejected)"
+gpu_pipeline_negative_log=scratch/logs/gpu-pipeline-negative.log
+if ./build/mana_gpu_selftest --pipeline-negative-control \
+    >"$gpu_pipeline_negative_log" 2>&1; then
+  echo "FATAL: SDL3 GPU pipeline negative control returned success"
+  exit 1
+fi
+grep -F "PIPELINE SELFTEST FAIL: scanned 48 pixels, 48 mismatched" \
+  "$gpu_pipeline_negative_log" || exit 1
+echo "  pipeline wrong-color negative passed (48/48 pixels rejected)"
+
+echo "=== portable shader pack ==="
+shader_regen=scratch/logs/shader-generated
+OUTPUT_DIR="$shader_regen" ./tools/compile_shaders.sh || exit 1
+python3 tools/embed_shader_pack.py --input-dir "$shader_regen" \
+  --output scratch/logs/shader-pack.inc || exit 1
+for shader in solid.vert.spv solid.vert.dxil solid.vert.msl \
+              solid.frag.spv solid.frag.dxil solid.frag.msl; do
+  cmp "$shader_regen/$shader" "shaders/generated/$shader" || exit 1
+done
+shader_pack_negative=scratch/logs/shader-pack-negative.log
+if python3 tools/embed_shader_pack.py --input-dir scratch/logs/DOES_NOT_EXIST \
+    --output scratch/logs/shader-pack-missing.inc >"$shader_pack_negative" 2>&1; then
+  echo "FATAL: missing shader-pack negative returned success"
+  exit 1
+fi
+grep -F "scanned 0 artifacts, expected 6; 6 missing" \
+  "$shader_pack_negative" || exit 1
+echo "  6/6 artifacts regenerate exactly; missing-pack negative passed"
 
 check_runtime() {
   if [ ! -x "$1" ]; then

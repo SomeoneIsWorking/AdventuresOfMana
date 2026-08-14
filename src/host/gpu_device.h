@@ -3,6 +3,7 @@
 #include <SDL3/SDL_gpu.h>
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace mana::gpu {
@@ -20,8 +21,13 @@ public:
 
   const char *driver() const;
   SDL_GPUShaderFormat shader_formats() const;
+  SDL_GPUDevice *native_handle() const { return device_; }
   std::vector<std::uint8_t>
   ClearAndReadback(std::uint32_t width, std::uint32_t height, SDL_FColor color);
+  std::vector<std::uint8_t> RenderAndReadback(
+      std::uint32_t width, std::uint32_t height, SDL_FColor clear_color,
+      const std::function<void(SDL_GPUCommandBuffer *, SDL_GPURenderPass *)>
+          &draw);
 
 private:
   SDL_GPUDevice *device_ = nullptr;

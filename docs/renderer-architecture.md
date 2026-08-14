@@ -18,32 +18,41 @@ longer issue GL calls.
 | Owner | Responsibility | Status |
 |---|---|---|
 | `host/gpu_device` | SDL video-subsystem lifetime, GPU device, offscreen targets, command submission, synchronized readback | **live and tested** |
-| shader pack | compile and select SPIR-V, DXIL, and Metal shader artifacts without runtime source guessing | missing |
+| shader pack | compile HLSL to tracked SPIR-V, DXIL, and MSL, embed all formats, and select the active backend without runtime source guessing | **live and tested** |
 | GPU assets | texture, vertex-buffer, index-buffer, sampler, and lifetime ownership | missing; GLES resources remain in `host/render` |
 | scene renderer | room, static actor, skinned actor, depth, blend, and draw submission | missing; GLES calls remain in `host/main.cpp` |
 | UI renderer | font atlas, sprites, message windows, HUD, and fade | missing |
 | presentation | window/swapchain ownership, resize, present mode, and interactive pacing | missing |
 
-The first owner deliberately has no dependency on game assets or `main.cpp`.
+The first two owners deliberately have no dependency on game assets or `main.cpp`.
 `mana_gpu_selftest` initializes SDL's offscreen video driver, creates no window,
 opens no audio subsystem, clears an RGBA8 GPU target to black and magenta, and
 reads every pixel back. The two-color discriminator prevents an all-zero or
 stale transfer buffer from looking like a successful capture; the mandatory
 wrong-color negative proves the same shipping readback rejects all 12 pixels.
+Generated MSL is normalized mechanically so compiler whitespace cannot dirty a
+clean tree or make byte identity host-dependent. The embedded solid pipeline
+then draws a full-target triangle and proves all 48
+pixels changed from the black clear; its own wrong-color negative rejects all
+48. The verifier regenerates all six backend artifacts from the two HLSL
+sources and byte-compares them with the tracked pack.
+
+SDL's official Shadercross build is a regeneration tool, not a runtime
+dependency. On Linux, `tools/bootstrap_shadercross_linux.sh` downloads and
+hash-verifies the pinned official Actions artifact in gitignored `scratch/`.
+`tools/compile_shaders.sh` also accepts `SHADERCROSS` and `SHADERCROSS_LIB` for
+other official builds.
 
 ## Migration order
 
-1. Integrate a portable shader build: one authored source must produce the
-   formats SDL3 GPU needs on Vulkan, D3D12, and Metal. A Vulkan-only production
-   path is not an acceptable intermediate architecture.
-2. Move immutable texture and geometry upload into the GPU-assets owner while
+1. Move immutable texture and geometry upload into the GPU-assets owner while
    retaining CPU `Model` and `TextureSet` data independently of the backend.
-3. Port the textured static-room pass and compare offscreen captures against
+2. Port the textured static-room pass and compare offscreen captures against
    the existing GLES path from the same camera and frame.
-4. Port skinning, actors, UI, fade, and capture as separate passes. Delete each
+3. Port skinning, actors, UI, fade, and capture as separate passes. Delete each
    GLES owner when its SDL3 GPU replacement passes its discriminator; do not
    maintain two permanent renderers.
-5. Add presentation last so all automated work stays texture-backed,
+4. Add presentation last so all automated work stays texture-backed,
    windowless, unpaced, and silent.
 
 ## Lighting and image quality
