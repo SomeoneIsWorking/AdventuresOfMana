@@ -3,7 +3,7 @@ id: C003
 kind: claim
 status: holds
 created: 2026-08-13
-tags: 
+tags:
 depends: src/engine/world.h#Camera, src/engine/script.cpp#Dispatch, src/host/main.cpp#main, tools/verify.sh
 reconfirmed: 2026-08-14
 verified_at: 2026-08-14 04:30:43

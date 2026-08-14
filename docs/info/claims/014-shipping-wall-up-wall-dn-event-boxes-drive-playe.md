@@ -3,7 +3,7 @@ id: C014
 kind: claim
 status: holds
 created: 2026-08-14
-tags: 
+tags:
 depends: src/engine/world.cpp#World::FindEventWall, src/host/main.cpp#main
 reconfirmed: 2026-08-14
 verified_at: 2026-08-14 04:30:43

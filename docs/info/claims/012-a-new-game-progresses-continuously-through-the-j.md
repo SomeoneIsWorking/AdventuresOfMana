@@ -3,7 +3,7 @@ id: C012
 kind: claim
 status: holds
 created: 2026-08-13
-tags: 
+tags:
 depends: src/host/main.cpp#main, src/host/render.cpp#ActorModelName, tools/verify.sh
 reconfirmed: 2026-08-14
 verified_at: 2026-08-14 04:30:43
