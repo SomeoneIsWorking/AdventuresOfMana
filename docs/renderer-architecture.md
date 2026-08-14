@@ -23,7 +23,8 @@ longer issue GL calls.
 | camera + render snapshot | resolve script camera targets/interpolation once and freeze room/object/actor inputs for one frame | **live and consumed by GLES and SDL3 GPU** |
 | GPU assets | texture, generated-normal/vertex-buffer, index-buffer, sampler, and lifetime ownership | **live and tested for static and skinned assets** |
 | scene renderer | room, static actor, skinned actor, depth, blend, and draw submission | **live offscreen for a composed shipping room and skinned actor, including running-world snapshots** |
-| UI renderer | font atlas, sprites, message windows, and HUD | missing |
+| UI content + layout | format shipping strings/live player values once, decode UTF-8, wrap messages, and emit backend-independent panel/glyph batches | **live and shared by GLES and SDL3 GPU for the running HUD, level-up screen, and messages** |
+| GPU UI renderer | shipping R8 font atlas upload, portable blended pipeline, and shared UI-batch submission | **live offscreen in SDL3 GPU and the running paired capture** |
 | fade overlay | freeze authored fade colour/coverage and composite it after scene/UI | **live offscreen in SDL3 GPU and the running paired capture** |
 | presentation | window/swapchain ownership, resize, present mode, and interactive pacing | missing |
 
@@ -68,7 +69,7 @@ equal-ambient control in 3,675, proving the result contains directional surface
 response rather than global dimming. The skinned path differs from its
 equal-ambient control in 2,750 pixels. Pose
 evaluation lives in `host/render_pose`, not either backend. The verifier
-regenerates all 21 backend artifacts from seven HLSL sources and byte-compares
+regenerates all 27 backend artifacts from nine HLSL sources and byte-compares
 them with the tracked pack.
 
 `host/gpu_scene` is the scene-wide submission owner. It accepts explicit camera
@@ -98,7 +99,8 @@ an unnamed asset and missing target. This is the boundary a future swapchain or
 linear-light post-process target will consume. `host/scene_pair_capture` owns the diagnostic GPU
 lifetime, GLES row conversion, checked PNG output, comparison, and reporting.
 The mandatory `--scene-pair` run captures both backends at frame 30 of the same
-real room snapshot: 3 instances, 2 skinned, and 3 cached assets. It exits
+real room snapshot: 3 instances, 2 skinned, 3 cached assets, and the live HUD
+through the same two UI batches and 58 glyph quads. It exits
 cleanly through the offscreen video driver with zero audio frames; GPU objects
 are destroyed before SDL video teardown.
 
@@ -110,8 +112,20 @@ quantization step); a zero-coverage control rejects all 12. The alpha value is
 part of the contract: the first live pair exposed `ONE` as the wrong source
 alpha factor, because the shipping GLES `glBlendFunc` uses `SRC_ALPHA` for both
 colour and alpha. After correction, the windowless running GLES/SDL3 fade pair
-has identical mean alpha. That pair uses `--no-hud` explicitly because text and
-HUD are the next missing SDL3 pass, not something the fade gate can certify.
+has identical mean alpha. The pair now keeps the HUD enabled and certifies
+scene, UI, and fade ordering in both backends from the same frame snapshot.
+
+`host/game_ui_content` owns authored labels and live-value formatting;
+`host/render_ui` owns pixel layout, decoded-codepoint wrapping, and the shared
+command stream. `host/gles_ui_renderer` is a temporary submission-only consumer
+while `host/gpu_ui` owns the SDL3 font atlas, pipeline, and batches. The focused
+shipping-font test renders HUD, level-up, and multi-line message inputs, rejects
+an invalid batch, and substitutes solid glyph quads as an atlas negative. It
+also decodes a multibyte copyright sign as one codepoint and lays out the real
+Japanese `SYS_GAMEOVER_MSG` with zero missing glyphs. Line pitch comes from the
+loaded font's scaled line height; the retired 22-pixel constant overlapped the
+34-pixel shipping glyph cells. Boot/title sprites and presentation remain on
+GLES until their separate owners are ported.
 
 SDL's official Shadercross build is a regeneration tool, not a runtime
 dependency. On Linux, `tools/bootstrap_shadercross_linux.sh` downloads and
@@ -125,7 +139,7 @@ other official builds.
    retaining CPU `Model` and `TextureSet` data independently of the backend.~~
 2. ~~Feed the running `RenderSnapshot` into the tested SDL3 GPU scene owner,
    then compare its offscreen capture against GLES at the same frame.~~
-3. Route the resulting scene into the game loop, then port UI, ~~fade~~, and
+3. Route the resulting scene into the game loop, then port ~~running UI~~, ~~fade~~, and
    capture as separate passes. Delete each
    GLES owner when its SDL3 GPU replacement passes its discriminator; do not
    maintain two permanent renderers.

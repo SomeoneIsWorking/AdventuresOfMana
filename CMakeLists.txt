@@ -46,13 +46,15 @@ target_include_directories(engine PUBLIC src)
 target_link_libraries(engine PUBLIC lua lucent::lucent SDL3::SDL3 PkgConfig::VORBISFILE)
 
 add_library(render_assets STATIC
+  src/host/game_ui_content.cpp
   src/host/render_asset.cpp
   src/host/render_camera.cpp
   src/host/render_lighting.cpp
   src/host/render_normals.cpp
   src/host/render_overlay.cpp
   src/host/render_pose.cpp
-  src/host/render_snapshot.cpp)
+  src/host/render_snapshot.cpp
+  src/host/render_ui.cpp)
 target_include_directories(render_assets PUBLIC src)
 target_link_libraries(render_assets PUBLIC mcf lucent::lucent)
 
@@ -74,6 +76,12 @@ set(MANA_SHADER_ARTIFACTS
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/overlay.frag.spv
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/overlay.frag.dxil
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/overlay.frag.msl
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/ui.vert.spv
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/ui.vert.dxil
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/ui.vert.msl
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/ui.frag.spv
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/ui.frag.dxil
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/ui.frag.msl
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.spv
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.dxil
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generated/textured.vert.msl
@@ -101,6 +109,8 @@ add_library(host_gpu STATIC
   src/host/gpu_scene.cpp
   src/host/gpu_snapshot_renderer.cpp
   src/host/gpu_shader.cpp
+  src/host/gpu_ui.cpp
+  src/host/gpu_upload.cpp
   ${MANA_SHADER_PACK})
 target_include_directories(host_gpu PUBLIC src)
 target_include_directories(host_gpu PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
@@ -119,7 +129,12 @@ add_executable(mana_gpu_asset_selftest
   src/tools/gpu_asset_selftest_main.cpp)
 target_link_libraries(mana_gpu_asset_selftest PRIVATE host_gpu host_image)
 
+add_executable(mana_gpu_ui_selftest
+  src/tools/gpu_ui_selftest.cpp)
+target_link_libraries(mana_gpu_ui_selftest PRIVATE host_gpu host_image)
+
 add_executable(mana
+  src/host/gles_ui_renderer.cpp
   src/host/interaction.cpp
   src/host/main.cpp
   src/host/navigation.cpp

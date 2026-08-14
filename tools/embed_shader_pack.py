@@ -9,7 +9,7 @@ from pathlib import Path
 
 ARTIFACTS = tuple(
     f"{program}.{stage}.{extension}"
-    for program in ("solid", "overlay", "textured")
+    for program in ("solid", "overlay", "textured", "ui")
     for stage in ("vert", "frag")
     for extension in ("spv", "dxil", "msl")
 ) + tuple(f"skinned.vert.{extension}" for extension in ("spv", "dxil", "msl"))
@@ -40,7 +40,7 @@ def emit(input_dir: Path, output: Path) -> None:
     lines.append("}  // namespace mana::gpu::embedded")
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(lines) + "\n")
-    print("embedded 21 shader artifacts; 0 missing, 0 extra, 0 empty")
+    print("embedded 27 shader artifacts; 0 missing, 0 extra, 0 empty")
 
 
 def main() -> int:

@@ -17,7 +17,7 @@ python3 tools/check_structure.py || exit 1
 
 echo "=== build shipping runtime ==="
 cmake --build build --target mana mana_gpu_selftest mana_gpu_asset_selftest \
-  mana_render_normals_selftest -j2 || exit 1
+  mana_gpu_ui_selftest mana_render_normals_selftest -j2 || exit 1
 mkdir -p scratch/logs
 
 echo "=== generated surface-normal self-test ==="
@@ -58,7 +58,7 @@ OUTPUT_DIR="$shader_regen" ./tools/compile_shaders.sh || exit 1
 python3 tools/embed_shader_pack.py --input-dir "$shader_regen" \
   --output scratch/logs/shader-pack.inc || exit 1
 for source_name in solid.vert solid.frag overlay.vert overlay.frag \
-    textured.vert textured.frag skinned.vert; do
+    textured.vert textured.frag skinned.vert ui.vert ui.frag; do
   for extension in spv dxil msl; do
     shader="$source_name.$extension"
     cmp "$shader_regen/$shader" "shaders/generated/$shader" || exit 1
@@ -70,9 +70,9 @@ if python3 tools/embed_shader_pack.py --input-dir scratch/logs/DOES_NOT_EXIST \
   echo "FATAL: missing shader-pack negative returned success"
   exit 1
 fi
-grep -F "scanned 0 artifacts, expected 21; 21 missing" \
+grep -F "scanned 0 artifacts, expected 27; 27 missing" \
   "$shader_pack_negative" || exit 1
-echo "  21/21 artifacts regenerate exactly; missing-pack negative passed"
+echo "  27/27 artifacts regenerate exactly; missing-pack negative passed"
 
 check_runtime() {
   if [ ! -x "$1" ]; then
@@ -98,6 +98,23 @@ if [ ! -f "$archive" ]; then
   exit 1
 fi
 python3 tools/asset/mpk.py "$archive" --check-dir scratch/dump || exit 1
+
+echo "=== SDL3 GPU shipping-font UI pipeline ==="
+ui_capture=scratch/screenshots/sdl3-gpu-ui.png
+./build/mana_gpu_ui_selftest --capture "$ui_capture" "$archive" || exit 1
+if [ ! -s "$ui_capture" ]; then
+  echo "FATAL: UI capture wrote no bytes to $ui_capture"
+  exit 1
+fi
+ui_negative_log=scratch/logs/gpu-ui-atlas-negative.log
+if ./build/mana_gpu_ui_selftest --atlas-negative-control "$archive" \
+    >"$ui_negative_log" 2>&1; then
+  echo "FATAL: UI atlas negative control returned success"
+  exit 1
+fi
+grep -F "UI SELFTEST FAIL: atlas negative substituted solid glyph quads" \
+  "$ui_negative_log" || exit 1
+echo "  shipping font capture wrote bytes; solid-atlas negative passed"
 
 echo "=== SDL3 GPU shipping-asset pipeline ==="
 mkdir -p scratch/screenshots
@@ -137,9 +154,9 @@ echo "=== running snapshot SDL3 GPU consumer ==="
 scene_pair_prefix=scratch/screenshots/live-snapshot
 scene_pair_log=scratch/logs/live-snapshot.log
 ./build/mana --room M0001_00_00 --scene-pair "$scene_pair_prefix" \
-  --fade-test --no-hud --warmup 30 >"$scene_pair_log" 2>&1 || exit 1
+  --fade-test --warmup 30 --no-audio >"$scene_pair_log" 2>&1 || exit 1
 grep -F "video driver: offscreen" "$scene_pair_log" || exit 1
-grep -F "live snapshot pair: 3 instances (2 skinned), 3 cached assets, fade coverage 0.500" \
+grep -F "live snapshot pair: 3 instances (2 skinned), 3 cached assets, 2 UI batches/58 glyph quads, fade coverage 0.500" \
   "$scene_pair_log" || exit 1
 grep -F "audio decoded 0 sounds / 0 frames" "$scene_pair_log" || exit 1
 for scene_pair_image in "$scene_pair_prefix-gles.png" \
@@ -149,7 +166,7 @@ for scene_pair_image in "$scene_pair_prefix-gles.png" \
     exit 1
   fi
 done
-echo "  same-frame scene/fade captures wrote bytes offscreen with 0 audio frames"
+echo "  same-frame scene/UI/fade captures wrote bytes offscreen with 0 audio frames"
 
 fail=0
 mark_failure() {

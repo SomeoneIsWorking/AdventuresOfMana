@@ -11,7 +11,7 @@ namespace mana::gpu {
 
 class Device;
 
-// SDL3 GPU owner for the full-frame fade composition pass. Text/HUD and
+// SDL3 GPU owner for the full-frame fade composition pass. UI and
 // presentation deliberately remain separate owners.
 class OverlayRenderer {
 public:

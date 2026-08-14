@@ -1,0 +1,20 @@
+---
+id: C046
+kind: claim
+status: holds
+created: 2026-08-14
+tags: renderer,ui,sdl3,gles
+depends: src/host/render_ui.cpp#BuildGameUi, src/host/scene_pair_capture.cpp#WriteFromGles, src/host/main.cpp
+---
+
+## Claim
+
+Running HUD, level-up, and message UI are laid out once from shipping strings and font metrics, then consumed by GLES and SDL3 GPU in the same scene/UI/fade order
+
+## Evidence
+
+2026-08-14 tools/verify.sh: focused UI rendered English multiline and Japanese SYS_GAMEOVER_MSG with zero missing glyphs; solid-atlas and invalid-batch negatives fired; live offscreen frame pair reported 2 UI batches/58 glyph quads and fade coverage 0.500 with zero audio frames; full suite ended ALL PARSERS PASSED
+
+## What would falsify it
+
+if either backend stops consuming BuildGameUi output, the live pair omits UI, or the focused shipping-font discriminators fail

@@ -29,10 +29,13 @@
 #include "engine/audio.h"
 #include "engine/world.h"
 #include "host/render.h"
+#include "host/game_ui_content.h"
+#include "host/gles_ui_renderer.h"
 #include "host/image_write.h"
 #include "host/render_camera.h"
 #include "host/render_overlay.h"
 #include "host/render_snapshot.h"
+#include "host/render_ui.h"
 #include "host/scene_pair_capture.h"
 #include "host/interaction.h"
 #include "host/navigation.h"
@@ -2348,7 +2351,7 @@ int main(int argc, char** argv) {
                 }
                 glGenBuffers(1, &textVbo);
             }
-            // Every UI site here was laid out against BasicFont, whose tallest
+            // The remaining boot/title UI here was laid out against BasicFont, whose tallest
             // glyph reaches 17px below the line origin. A font_*.bin line is
             // 28px, so text drawn at the same `scale` would be 1.6x too big and
             // would overflow the boxes. Normalising by the ratio keeps the
@@ -3407,7 +3410,7 @@ int main(int argc, char** argv) {
             std::unique_ptr<mana::ScenePairCapture> scene_pair_capture;
             if (!scene_pair.empty()) {
                 scene_pair_capture =
-                    std::make_unique<mana::ScenePairCapture>(scene_pair);
+                    std::make_unique<mana::ScenePairCapture>(scene_pair, font);
                 lucent::info("gpu", "live snapshot capture driver: {}",
                              scene_pair_capture->driver());
             }
@@ -6850,362 +6853,22 @@ int main(int argc, char** argv) {
                             instance.position.data(), instance.motion,
                             instance.yaw);
                 }
-                // Message window. Drawn before the fade so a transition covers
-                // it, and only when a script has actually set a line.
-                // A message the font cannot draw renders as an empty panel,
-                // which looks like a bug in the window rather than a missing
-                // glyph range. BasicFont holds only ASCII 32..126 -- the game
-                // draws CJK with the Android system font, which is not in the
-                // archive -- so say it once per distinct line.
-                if (fontTex && !sc.last_message.empty() &&
+                const auto ui_content = mana::BuildGameUiContent(
+                    strings, ps, show_hud, level_up_open, level_up_choice,
+                    sc.last_message);
+                const mana::UiFrame ui_frame =
+                    fontTex ? mana::BuildGameUi(font, W, H, ui_content)
+                            : mana::UiFrame{};
+                mana::DrawUiGles(ui_frame, progText, fontTex, textVbo);
+                if (ui_frame.missing_glyphs &&
                     sc.last_message != last_warned_message) {
                     last_warned_message = sc.last_message;
-                    size_t drawable = 0, printable = 0;
-                    for (unsigned char c : sc.last_message) {
-                        if (c == '\n') continue;
-                        ++printable;
-                        if (font.Find(c)) ++drawable;
-                    }
-                    if (drawable < printable)
-                        lucent::warn("text", "{} of {} characters have no glyph in "
-                                     "BasicFont (ASCII 32..126 only); the panel will "
-                                     "be blank or partial", printable - drawable,
-                                     printable);
-                }
-                // Status HUD. The player has HP, MP, GP and EXP now, and no
-                // way to see any of them. Labels come from the game's own
-                // string table (SYS_COMMON_STATUS_LABEL_*), so this reads in
-                // whichever language is loaded rather than in invented English.
-                // PORT CHOICE: the layout. ModeGame::Draw_StatusData draws the
-                // real one and is not reversed, so this is a plain corner
-                // readout, not a fake of the game's UI.
-                if (fontTex && show_hud) {
-                    const float kScale = 2.f;                 // line pitch and boxes
-                    // Glyph metrics scale separately: the two fonts have
-                    // different cell heights and font_scale equalises them.
-                    const float kGlyph = kScale * font_scale;
-                    const float kMargin = 16.f;
-                    auto label = [&](const char* id, const char* fallback) {
-                        const std::string* t = strings.Find(id);
-                        return t ? *t : std::string(fallback);
-                    };
-                    std::vector<std::string> rows{
-                        std::format("{} {:>3}/{:<3}  {} {:>2}/{:<2}",
-                                    label("SYS_COMMON_STATUS_LABEL_4", "HP"),
-                                    ps.hp, ps.max_hp(),
-                                    label("SYS_COMMON_STATUS_LABEL_5", "MP"),
-                                    ps.mp, ps.max_mp()),
-                        std::format("{} {:<5}  {} {}/{}",
-                                    label("SYS_COMMON_STATUS_LABEL_6", "GP"), ps.money,
-                                    label("SYS_COMMON_STATUS_LABEL_7", "EXP"),
-                                    ps.exp, ps.next_exp()),
-                        std::format("{} {:<3} {} {:<3} {} {}",
-                                    label("SYS_COMMON_STATUS_LABEL_8", "ATK"), ps.attack(),
-                                    label("SYS_COMMON_STATUS_LABEL_9", "DEF"), ps.defence(),
-                                    label("SYS_COMMON_STATUS_LABEL_1", "Lv"),
-                                    ps.level_up_due()
-                                        ? std::format("{} {}", ps.level,
-                                                      label("SYS_COMMON_BUTTON_LEVELUP",
-                                                            "Lv Up!"))
-                                        : std::format("{}", ps.level)),
-                    };
-                    std::vector<float> verts;
-                    auto push = [&](float x0, float y0, float x1, float y1,
-                                    float u0, float v0, float u1, float v1) {
-                        auto sx = [&](float px) { return px / float(W) * 2.f - 1.f; };
-                        auto sy = [&](float py) { return 1.f - py / float(H) * 2.f; };
-                        float q[6][4] = {{sx(x0), sy(y0), u0, v0}, {sx(x1), sy(y0), u1, v0},
-                                         {sx(x1), sy(y1), u1, v1}, {sx(x0), sy(y0), u0, v0},
-                                         {sx(x1), sy(y1), u1, v1}, {sx(x0), sy(y1), u0, v1}};
-                        for (auto& v : q) verts.insert(verts.end(), v, v + 4);
-                    };
-                    glUseProgram(progText);
-                    glEnable(GL_BLEND);
-                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                    glDisable(GL_DEPTH_TEST);
-                    glActiveTexture(GL_TEXTURE0);
-                    glBindTexture(GL_TEXTURE_2D, fontTex);
-                    glUniform1i(glGetUniformLocation(progText, "tex"), 0);
-                    GLint uTint = glGetUniformLocation(progText, "tint");
-                    GLint uUse = glGetUniformLocation(progText, "useTex");
-                    auto flush = [&](float r, float g, float b, float a, float useTex) {
-                        if (verts.empty()) return;
-                        glUniform4f(uTint, r, g, b, a);
-                        glUniform1f(uUse, useTex);
-                        glBindBuffer(GL_ARRAY_BUFFER, textVbo);
-                        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(verts.size() * 4),
-                                     verts.data(), GL_STREAM_DRAW);
-                        glEnableVertexAttribArray(0);
-                        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, nullptr);
-                        glEnableVertexAttribArray(1);
-                        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16,
-                                              (void*)(uintptr_t)8);
-                        glDrawArrays(GL_TRIANGLES, 0, GLsizei(verts.size() / 4));
-                        glDisableVertexAttribArray(1);
-                        verts.clear();
-                    };
-                    float lineH = 11.f * kScale;
-                    float widest = 0.f;
-                    for (const auto& r : rows) {
-                        float w = 0.f;
-                        for (uint32_t ch : mcf::Utf8Codepoints(r))
-                            if (const mcf::Glyph* g = font.Find(ch))
-                                w += float(g->Advance()) * kGlyph;
-                        widest = std::max(widest, w);
-                    }
-                    float boxW = widest + 16.f, boxH = lineH * float(rows.size()) + 12.f;
-                    push(kMargin, kMargin, kMargin + boxW, kMargin + boxH, 0, 0, 1, 1);
-                    flush(0.05f, 0.07f, 0.18f, 0.72f, 0.f);
-                    // A red bar behind the HP row when the pool is low, so the
-                    // one number that can end the run is not just small text.
-                    if (ps.max_hp() > 0 && ps.hp * 4 <= ps.max_hp()) {
-                        push(kMargin, kMargin + 4.f, kMargin + boxW, kMargin + 4.f + lineH,
-                             0, 0, 1, 1);
-                        flush(0.6f, 0.1f, 0.1f, 0.8f, 0.f);
-                    }
-                    float aw = float(font.width()), ah = float(font.height());
-                    float ty = kMargin + 6.f;
-                    for (const auto& row : rows) {
-                        float tx = kMargin + 8.f;
-                        for (uint32_t ch : mcf::Utf8Codepoints(row)) {
-                            const mcf::Glyph* g = font.Find(ch);
-                            if (!g) continue;
-                            if (g->w && g->h) {
-                                float gx = tx + float(g->left) * kGlyph;
-                                float gy = ty + float(g->top) * kGlyph;
-                                push(gx, gy, gx + float(g->w) * kGlyph,
-                                     gy + float(g->h) * kGlyph,
-                                     float(g->x) / aw, float(g->y) / ah,
-                                     float(g->x + g->w) / aw, float(g->y + g->h) / ah);
-                            }
-                            tx += float(g->Advance()) * kGlyph;
-                        }
-                        ty += lineH;
-                    }
-                    flush(1.f, 1.f, 1.f, 1.f, 1.f);
-                    glDisableVertexAttribArray(0);
-                    glEnable(GL_DEPTH_TEST);
-                    glDisable(GL_BLEND);
-                }
-
-                // The level-up screen. PORT CHOICE: the layout, again --
-                // ModeGame::Draw_StatusData draws the real one and is not
-                // reversed. Every WORD in it is the game's: the four regimen
-                // names are SYS_LEVELUP_TYPE_1..4 and the descriptions are the
-                // matching SYS_HELP_LEVELUP_* strings, so what the player is
-                // told about each choice is what the game tells them.
-                if (fontTex && level_up_open) {
-                    const float kScale = 2.f;                 // line pitch and boxes
-                    // Glyph metrics scale separately: the two fonts have
-                    // different cell heights and font_scale equalises them.
-                    const float kGlyph = kScale * font_scale;
-                    const float kMargin = 40.f;
-                    auto str = [&](const char* id, const char* fallback) {
-                        const std::string* t = strings.Find(id);
-                        return t ? *t : std::string(fallback);
-                    };
-                    static const char* kTypeIds[4] = {
-                        "SYS_LEVELUP_TYPE_1", "SYS_LEVELUP_TYPE_2",
-                        "SYS_LEVELUP_TYPE_3", "SYS_LEVELUP_TYPE_4"};
-                    static const char* kHelpIds[4] = {
-                        "SYS_HELP_LEVELUP_FIGHTER", "SYS_HELP_LEVELUP_MONK",
-                        "SYS_HELP_LEVELUP_WIZARD", "SYS_HELP_LEVELUP_WISEMAN"};
-                    static const char* kFallback[4] = {"Warrior", "Monk", "Mage", "Sage"};
-                    std::vector<std::string> rows;
-                    rows.push_back(str("SYS_HELP_LEVELUP_START_TOUCH",
-                                       "Select a training regimen."));
-                    rows.push_back("");
-                    for (int i = 0; i < 4; ++i)
-                        rows.push_back(std::format("{} {}",
-                                                   i == level_up_choice ? ">" : " ",
-                                                   str(kTypeIds[i], kFallback[i])));
-                    rows.push_back("");
-                    // The chosen regimen's own description, split on the
-                    // newline the string already carries.
-                    std::string help = str(kHelpIds[level_up_choice], "");
-                    for (size_t b = 0, e; b <= help.size(); b = e + 1) {
-                        e = help.find('\n', b);
-                        if (e == std::string::npos) e = help.size();
-                        rows.push_back(help.substr(b, e - b));
-                        if (e == help.size()) break;
-                    }
-                    std::vector<float> verts;
-                    auto push = [&](float x0, float y0, float x1, float y1,
-                                    float u0, float v0, float u1, float v1) {
-                        auto sx = [&](float px) { return px / float(W) * 2.f - 1.f; };
-                        auto sy = [&](float py) { return 1.f - py / float(H) * 2.f; };
-                        float q[6][4] = {{sx(x0), sy(y0), u0, v0}, {sx(x1), sy(y0), u1, v0},
-                                         {sx(x1), sy(y1), u1, v1}, {sx(x0), sy(y0), u0, v0},
-                                         {sx(x1), sy(y1), u1, v1}, {sx(x0), sy(y1), u0, v1}};
-                        for (auto& v : q) verts.insert(verts.end(), v, v + 4);
-                    };
-                    glUseProgram(progText);
-                    glEnable(GL_BLEND);
-                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                    glDisable(GL_DEPTH_TEST);
-                    glActiveTexture(GL_TEXTURE0);
-                    glBindTexture(GL_TEXTURE_2D, fontTex);
-                    glUniform1i(glGetUniformLocation(progText, "tex"), 0);
-                    GLint uTint = glGetUniformLocation(progText, "tint");
-                    GLint uUse = glGetUniformLocation(progText, "useTex");
-                    auto flush = [&](float r, float g, float b, float a, float useTex) {
-                        if (verts.empty()) return;
-                        glUniform4f(uTint, r, g, b, a);
-                        glUniform1f(uUse, useTex);
-                        glBindBuffer(GL_ARRAY_BUFFER, textVbo);
-                        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(verts.size() * 4),
-                                     verts.data(), GL_STREAM_DRAW);
-                        glEnableVertexAttribArray(0);
-                        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, nullptr);
-                        glEnableVertexAttribArray(1);
-                        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16,
-                                              (void*)(uintptr_t)8);
-                        glDrawArrays(GL_TRIANGLES, 0, GLsizei(verts.size() / 4));
-                        glDisableVertexAttribArray(1);
-                        verts.clear();
-                    };
-                    float lineH = 11.f * kScale;
-                    float boxH = lineH * float(rows.size()) + 24.f;
-                    float boxY = (float(H) - boxH) * 0.5f;
-                    // Dim the world, then the panel over it.
-                    push(0, 0, float(W), float(H), 0, 0, 1, 1);
-                    flush(0.f, 0.f, 0.f, 0.55f, 0.f);
-                    push(kMargin, boxY, float(W) - kMargin, boxY + boxH, 0, 0, 1, 1);
-                    flush(0.05f, 0.07f, 0.18f, 0.92f, 0.f);
-                    push(kMargin, boxY, float(W) - kMargin, boxY + 2.f, 0, 0, 1, 1);
-                    flush(0.55f, 0.65f, 0.95f, 0.9f, 0.f);
-                    float aw = float(font.width()), ah = float(font.height());
-                    float ty = boxY + 12.f;
-                    for (const auto& row : rows) {
-                        float tx = kMargin + 16.f;
-                        for (uint32_t ch : mcf::Utf8Codepoints(row)) {
-                            const mcf::Glyph* g = font.Find(ch);
-                            if (!g) continue;
-                            if (g->w && g->h) {
-                                float gx = tx + float(g->left) * kGlyph;
-                                float gy = ty + float(g->top) * kGlyph;
-                                push(gx, gy, gx + float(g->w) * kGlyph,
-                                     gy + float(g->h) * kGlyph,
-                                     float(g->x) / aw, float(g->y) / ah,
-                                     float(g->x + g->w) / aw, float(g->y + g->h) / ah);
-                            }
-                            tx += float(g->Advance()) * kGlyph;
-                        }
-                        ty += lineH;
-                    }
-                    flush(1.f, 1.f, 1.f, 1.f, 1.f);
-                    glDisableVertexAttribArray(0);
-                    glEnable(GL_DEPTH_TEST);
-                    glDisable(GL_BLEND);
-                }
-
-                if (fontTex && !sc.last_message.empty()) {
-                    const float kScale = 2.f;                 // line pitch and boxes
-                    // Glyph metrics scale separately: the two fonts have
-                    // different cell heights and font_scale equalises them.
-                    const float kGlyph = kScale * font_scale;
-                    const int kPadX = 14, kPadY = 10;
-                    const float kMargin = 16.f;
-                    std::vector<float> verts;         // x,y,u,v per vertex
-                    auto push = [&](float x0, float y0, float x1, float y1,
-                                    float u0, float v0, float u1, float v1) {
-                        auto sx = [&](float px) { return px / float(W) * 2.f - 1.f; };
-                        auto sy = [&](float py) { return 1.f - py / float(H) * 2.f; };
-                        float q[6][4] = {{sx(x0), sy(y0), u0, v0}, {sx(x1), sy(y0), u1, v0},
-                                         {sx(x1), sy(y1), u1, v1}, {sx(x0), sy(y0), u0, v0},
-                                         {sx(x1), sy(y1), u1, v1}, {sx(x0), sy(y1), u0, v1}};
-                        for (auto& v : q) verts.insert(verts.end(), v, v + 4);
-                    };
-                    // Lay the text out first so the box can be sized to it.
-                    // Word-wrap to the panel width: the game's lines carry their
-                    // own breaks, but they were authored for a phone screen and
-                    // overflow here, and silently clipping text is worse than
-                    // wrapping it.
-                    float avail = float(W) - kMargin * 2 - kPadX * 2;
-                    std::vector<std::string> lines{""};
-                    auto width_of = [&](const std::string& t) {
-                        float x = 0;
-                        for (unsigned char c : t)
-                            if (const mcf::Glyph* g = font.Find(c))
-                                x += float(g->Advance()) * kGlyph;
-                        return x;
-                    };
-                    for (size_t i = 0; i <= sc.last_message.size(); ++i) {
-                        bool end = i == sc.last_message.size();
-                        char c = end ? '\n' : sc.last_message[i];
-                        if (c == '\n') { if (!end) lines.emplace_back(); continue; }
-                        std::string probe = lines.back() + c;
-                        if (c != ' ' && width_of(probe) > avail) {
-                            // Break at the last space if there is one.
-                            auto sp = lines.back().find_last_of(' ');
-                            if (sp != std::string::npos) {
-                                std::string carry = lines.back().substr(sp + 1);
-                                lines.back().erase(sp);
-                                lines.push_back(carry + c);
-                            } else {
-                                lines.push_back(std::string(1, c));
-                            }
-                            continue;
-                        }
-                        lines.back() = probe;
-                    }
-                    float lineH = 11.f * kScale;
-                    float boxH = lineH * float(lines.size()) + kPadY * 2;
-                    float boxY = float(H) - boxH - kMargin;
-                    glUseProgram(progText);
-                    glEnable(GL_BLEND);
-                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                    glDisable(GL_DEPTH_TEST);
-                    glActiveTexture(GL_TEXTURE0);
-                    glBindTexture(GL_TEXTURE_2D, fontTex);
-                    glUniform1i(glGetUniformLocation(progText, "tex"), 0);
-                    GLint uTint = glGetUniformLocation(progText, "tint");
-                    GLint uUse = glGetUniformLocation(progText, "useTex");
-                    auto flush = [&](float r, float g, float b, float a, float useTex) {
-                        if (verts.empty()) return;
-                        glUniform4f(uTint, r, g, b, a);
-                        glUniform1f(uUse, useTex);
-                        glBindBuffer(GL_ARRAY_BUFFER, textVbo);
-                        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(verts.size() * 4),
-                                     verts.data(), GL_STREAM_DRAW);
-                        glEnableVertexAttribArray(0);
-                        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, nullptr);
-                        glEnableVertexAttribArray(1);
-                        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16,
-                                              (void*)(uintptr_t)8);
-                        glDrawArrays(GL_TRIANGLES, 0, GLsizei(verts.size() / 4));
-                        glDisableVertexAttribArray(1);
-                        verts.clear();
-                    };
-                    // Panel, then a lighter border line along the top.
-                    push(kMargin, boxY, float(W) - kMargin, boxY + boxH, 0, 0, 1, 1);
-                    flush(0.05f, 0.07f, 0.18f, 0.85f, 0.f);
-                    push(kMargin, boxY, float(W) - kMargin, boxY + 2.f, 0, 0, 1, 1);
-                    flush(0.55f, 0.65f, 0.95f, 0.9f, 0.f);
-                    // Glyphs.
-                    float aw = float(font.width()), ah = float(font.height());
-                    float ty = boxY + kPadY;
-                    for (const auto& line : lines) {
-                        float tx = kMargin + kPadX;
-                        for (uint32_t ch : mcf::Utf8Codepoints(line)) {
-                            const mcf::Glyph* g = font.Find(ch);
-                            if (!g) continue;
-                            if (g->w && g->h) {
-                                float gx = tx + float(g->left) * kGlyph;
-                                float gy = ty + float(g->top) * kGlyph;
-                                push(gx, gy, gx + float(g->w) * kGlyph,
-                                     gy + float(g->h) * kGlyph,
-                                     float(g->x) / aw, float(g->y) / ah,
-                                     float(g->x + g->w) / aw, float(g->y + g->h) / ah);
-                            }
-                            tx += float(g->Advance()) * kGlyph;
-                        }
-                        ty += lineH;
-                    }
-                    flush(1.f, 1.f, 1.f, 1.f, 1.f);
-                    glDisableVertexAttribArray(0);
-                    glEnable(GL_DEPTH_TEST);
-                    glDisable(GL_BLEND);
+                    lucent::warn(
+                        "text",
+                        "UI layout scanned {} glyphs missing from the shipping "
+                        "font; first missing codepoint U+{:04X}",
+                        ui_frame.missing_glyphs,
+                        ui_frame.first_missing_codepoint);
                 }
 
                 // Fade overlay, drawn last so it covers everything.
@@ -7231,6 +6894,7 @@ int main(int argc, char** argv) {
                 }
                 if (!scene_pair.empty() && frames >= warmup) {
                     scene_pair_capture->WriteFromGles(render_snapshot, W, H,
+                        ui_frame,
                         mana::FadeOverlay::FromEngineColor(
                             world.fade.colour, world.fade.Coverage()));
                     running = false;
