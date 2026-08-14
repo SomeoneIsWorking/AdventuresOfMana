@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-14
 tags: hydra,navigation,collision
 depends: src/host/main.cpp, tools/verify.sh
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 07:32:23
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Full ./tools/verify.sh passed on 2026-08-14: mandatory fixed-step uncapped run r
 ## What would falsify it
 
 A continuous unseeded run fails to reach M0013_01_00 through left_1, accepts the exactly tangent arrival box as overlapping, opens a window, or decodes any audio.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the Hydra mountain change; all claim-specific self-tests and continuous fixed-step offscreen zero-audio progression gates passed.

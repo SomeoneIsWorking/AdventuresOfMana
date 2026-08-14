@@ -1,0 +1,26 @@
+---
+id: C027
+kind: claim
+status: holds
+created: 2026-08-14
+tags: progression,hydra
+depends: src/host/main.cpp, tools/verify.sh
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 07:32:23
+---
+
+## Claim
+
+The unseeded fixed-step uncapped offscreen story run climbs the lone WALL_UP mountain through up_01 and continues to M0013_00_00 with zero decoded audio
+
+## Evidence
+
+tools/verify.sh full gate on 2026-08-14: 12582 frames; entered floor-330 lone WALL_UP, up_01 mapjump, left room exit; audio decoded 0 sounds / 0 frames
+
+## What would falsify it
+
+if the continuous run fires wall_01 during the mountain ascent, returns through down_01, opens a window, decodes audio, or fails to reach M0013_00_00
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the Hydra mountain change; all claim-specific self-tests and continuous fixed-step offscreen zero-audio progression gates passed.

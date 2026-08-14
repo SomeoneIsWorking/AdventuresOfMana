@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-14
 tags: hydra,navigation,map-object,collision
 depends: src/host/main.cpp, src/mcf/assets.cpp, src/mcf/mcf.h, tools/verify.sh
+reconfirmed: 2026-08-14
+verified_at: 2026-08-14 07:32:23
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Full ./tools/verify.sh passed on 2026-08-14: mandatory fixed-step uncapped run e
 ## What would falsify it
 
 A continuous unseeded run fails to dispatch _BREAKOBJ_1306 or reach M0013_06_05 through down_01, opens a window, or decodes audio.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the Hydra mountain change; all claim-specific self-tests and continuous fixed-step offscreen zero-audio progression gates passed.

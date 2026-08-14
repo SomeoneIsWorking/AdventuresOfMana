@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: gameplay,progression,verification
 depends: src/host/main.cpp#main, src/engine/script.cpp#Dispatch, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 06:27:12
+verified_at: 2026-08-14 07:32:22
 ---
 
 ## Claim
@@ -60,3 +60,7 @@ Final full ./tools/verify.sh passed on 2026-08-14 after removing unused route br
 ## Re-confirmed 2026-08-14
 
 Full ./tools/verify.sh passed on 2026-08-14 after the Hydra-dungeon pressure-switch changes, including all negatives, gameplay gates through M0013_00_04, 48/48 movement cases, 993-room census, cmd API, and world-map checks.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the Hydra mountain change; all claim-specific self-tests and continuous fixed-step offscreen zero-audio progression gates passed.

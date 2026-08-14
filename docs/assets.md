@@ -2168,6 +2168,18 @@ What `vtable[0x2f0]` and `vtable[0x1c8]` do is **not read** — the 0.0f / 1.0f
 pairing invites reading the first as a speed multiplier, which is exactly the
 kind of guess this file exists to keep out.
 
+The player-side movement consequence is established independently in
+`AppCharacterBase::Update`: floor type 0 applies the movement vector in X/Z,
+while floor type 1 applies it in X/Y and leaves Z on the authored wall plane.
+`AppCharacterBase::_AppEvMove` resolves the character body against event-box
+bounds rather than requiring its origin to cross them. The exact player
+collision primitive is still a port choice; ordinary live event dispatch keeps
+strict centre containment, and body contact is admitted only for a movement
+attempt that the static collision mesh actually blocked. This distinction is
+required by `M0013_06_05`: broad wall-mode body tests fire `wall_01` from
+outside its strict bounds and reset floor type before the authored `up_01`
+exit, while the lone `WALL_UP` region correctly enters X/Y wall movement.
+
 ### `+0x3910` is a countdown, and what "expired" gated
 
 At the loop's exit, `0x2a9cd4` does `+0x3910 -= 1` unconditionally, once per

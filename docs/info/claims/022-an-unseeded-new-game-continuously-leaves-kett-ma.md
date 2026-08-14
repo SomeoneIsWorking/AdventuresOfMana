@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: progression,headless
 depends: src/host/main.cpp, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 06:27:19
+verified_at: 2026-08-14 07:32:23
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ Any unseeded ./tools/verify.sh run fails the Silver Key assertions, decodes audi
 ## Re-confirmed 2026-08-14
 
 Full ./tools/verify.sh passed on 2026-08-14 after the Hydra-dungeon pressure-switch changes; its Silver Key acquisition gate remains mandatory inside the longer progression run.
+
+## Re-confirmed 2026-08-14
+
+Full ./tools/verify.sh passed on 2026-08-14 after the Hydra mountain change; all claim-specific self-tests and continuous fixed-step offscreen zero-audio progression gates passed.

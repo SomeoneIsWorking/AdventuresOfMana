@@ -355,9 +355,9 @@ echo "=== combat self-test ==="
   # equipped Silver Key, then continue through the first authored dungeon
   # pressure switch. This is also the discriminator for 3D auto-combat range,
   # floor-aware diagonal routing, and the switch_result callback payload.
-  echo "=== continuous route through the first Hydra-dungeon switch and upper log ==="
+  echo "=== continuous route through the Hydra mountain ascent ==="
   silver_key_log=scratch/logs/silver-key-story.log
-  ./build/mana --opening-story --continue-story --stop-room M0013_06_05 \
+  ./build/mana --opening-story --continue-story --stop-room M0013_00_00 \
     >"$silver_key_log" 2>&1 || fail=1
   grep -F "entered event box 'out_1'" "$silver_key_log" || fail=1
   grep -F "mapjump -> M0000_10_09 at (165,0,135) arrow 2" \
@@ -394,7 +394,15 @@ echo "=== combat self-test ==="
   grep -F "entered event box 'down_01'" "$silver_key_log" || fail=1
   grep -F "mapjump -> M0013_06_05 at (255,0,75) arrow 3" \
     "$silver_key_log" || fail=1
-  grep -F "reached requested stop room M0013_06_05" \
+  grep -F "entered lone WALL_UP volume at floor 330.0" \
+    "$silver_key_log" || fail=1
+  grep -F "opening wall-plane route in M0013_06_05 to 'up_01'" \
+    "$silver_key_log" || fail=1
+  grep -F "entered event box 'up_01'" "$silver_key_log" || fail=1
+  grep -F "mapjump -> M0013_01_00 at (225,0,45) arrow 3" \
+    "$silver_key_log" || fail=1
+  grep -F "room exit 3 -> M0013_00_00" "$silver_key_log" || fail=1
+  grep -F "reached requested stop room M0013_00_00" \
     "$silver_key_log" || fail=1
   grep -F "video driver: offscreen" "$silver_key_log" || fail=1
   grep -F "audio decoded 0 sounds / 0 frames" "$silver_key_log" || fail=1
