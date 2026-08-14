@@ -117,6 +117,7 @@ add_library(host_gpu STATIC
   src/host/gpu_device.cpp
   src/host/gpu_overlay.cpp
   src/host/gpu_pipeline.cpp
+  src/host/gpu_presentation.cpp
   src/host/gpu_scene.cpp
   src/host/gpu_snapshot_renderer.cpp
   src/host/gpu_shader.cpp

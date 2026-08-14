@@ -27,7 +27,7 @@ longer issue GL calls.
 | GPU UI renderer | shipping R8 font atlas upload, portable blended pipeline, and shared UI-batch submission | **live offscreen in SDL3 GPU and the running paired capture** |
 | boot/title renderer | shipping logo PNG decode, aspect-fit sprite geometry, and attract/menu/crawl/name text layout | **backend-independent and rendered by both GLES and SDL3 GPU offscreen; interactive presentation still uses GLES** |
 | fade overlay | freeze authored fade colour/coverage and composite it after scene/UI | **live offscreen in SDL3 GPU and the running paired capture** |
-| presentation | window/swapchain ownership, resize, present mode, and interactive pacing | missing |
+| presentation | shipping-window claim/release, swapchain ownership, resize-safe RGBA/depth targets, format-converting blit, and immediate/vsync selection | **live and smoke-tested as an isolated SDL3 GPU owner; runtime wiring remains blocked on extracting GLES resources from the world asset cache** |
 
 The device and shader owners deliberately have no dependency on game assets or
 `main.cpp`. `RenderAsset` is the shared CPU boundary: it retains the storage
@@ -49,6 +49,14 @@ negative reports one degenerate triangle and three exact-zero normals. The
 two-color discriminator prevents an all-zero or
 stale transfer buffer from looking like a successful capture; the mandatory
 wrong-color negative proves the same shipping readback rejects all 12 pixels.
+The same mandatory executable tests presentation policy without constructing a
+window: unpaced mode selects IMMEDIATE only when the claimed window reports it
+supported, with VSYNC as the supported fallback. The explicit, non-mandatory
+`--presentation-smoke` path claims an SDL3 GPU window, renders through a stable
+RGBA8 color/depth pair, blits into the backend-selected swapchain format, and
+submits one frame. Keeping that smoke path out of `tools/verify.sh` is
+intentional: the normal automated renderer remains genuinely windowless rather
+than redefining an offscreen window as windowless.
 Generated MSL is normalized mechanically so compiler whitespace cannot dirty a
 clean tree or make byte identity host-dependent. The embedded solid pipeline
 then draws a full-target triangle and proves all 48
@@ -137,6 +145,18 @@ remaining title dependency on GLES is presentation itself: the interactive
 window is still created with `SDL_WINDOW_OPENGL` and submits the shared frame
 through the transitional GLES consumers.
 
+`host/gpu_presentation` follows Dusklight's presentation ownership boundary
+without copying its graphics API. It owns the SDL window, claim/release order,
+swapchain policy, and resize-dependent render targets. Existing scene, UI,
+sprite, and overlay pipelines keep their verified RGBA8 contract; presentation
+performs the final format-converting blit to BGRA or another SDL-selected
+swapchain format. The attempted runtime cutover exposed the actual next
+dependency: `mcf::Renderable` still combines a backend-independent
+`RenderAsset` with GLES buffer and texture handles in the running world's cache.
+That cache must be split before the interactive window changes backend; a
+second hidden GLES window or duplicated asset parser is explicitly not an
+acceptable bridge.
+
 SDL's official Shadercross build is a regeneration tool, not a runtime
 dependency. On Linux, `tools/bootstrap_shadercross_linux.sh` downloads and
 hash-verifies the pinned official Actions artifact in gitignored `scratch/`.
@@ -153,8 +173,14 @@ other official builds.
    capture as separate passes. Delete each
    GLES owner when its SDL3 GPU replacement passes its discriminator; do not
    maintain two permanent renderers.
-4. Add presentation last so all automated work stays texture-backed,
-   windowless, unpaced, and silent.
+4. ~~Add an isolated presentation owner while keeping automated work
+   texture-backed, windowless, unpaced, and silent.~~ **DONE:** the owner and
+   explicit smoke path exist; deterministic readback remains the mandatory
+   gate.
+5. Split `mcf::Renderable` into backend-independent world assets and the
+   transitional GLES upload cache, then wire the live frame compositor to
+   `host/gpu_presentation`. Remove the GLES owner only after the paired capture
+   has supplied its final differential evidence.
 
 ## Lighting and image quality
 
