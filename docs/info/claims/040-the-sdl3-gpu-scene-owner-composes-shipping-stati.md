@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,sdl3,scene
 depends: src/host/gpu_scene.cpp#SceneRenderer::DrawAndReadback, src/host/gpu_asset_pipeline.cpp#AssetPipeline::DrawPass, src/tools/gpu_asset_selftest.cpp#RunAssetPipelineSelfTest, src/host/image_write.cpp#WritePng, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 12:37:34
+verified_at: 2026-08-14 12:54:26
 ---
 
 ## Claim
@@ -28,3 +28,11 @@ Reverified after commit 9dea2fe by the complete tools/verify.sh gate in scratch/
 ## Re-confirmed 2026-08-14
 
 Reverified after commit 7b7e22c by the complete tools/verify.sh gate in scratch/logs/verify-render-snapshot-final.log: all focused positives and negatives passed, CameraTracker reported 7/7 and RenderSnapshot 3/3, both 21961-frame story runs stayed fixed-step uncapped/offscreen with 0 audio frames, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+Reverified after b07f16a and the external-pass changes by the complete tools/verify.sh gate in scratch/logs/verify-external-gpu-pass-final.log: all focused positives and negatives passed, both 21,961-frame story runs stayed fixed-step uncapped/offscreen with 0 audio frames, the live SDL3 pair and external-pass parity passed, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+Reverified at implementation commit 180133b by the complete tools/verify.sh gate in scratch/logs/verify-external-gpu-pass-final.log: external target parity 0/76800, missing-target negative passed, live pair stayed offscreen with 0 audio frames, both 21,961-frame story runs passed, and ALL PARSERS PASSED.

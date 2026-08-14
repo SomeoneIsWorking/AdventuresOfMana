@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,sdl3-gpu,presentation
 depends: src/host/gpu_scene.cpp#SceneRenderer::Draw, src/host/gpu_snapshot_renderer.cpp#SnapshotRenderer::Draw, src/tools/gpu_asset_selftest.cpp
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 12:53:35
+verified_at: 2026-08-14 12:54:26
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ An external SDL3 render target produces any pixel difference from the readback w
 ## Re-confirmed 2026-08-14
 
 Reverified after registry creation by the complete tools/verify.sh run in scratch/logs/verify-external-gpu-pass-final.log: external target parity 0/76800, missing-target negative passed, live pair passed offscreen with zero audio, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+Reverified at implementation commit 180133b by the complete tools/verify.sh gate in scratch/logs/verify-external-gpu-pass-final.log: external target parity 0/76800, missing-target negative passed, live pair stayed offscreen with 0 audio frames, both 21,961-frame story runs passed, and ALL PARSERS PASSED.
