@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: renderer,sdl3-gpu,fade
 depends: src/host/render_overlay.cpp#FadeOverlay::FromEngineColor, src/host/gpu_overlay.cpp#OverlayRenderer::Draw, src/host/scene_pair_capture.cpp#ScenePairCapture::WriteFromGles, src/host/main.cpp
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 13:07:22
+verified_at: 2026-08-14 14:11:08
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Reverified after registry creation by complete tools/verify.sh in scratch/logs/v
 ## Re-confirmed 2026-08-14
 
 Reverified at implementation commit 3bee232 by complete tools/verify.sh in scratch/logs/verify-sdl3-fade-final.log: all focused positives and negatives passed, 21/21 portable shaders regenerated, the 0.500 scene/fade pair stayed offscreen with 0 audio frames, both 21,961-frame story runs passed, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+2026-08-14 full tools/verify.sh passed on the exact source tree committed as abd18ce: all focused positives/negatives, unpaced offscreen story through sccnt=20 with zero audio frames, room census, API/frontier/table checks, and ALL PARSERS PASSED

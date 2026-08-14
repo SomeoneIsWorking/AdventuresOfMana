@@ -6,7 +6,7 @@ created: 2026-08-14
 tags: progression,headless
 depends: src/host/main.cpp, tools/verify.sh
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 13:41:39
+verified_at: 2026-08-14 14:11:07
 ---
 
 ## Claim
@@ -88,3 +88,7 @@ Reverified at implementation commit 3bee232 by complete tools/verify.sh in scrat
 ## Re-confirmed 2026-08-14
 
 Reverified at implementation commit 51cc938 by complete tools/verify.sh in scratch/logs/verify-directional-shading-51cc938.log: generated-normal positives/negatives, directional/equal-ambient static and skinned controls, distinct A/B captures, 21/21 portable shaders, both 21,961-frame story runs offscreen with zero audio frames, and ALL PARSERS PASSED.
+
+## Re-confirmed 2026-08-14
+
+2026-08-14 full tools/verify.sh passed on the exact source tree committed as abd18ce: all focused positives/negatives, unpaced offscreen story through sccnt=20 with zero audio frames, room census, API/frontier/table checks, and ALL PARSERS PASSED
