@@ -6,7 +6,7 @@ created: 2026-08-13
 tags: ai,bosses,scripting
 depends: src/engine/world.h#UsesHostEnemyAI, src/engine/script.cpp#AddBoss, src/host/main.cpp#ai_selftest
 reconfirmed: 2026-08-14
-verified_at: 2026-08-14 11:07:54
+verified_at: 2026-08-14 11:53:28
 ---
 
 ## Claim
@@ -148,3 +148,7 @@ Commit a80ff75: the complete mandatory ./tools/verify.sh passed in scratch/logs/
 ## Re-confirmed 2026-08-14
 
 Reverified unchanged behavior after commit 6e5d104 by full ./tools/verify.sh: scratch/logs/verify-chain-flail.log ALL PARSERS PASSED on 2026-08-14; mandatory story run was fixed-step uncapped, SDL-offscreen, and decoded 0 audio frames.
+
+## Re-confirmed 2026-08-14
+
+Reverified after commit bff6051 by the complete mandatory ./tools/verify.sh run in scratch/logs/verify-sdl3-gpu-assets-final.log on 2026-08-14; ALL PARSERS PASSED, the continuous story settled at sccnt=20 after 21961 fixed-step uncapped offscreen frames, and audio decoded 0 sounds / 0 frames.
